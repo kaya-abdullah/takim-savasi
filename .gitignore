@@ -1,0 +1,10 @@
+node_modules
+dist
+test-results
+playwright-report
+*.keystore
+keystore.properties
+local.properties
+*.apk
+*.mp4
+detay.md
