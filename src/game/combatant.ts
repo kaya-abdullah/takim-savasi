@@ -121,6 +121,12 @@ export class Combatant {
   view?: CharacterView;
   /** Extra aim error (radians) bots add on top of weapon spread. */
   inaccuracy = 0;
+  maxHp = MAX_HP;
+  grenades = 0;
+  maxGrenades = 0;
+  /** Kills since last death. */
+  streak = 0;
+  meleeCd = 0;
 
   constructor(readonly id: number, readonly name: string, readonly team: Team, readonly isPlayer: boolean, weapon: WeaponDef) {
     this.weapon = new WeaponState(weapon);

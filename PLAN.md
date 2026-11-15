@@ -164,3 +164,21 @@ Durum makinesi: DOLAŞ, SALDIR, KOVALA, YENİDEN DOLDUR.
 - iOS derlemesi Mac + Xcode gerektirir. Bu makinede yalnız Android APK.
 - WebView performansı: kalite ayarları ve otomatik düşürme ile yönetilir.
 - JDK 25 Gradle ile uyumsuz olabilir. Gerekirse JDK 21 kullanılır.
+
+## 7. Sürüm 2 (2026-11-15)
+
+Kullanıcı isteği: karakterler daha pürüzsüz, görüntü kalitesi üst düzey,
+fiyatlar özelliklere göre kademeli ve daha ulaşılabilir, el bombası ve bıçak.
+
+- Fiyatlar (güçlüye doğru artan): SMG 1.500, Revolver 2.000, Pompalı 2.500,
+  Üçlü Atış 3.000, Tüfek 3.500, LMG 4.500, Keskin Nişancı 5.500,
+  Plazma 6.500, Minigun 8.000, Roketatar 10.000 TL.
+- Ödüller: leş 200 TL, kafadan +50, bıçakla +100. Seri bonusları:
+  3 leş +100, 5 leş +250, 7 leş +500, 10 leş +1.000 TL.
+- El bombası: her doğuşta 3 adet, basılı tut → yörünge önizlemesi, bırak → at.
+  2,2 sn fünye, 5,5 m patlama alanı, sekme fiziği. Botlar da atar.
+- Bıçak: herkeste var, önden 55 hasar, arkadan tek vuruş.
+- Ekipman: Bomba Çantası (+1/+2 bomba), Çelik Yelek (+25/+50 can).
+- Can yenilenmesi: 4 sn hasar almazsan saniyede 15 can.
+- Grafik: yuvarlak, detaylı karakter modeli; takım renginde kenar ışığı;
+  4x MSAA; telefonlarda 2x çözünürlük; daha keskin gölgeler.

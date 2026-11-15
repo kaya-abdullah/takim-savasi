@@ -8,8 +8,8 @@ import { audio } from './core/audio';
 import { Input } from './core/input';
 import { loadSave, writeSave, type SaveData, type Settings } from './core/save';
 import { getWeapon } from './data/weapons';
-import { buyWeapon, equipWeapon, formatTL, KILL_REWARD, matchBonus } from './game/economy';
-import { Match, type HitInfo, type Projectile } from './game/match';
+import { buyUpgrade, buyWeapon, equipWeapon, formatTL, grenadeCount, killReward, matchBonus, maxHp, streakReward, UPGRADES, type UpgradeId } from './game/economy';
+import { Match, type Grenade, type HitInfo, type Projectile } from './game/match';
 import type { Combatant } from './game/combatant';
 import { PlayerController } from './game/player';
 import { CharacterView } from './render/character';
@@ -52,6 +52,12 @@ class Game {
   private menuT = 0;
   private projMeshes = new Map<Projectile, THREE.Mesh>();
   private projGeo = new THREE.SphereGeometry(1, 12, 8);
+  private grenadeMeshes = new Map<Grenade, THREE.Group>();
+  private grenadeGeo = new THREE.SphereGeometry(0.09, 14, 10);
+  private grenadeMat = new THREE.MeshStandardMaterial({ color: 0x3f5a2a, roughness: 0.5, metalness: 0.4 });
+  private arcDots!: THREE.InstancedMesh;
+  private arcPts = Array.from({ length: 44 }, () => new THREE.Vector3());
+  private arcRing!: THREE.Mesh;
   private killMoney = 0;
   private flashT = 0;
   private crossT = 0;
@@ -82,6 +88,7 @@ class Game {
       openShop: () => this.openShop(),
       closeShop: () => this.closeShop(),
       buy: (id) => this.buy(id),
+      buyUpgrade: (id) => this.buyUpgrade(id),
       equip: (id) => this.equip(id),
       settings: (s) => this.changeSettings(s),
       pause: () => this.pause(),
@@ -106,6 +113,15 @@ class Game {
     this.lights = makeLights(this.scene);
     this.scene.add(buildWorld(this.map));
     this.scene.add(this.effects.group);
+    this.arcDots = new THREE.InstancedMesh(new THREE.SphereGeometry(0.045, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2.4, 0.6), toneMapped: false }), this.arcPts.length);
+    this.arcDots.frustumCulled = false;
+    this.arcDots.visible = false;
+    this.scene.add(this.arcDots);
+    const ringGeo = new THREE.RingGeometry(5.1, 5.5, 48);
+    ringGeo.rotateX(-Math.PI / 2);
+    this.arcRing = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(2.5, 0.5, 0.3), transparent: true, opacity: 0.7, depthWrite: false, toneMapped: false }));
+    this.arcRing.visible = false;
+    this.scene.add(this.arcRing);
     this.ui.loading(0.6, 'Işıklar yakılıyor...');
     await step();
     this.envMap = makeEnvMap(this.renderer);
@@ -165,7 +181,8 @@ class Game {
     const q = this.save.settings.quality;
     const r = this.renderer;
     const mobile = this.input.isTouch;
-    const maxDpr = q === 'low' ? 1 : q === 'medium' ? (mobile ? 1.25 : 1.5) : 2;
+    // Sharp by default: phones render at up to 2x; adaptive scaling backs off if FPS drops.
+    const maxDpr = q === 'low' ? 1 : q === 'medium' ? 1.5 : 2;
     r.setPixelRatio(Math.min(window.devicePixelRatio || 1, maxDpr) * this.dprScale);
     const shadows = q !== 'low';
     if (r.shadowMap.enabled !== shadows) {
@@ -175,7 +192,7 @@ class Game {
         if (m) (Array.isArray(m) ? m : [m]).forEach((x) => (x.needsUpdate = true));
       });
     }
-    const size = q === 'high' ? 2048 : 1024;
+    const size = q === 'high' && !mobile ? 4096 : 2048;
     const sh = this.lights.sun.shadow;
     if (sh.mapSize.x !== size) {
       sh.mapSize.set(size, size);
@@ -189,7 +206,8 @@ class Game {
       this.bloom = null;
     } else {
       this.composer?.dispose();
-      const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: q === 'high' ? 4 : mobile ? 0 : 2 });
+      // 4x MSAA removes the jagged ("pixelly") edges on characters and buildings
+      const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
       this.composer = new EffectComposer(r, rt);
       this.composer.addPass(new RenderPass(this.scene, this.camera));
       this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.5, 0.88);
@@ -232,6 +250,9 @@ class Game {
     for (const c of this.match.combatants) if (c.view) this.scene.remove(c.view.root);
     for (const m of this.projMeshes.values()) this.scene.remove(m);
     this.projMeshes.clear();
+    for (const g of this.grenadeMeshes.values()) this.scene.remove(g);
+    this.grenadeMeshes.clear();
+    this.arcDots.visible = this.arcRing.visible = false;
     this.effects.clear();
     this.match = null;
   }
@@ -242,6 +263,9 @@ class Game {
     audio.click();
     this.clearMatch();
     const m = new Match(this.map, this.world, this.nav, this.save.equipped, {
+      grenadeThrown: (g) => { g.owner.view?.throwAnim(); const s = this.listenerPan(g.pos); if (s.dist < 25) audio.whoosh(); },
+      grenadeBounce: (g) => { const s = this.listenerPan(g.pos); audio.clink(s.dist, s.pan); },
+      melee: (c, v, back) => this.onMelee(c, v, back),
       shot: (c, hit, def) => this.onShot(c, hit, def.projectile ? null : def.tracer, def.id, !!def.projectile),
       projectileFired: (p) => this.onProjectile(p),
       explosion: (pos, r) => this.onExplosion(pos, r),
@@ -249,7 +273,7 @@ class Game {
       kill: (e) => this.onKill(e),
       respawn: (c) => { if (c.isPlayer) this.ui.death(false); },
       end: (w) => this.onEnd(w),
-    });
+    }, { playerGrenades: grenadeCount(this.save), playerHp: maxHp(this.save) });
     this.match = m;
     for (const c of m.combatants) {
       c.view = new CharacterView(c.team, !c.isPlayer);
@@ -314,6 +338,17 @@ class Game {
       audio.buy();
       this.ui.toast(`${getWeapon(id).name} senin! Kuşanıldı.`);
       this.applyEquip(id);
+    } else if (r === 'no-money') this.ui.toast('Yeterli paran yok!');
+    this.ui.renderShop(this.save);
+  }
+
+  buyUpgrade(id: UpgradeId): void {
+    const r = buyUpgrade(this.save, id);
+    if (r === 'ok') {
+      writeSave(this.save);
+      audio.buy();
+      this.ui.toast(`${UPGRADES.find((u) => u.id === id)!.name} yükseltildi!`);
+      // takes effect from the next spawn / match
     } else if (r === 'no-money') this.ui.toast('Yeterli paran yok!');
     this.ui.renderShop(this.save);
   }
@@ -431,19 +466,38 @@ class Game {
     }
   }
 
-  private onKill(e: { killer: Combatant; victim: Combatant; head: boolean; weapon: { name: string } }): void {
+  private onMelee(c: Combatant, v: Combatant | null, back: boolean): void {
+    c.view?.slash();
+    const s = this.listenerPan(c.pos);
+    if (s.dist < 20) audio.whoosh();
+    if (v) {
+      if (s.dist < 25) audio.stab();
+      this.effects.sparkBurst(_v.set(v.pos.x, v.pos.y + 1.2, v.pos.z), null, v.team === 'blue' ? 0x6fb0ff : 0xff6a4a, 10, 3);
+      if (c.isPlayer && back) this.ui.popup('ARKADAN!', 'kill');
+    }
+  }
+
+  private onKill(e: { killer: Combatant; victim: Combatant; head: boolean; weapon: { id: string; name: string } }): void {
     const m = this.match!;
     this.ui.feed(e as never, m.player);
     if (e.killer.isPlayer) {
-      this.save.money += KILL_REWARD;
+      const knife = e.weapon.id === 'knife';
+      const reward = killReward(e.head, knife);
+      const st = streakReward(e.killer.streak);
+      const total = reward + (st?.bonus ?? 0);
+      this.save.money += total;
       this.save.totalKills++;
-      this.killMoney += KILL_REWARD;
+      this.killMoney += total;
       writeSave(this.save);
       this.ui.hitmark('kill');
-      this.ui.popup(`+${formatTL(KILL_REWARD)}`);
-      this.ui.popup(e.head ? `KAFADAN! ${e.victim.name}` : `LEŞ: ${e.victim.name}`, 'kill');
+      this.ui.popup(`+${formatTL(reward)}`);
+      this.ui.popup(knife ? `BIÇAKLADIN! ${e.victim.name}` : e.head ? `KAFADAN! ${e.victim.name}` : `LEŞ: ${e.victim.name}`, 'kill');
       audio.kill();
       setTimeout(() => audio.coin(), 120);
+      if (st) {
+        this.ui.banner(st.text, st.bonus ? `+${formatTL(st.bonus)} SERİ BONUSU` : '');
+        audio.streak(Math.min(4, Math.floor(e.killer.streak / 2)));
+      }
     }
   }
 
@@ -503,6 +557,7 @@ class Game {
     }
     if (m && this.state !== 'menu') {
       this.syncViews(dt, m);
+      this.syncGrenades(m);
       if (this.state === 'playing') this.updateHud(dt, m);
     } else {
       // menu: slow cinematic orbit over the city
@@ -572,6 +627,50 @@ class Game {
     }
   }
 
+  private syncGrenades(m: Match): void {
+    for (const g of m.grenades) {
+      let mesh = this.grenadeMeshes.get(g);
+      if (!mesh) {
+        mesh = new THREE.Group();
+        const body = new THREE.Mesh(this.grenadeGeo, this.grenadeMat);
+        body.castShadow = true;
+        const led = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 4), new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 0.4, 0.2), toneMapped: false }));
+        led.position.y = 0.09;
+        mesh.add(body, led);
+        this.scene.add(mesh);
+        this.grenadeMeshes.set(g, mesh);
+      }
+      mesh.position.copy(g.pos);
+      if (!g.resting) mesh.rotation.x += 0.4;
+      // LED blinks faster as the fuse runs out
+      mesh.children[1].visible = Math.sin(g.fuse * (6 + (2.2 - g.fuse) * 14)) > 0;
+    }
+    for (const [g, mesh] of this.grenadeMeshes) {
+      if (!g.alive) {
+        this.scene.remove(mesh);
+        (mesh.children[1] as THREE.Mesh).geometry.dispose();
+        this.grenadeMeshes.delete(g);
+      }
+    }
+    // aiming arc
+    const p = m.player;
+    const show = this.ctrl.grenadeAiming && p.alive && this.state === 'playing';
+    this.arcDots.visible = this.arcRing.visible = show;
+    if (show) {
+      const n = this.ctrl.grenadeArc(p, m, this.arcPts);
+      const mat = new THREE.Matrix4();
+      for (let i = 0; i < this.arcPts.length; i++) {
+        const q = this.arcPts[Math.min(i, n - 1)];
+        mat.makeTranslation(q.x, q.y, q.z);
+        this.arcDots.setMatrixAt(i, mat);
+      }
+      this.arcDots.count = n;
+      this.arcDots.instanceMatrix.needsUpdate = true;
+      this.arcRing.position.copy(this.arcPts[n - 1]);
+      this.arcRing.position.y += 0.05;
+    }
+  }
+
   private updateHud(dt: number, m: Match): void {
     const p = m.player;
     this.crossT -= dt;
@@ -583,10 +682,12 @@ class Game {
     const w = p.weapon;
     this.ui.updateHud({
       blue: m.score.blue, red: m.score.red, limit: m.killLimit, timeLeft: m.duration - m.time,
-      hp: p.hp, ammo: w.ammo, mag: w.def.mag, weapon: w.def.name,
+      hp: p.hp, maxHp: p.maxHp, ammo: w.ammo, mag: w.def.mag, weapon: w.def.name,
       reloadFrac: w.reloading ? 1 - w.reloadT / w.def.reload : 0,
       money: this.save.money, aiming: p.aiming, scope: p.alive && p.aiming && w.def.zoom < 0.5,
       enemyUnderCross: this.enemyUnderCross, owned: this.save.owned.length, dt,
+      grenades: p.grenades,
+      grenadeWarn: p.alive && m.grenades.some((g) => g.owner.team !== p.team && g.pos.distanceTo(p.pos) < 7),
     });
     if (!p.alive) this.ui.death(true, p.lastAttacker?.name ?? '', p.respawnT);
     else this.ui.death(false);

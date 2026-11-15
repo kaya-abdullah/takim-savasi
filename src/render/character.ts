@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { WeaponDef } from '../data/weapons';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { GeomBuilder } from './geomBuilder';
 import { makeWeaponMesh } from './weaponModel';
 
@@ -9,7 +10,7 @@ const PAL = {
   blue: { uniform: 0x2f4664, vest: 0x2f6fe0, helmet: 0x223a5e, accent: 0x7fd0ff },
   red: { uniform: 0x5e2c2c, vest: 0xd8402f, helmet: 0x5a2420, accent: 0xffb07a },
 };
-const SKIN = 0xe0b48f, BOOT = 0x2a2522, GLOVE = 0x262626, BELT = 0x3a3128, GOGGLE = 0x111418;
+const SKIN = 0xe0b48f, BOOT = 0x2a2522, GLOVE = 0x262626, BELT = 0x3a3128, GOGGLE = 0x30363e;
 
 enum BoneId { Root, Hips, Spine, Chest, Head, LUpper, LFore, RUpper, RFore, LThigh, LShin, RThigh, RShin }
 
@@ -35,45 +36,91 @@ const geoCache = new Map<Team, THREE.BufferGeometry>();
 function buildGeometry(team: Team): THREE.BufferGeometry {
   const c = PAL[team];
   const gb = new GeomBuilder(true);
-  const M = (x: number, y: number, z: number) => new THREE.Matrix4().makeTranslation(x, y, z);
-  const caps = (r: number, len: number) => new THREE.CapsuleGeometry(r, len, 4, 10);
-  const sph = (r: number) => new THREE.SphereGeometry(r, 14, 10);
-  const box = (x: number, y: number, z: number) => new THREE.BoxGeometry(x, y, z);
-  // pelvis
-  gb.add(box(0.34, 0.2, 0.22), c.uniform, M(0, 0.95, 0), undefined, BoneId.Hips);
-  gb.add(box(0.36, 0.06, 0.24), BELT, M(0, 1.04, 0), undefined, BoneId.Hips);
-  // torso + vest
-  gb.add(caps(0.17, 0.22), c.uniform, M(0, 1.2, 0), undefined, BoneId.Spine);
-  gb.add(box(0.42, 0.36, 0.28), c.vest, M(0, 1.32, 0.01), undefined, BoneId.Chest);
-  gb.add(box(0.3, 0.12, 0.06), c.helmet, M(0, 1.27, 0.15), undefined, BoneId.Chest); // pouches
-  gb.add(box(0.3, 0.32, 0.14), c.helmet, M(0, 1.32, -0.2), undefined, BoneId.Chest); // backpack
-  gb.add(box(0.12, 0.05, 0.3), c.accent, M(0.21, 1.47, 0), undefined, BoneId.Chest); // shoulder stripes
-  gb.add(box(0.12, 0.05, 0.3), c.accent, M(-0.21, 1.47, 0), undefined, BoneId.Chest);
-  // head
-  gb.add(caps(0.06, 0.06), SKIN, M(0, 1.55, 0), undefined, BoneId.Head);
-  gb.add(sph(0.155), SKIN, M(0, 1.68, 0.01), undefined, BoneId.Head);
-  const helmet = new THREE.SphereGeometry(0.185, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.55);
-  gb.add(helmet, c.helmet, M(0, 1.71, -0.005), undefined, BoneId.Head);
-  gb.add(box(0.26, 0.06, 0.06), GOGGLE, M(0, 1.71, 0.15), undefined, BoneId.Head);
-  gb.add(box(0.3, 0.03, 0.08), c.accent, M(0, 1.755, 0.13), undefined, BoneId.Head);
-  // arms
-  for (const [side, up, fo] of [[1, BoneId.LUpper, BoneId.LFore], [-1, BoneId.RUpper, BoneId.RFore]] as const) {
-    const x = 0.25 * side;
-    gb.add(sph(0.085), c.vest, M(x, 1.44, 0), undefined, up);
-    gb.add(caps(0.065, 0.16), c.uniform, M(x, 1.31, 0), undefined, up);
-    gb.add(caps(0.058, 0.15), c.uniform, M(x, 1.04, 0), undefined, fo);
-    gb.add(sph(0.06), GLOVE, M(x, 0.88, 0), undefined, fo);
+  const M = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) =>
+    new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(sx, sy, sz));
+  // Smooth, high-segment primitives: the old boxy look came from 1-segment boxes.
+  const caps = (r: number, len: number) => new THREE.CapsuleGeometry(r, len, 8, 18);
+  const sph = (r: number, w = 20, h = 14) => new THREE.SphereGeometry(r, w, h);
+  const rbox = (x: number, y: number, z: number, r = 0.035) => new RoundedBoxGeometry(x, y, z, 4, Math.min(r, x / 2.01, y / 2.01, z / 2.01));
+  const H = BoneId;
+  // ---- pelvis + belt
+  gb.add(caps(0.15, 0.08), c.uniform, M(0, 0.95, 0, 0, 0, Math.PI / 2, 1, 1, 0.82), undefined, H.Hips);
+  gb.add(new THREE.TorusGeometry(0.165, 0.032, 10, 28), BELT, M(0, 1.04, 0, Math.PI / 2, 0, 0, 1, 0.8, 1), undefined, H.Hips);
+  gb.add(rbox(0.07, 0.06, 0.03, 0.01), 0xb8a46a, M(0, 1.04, 0.135), undefined, H.Hips); // buckle
+  // ---- torso: rounded body under a padded vest
+  gb.add(caps(0.165, 0.2), c.uniform, M(0, 1.2, 0, 0, 0, 0, 1, 1, 0.8), undefined, H.Spine);
+  gb.add(rbox(0.4, 0.38, 0.27, 0.08), c.vest, M(0, 1.33, 0.005), undefined, H.Chest);
+  gb.add(rbox(0.34, 0.06, 0.29, 0.025), c.helmet, M(0, 1.2, 0.005), undefined, H.Chest); // vest hem
+  for (const x of [-0.1, 0, 0.1]) gb.add(rbox(0.085, 0.1, 0.06, 0.02), c.helmet, M(x, 1.26, 0.155), undefined, H.Chest); // pouches
+  gb.add(rbox(0.07, 0.04, 0.02, 0.008), c.accent, M(0.11, 1.43, 0.14), undefined, H.Chest); // patch
+  gb.add(rbox(0.3, 0.34, 0.15, 0.06), c.helmet, M(0, 1.33, -0.2), undefined, H.Chest); // backpack
+  gb.add(caps(0.05, 0.22), c.helmet, M(0, 1.24, -0.29, 0, 0, Math.PI / 2), undefined, H.Chest); // bedroll
+  gb.add(caps(0.07, 0.04), c.uniform, M(0, 1.5, 0), undefined, H.Chest); // neck base / collar
+  // ---- head
+  gb.add(caps(0.055, 0.06), SKIN, M(0, 1.56, 0), undefined, H.Head);
+  gb.add(sph(0.15, 24, 18), SKIN, M(0, 1.675, 0.012, 0, 0, 0, 0.95, 1.05, 1), undefined, H.Head);
+  gb.add(sph(0.032, 10, 8), SKIN, M(0, 1.655, 0.155), undefined, H.Head); // nose
+  for (const x of [-0.148, 0.148]) gb.add(sph(0.032, 10, 8), SKIN, M(x, 1.67, 0.0, 0, 0, 0, 0.6, 1, 1), undefined, H.Head); // ears
+  gb.add(rbox(0.07, 0.012, 0.02, 0.005), 0x7a4a3a, M(0, 1.6, 0.145), undefined, H.Head); // mouth
+  // goggles: two rounded lenses on a strap
+  for (const x of [-0.055, 0.055]) {
+    gb.add(rbox(0.085, 0.055, 0.03, 0.02), GOGGLE, M(x, 1.705, 0.14), undefined, H.Head);
+    gb.add(rbox(0.07, 0.042, 0.01, 0.015), 0x9fe3ff, M(x, 1.705, 0.156), undefined, H.Head);
   }
-  // legs
-  for (const [side, th, sh] of [[1, BoneId.LThigh, BoneId.LShin], [-1, BoneId.RThigh, BoneId.RShin]] as const) {
+  gb.add(new THREE.TorusGeometry(0.152, 0.012, 6, 28), GOGGLE, M(0, 1.705, 0.005, Math.PI / 2, 0, 0, 1, 1, 1), undefined, H.Head);
+  // helmet with a rim and a strap
+  gb.add(new THREE.SphereGeometry(0.18, 26, 14, 0, Math.PI * 2, 0, Math.PI * 0.52), c.helmet, M(0, 1.715, -0.005), undefined, H.Head);
+  gb.add(new THREE.TorusGeometry(0.178, 0.018, 8, 30), c.helmet, M(0, 1.72, -0.005, Math.PI / 2, 0, 0, 1, 1, 1), undefined, H.Head);
+  gb.add(new THREE.TorusGeometry(0.18, 0.012, 6, 30), c.accent, M(0, 1.78, -0.005, Math.PI / 2, 0, 0, 0.93, 0.93, 1), undefined, H.Head);
+  // ---- arms
+  for (const [side, up, fo] of [[1, H.LUpper, H.LFore], [-1, H.RUpper, H.RFore]] as const) {
+    const x = 0.25 * side;
+    gb.add(sph(0.095), c.vest, M(x, 1.44, 0, 0, 0, 0, 1, 0.85, 1), undefined, up); // shoulder pad
+    gb.add(caps(0.062, 0.17), c.uniform, M(x, 1.31, 0), undefined, up);
+    gb.add(sph(0.06, 14, 10), c.helmet, M(x, 1.17, -0.005, 0, 0, 0, 1, 0.8, 1), undefined, fo); // elbow pad
+    gb.add(caps(0.055, 0.15), c.uniform, M(x, 1.04, 0), undefined, fo);
+    gb.add(caps(0.06, 0.02), c.helmet, M(x, 0.95, 0), undefined, fo); // cuff
+    gb.add(sph(0.058, 16, 12), GLOVE, M(x, 0.885, 0.01, 0, 0, 0, 0.9, 1, 1.1), undefined, fo);
+  }
+  // ---- legs
+  for (const [side, th, sh] of [[1, H.LThigh, H.LShin], [-1, H.RThigh, H.RShin]] as const) {
     const x = 0.11 * side;
-    gb.add(caps(0.085, 0.26), c.uniform, M(x, 0.69, 0), undefined, th);
-    gb.add(box(0.1, 0.12, 0.08), c.helmet, M(x + 0.06 * side, 0.7, 0), undefined, th); // thigh pocket
-    gb.add(caps(0.07, 0.24), c.uniform, M(x, 0.27, 0), undefined, sh);
-    gb.add(box(0.14, 0.11, 0.26), BOOT, M(x, 0.055, 0.04), undefined, sh);
+    gb.add(caps(0.085, 0.27), c.uniform, M(x, 0.69, 0), undefined, th);
+    gb.add(rbox(0.08, 0.13, 0.11, 0.025), c.helmet, M(x + 0.075 * side, 0.7, 0.005), undefined, th); // cargo pocket
+    gb.add(sph(0.068, 16, 12), c.helmet, M(x, 0.47, 0.05, 0, 0, 0, 1, 1, 0.7), undefined, sh); // knee pad
+    gb.add(caps(0.07, 0.25), c.uniform, M(x, 0.27, 0), undefined, sh);
+    gb.add(rbox(0.135, 0.12, 0.27, 0.045), BOOT, M(x, 0.06, 0.035), undefined, sh);
+    gb.add(rbox(0.14, 0.03, 0.28, 0.012), 0x141210, M(x, 0.012, 0.035), undefined, sh); // sole
   }
   const g = gb.build();
   g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1, 0), 1.6);
+  return g;
+}
+
+/** Team-coloured rim light so fighters pop out of the background. */
+function addRim(mat: THREE.MeshStandardMaterial, color: THREE.Color): void {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.rimColor = { value: color };
+    sh.fragmentShader = 'uniform vec3 rimColor;\n' + sh.fragmentShader.replace(
+      '#include <opaque_fragment>',
+      `#include <opaque_fragment>
+      float rimF = 1.0 - clamp(dot(normalize(normal), normalize(vViewPosition)), 0.0, 1.0);
+      gl_FragColor.rgb += rimColor * pow(rimF, 3.0);`,
+    );
+  };
+  mat.customProgramCacheKey = () => 'rim';
+}
+
+function makeKnife(): THREE.Group {
+  const g = new THREE.Group();
+  const blade = new THREE.Mesh(
+    new THREE.BoxGeometry(0.012, 0.2, 0.035),
+    new THREE.MeshStandardMaterial({ color: 0xdfe5ea, metalness: 1, roughness: 0.2 }),
+  );
+  blade.position.y = -0.13;
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.09, 10), new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.6 }));
+  g.add(blade, handle);
+  g.visible = false;
   return g;
 }
 
@@ -123,12 +170,16 @@ export class CharacterView {
   private deadT = -1;
   private flash = 0;
   private shield = 0;
+  private slashT = 0;
+  private throwT = 0;
+  private knife = makeKnife();
   readonly marker: THREE.Sprite;
 
   constructor(readonly team: Team, showMarker: boolean) {
     let geo = geoCache.get(team);
     if (!geo) geoCache.set(team, (geo = buildGeometry(team)));
-    this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.05 });
+    this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.05 });
+    addRim(this.mat, new THREE.Color(team === 'blue' ? 0x3d7bff : 0xff4a3a).multiplyScalar(0.55));
     this.mesh = new THREE.SkinnedMesh(geo, this.mat);
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = false;
@@ -148,6 +199,9 @@ export class CharacterView {
     // gun hangs off the chest so it pitches with aim
     this.gunMount.position.set(-0.13, 0.13, 0.26);
     this.bones[BoneId.Chest].add(this.gunMount);
+    this.knife.position.set(0, -0.3, 0.02);
+    this.knife.rotation.x = -0.3;
+    this.bones[BoneId.LFore].add(this.knife);
     const mt = new THREE.SpriteMaterial({ map: markerTextures()[team], depthTest: true, sizeAttenuation: false, transparent: true });
     this.marker = new THREE.Sprite(mt);
     this.marker.scale.set(0.028, 0.028, 1);
@@ -169,6 +223,8 @@ export class CharacterView {
   }
 
   hitFlash(): void { this.flash = 1; }
+  slash(): void { this.slashT = 0.32; }
+  throwAnim(): void { this.throwT = 0.4; }
   setShield(v: number): void { this.shield = v; }
 
   die(): void { this.deadT = 0; }
@@ -184,7 +240,7 @@ export class CharacterView {
     const B = this.bones;
     // emissive: damage flash (white) + spawn shield (team tint)
     this.flash = Math.max(0, this.flash - dt * 6);
-    const sh = this.shield > 0 ? 0.35 + 0.25 * Math.sin(performance.now() * 0.02) : 0;
+    const sh = this.shield > 0 ? 0.14 + 0.1 * Math.sin(performance.now() * 0.02) : 0;
     const tint = this.team === 'blue' ? [0.2, 0.5, 1] : [1, 0.3, 0.2];
     this.mat.emissive.setRGB(this.flash + sh * tint[0], this.flash * 0.9 + sh * tint[1], this.flash * 0.8 + sh * tint[2]);
 
@@ -234,6 +290,23 @@ export class CharacterView {
     B[BoneId.RFore].rotation.set(-0.55, 0, 0);
     B[BoneId.LUpper].rotation.set(-1.45 + kick + rel, 0, -0.75);
     B[BoneId.LFore].rotation.set(-0.35 - rel, 0.2, 0);
+    // knife slash: left arm sweeps across the body
+    if (this.slashT > 0) {
+      this.slashT -= dt;
+      const k = 1 - Math.max(0, this.slashT) / 0.32;
+      const sw = Math.sin(k * Math.PI);
+      B[BoneId.LUpper].rotation.set(-1.9 + sw * 0.4, -0.9 + k * 1.6, -0.2 - sw * 0.6);
+      B[BoneId.LFore].rotation.set(-0.3, 0, 0);
+      B[BoneId.Spine].rotation.y += (k - 0.5) * 0.6;
+    }
+    this.knife.visible = this.slashT > 0;
+    // overhand grenade throw with the left arm
+    if (this.throwT > 0) {
+      this.throwT -= dt;
+      const k = 1 - Math.max(0, this.throwT) / 0.4;
+      B[BoneId.LUpper].rotation.set(-3.0 + k * 2.2, 0, 0.2);
+      B[BoneId.LFore].rotation.set(-0.8 + k * 0.6, 0, 0);
+    }
     this.gunMount.position.z = 0.26 - a.kick * 0.06;
     this.gunMount.rotation.x = -a.kick * 0.12 + (a.reloading ? 0.5 : 0);
   }

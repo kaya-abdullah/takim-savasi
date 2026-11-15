@@ -18,14 +18,17 @@ export interface SaveData {
   matches: number;
   wins: number;
   settings: Settings;
+  /** Equipment upgrade levels bought in the shop. */
+  upgrades: { bag: number; armor: number };
+  /** Settings schema version; older saves get the new quality default once. */
+  sv: number;
 }
 
 const KEY = 'takim-savasi-save-v1';
 
 export function defaultQuality(): Quality {
-  if (typeof navigator === 'undefined') return 'high';
-  const mobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-  return mobile ? 'medium' : 'high';
+  // Modern phones handle 'high'; adaptive resolution scaling covers slow ones.
+  return 'high';
 }
 
 export function defaultSave(): SaveData {
@@ -38,6 +41,8 @@ export function defaultSave(): SaveData {
     matches: 0,
     wins: 0,
     settings: { quality: defaultQuality(), sensitivity: 1, sound: true, aimAssist: true },
+    upgrades: { bag: 0, armor: 0 },
+    sv: 2,
   };
 }
 
@@ -63,6 +68,13 @@ export function sanitize(raw: unknown): SaveData {
     if (typeof s.sensitivity === 'number' && s.sensitivity >= 0.3 && s.sensitivity <= 2) d.settings.sensitivity = s.sensitivity;
     if (typeof s.sound === 'boolean') d.settings.sound = s.sound;
     if (typeof s.aimAssist === 'boolean') d.settings.aimAssist = s.aimAssist;
+  }
+  // v1 saves defaulted phones to 'medium'; move everyone to the sharper default once
+  if (r.sv !== 2) d.settings.quality = defaultQuality();
+  const u = r.upgrades as Record<string, unknown> | undefined;
+  if (u && typeof u === 'object') {
+    d.upgrades.bag = Math.min(2, num(u.bag, 0));
+    d.upgrades.armor = Math.min(2, num(u.armor, 0));
   }
   return d;
 }

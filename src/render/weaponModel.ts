@@ -6,7 +6,7 @@ const geoCache = new Map<string, { body: THREE.BufferGeometry; glow: THREE.Buffe
 let bodyMat: THREE.MeshStandardMaterial | null = null;
 const glowMats = new Map<number, THREE.MeshBasicMaterial>();
 
-function cyl(r: number, len: number, seg = 10): THREE.CylinderGeometry {
+function cyl(r: number, len: number, seg = 18): THREE.CylinderGeometry {
   const g = new THREE.CylinderGeometry(r, r, len, seg);
   g.rotateX(Math.PI / 2); // along +Z
   return g;

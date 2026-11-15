@@ -1,7 +1,8 @@
 import type { Btn, Input } from '../core/input';
 import type { SaveData, Settings } from '../core/save';
 import { SHOP_WEAPONS, STARTER, getWeapon, weaponStats, type WeaponDef } from '../data/weapons';
-import { formatTL } from '../game/economy';
+import { formatTL, UPGRADES, type UpgradeId } from '../game/economy';
+import { START_GRENADES } from '../data/weapons';
 import type { Combatant } from '../game/combatant';
 import type { KillEntry } from '../game/match';
 
@@ -14,6 +15,9 @@ const ICON = {
   jump: '<svg viewBox="0 0 24 24"><path d="M12 3l8 9h-5v8H9v-8H4z"/></svg>',
   reload: '<svg viewBox="0 0 24 24"><path d="M12 4a8 8 0 0 1 7.7 6h-2.1A6 6 0 1 0 18 14h2.1A8 8 0 1 1 12 4zm5-1v6h-6l2.2-2.2A6 6 0 0 1 17 3z"/></svg>',
   swap: '<svg viewBox="0 0 24 24"><path d="M7 7h11l-3-3 1.4-1.4L21.8 8l-5.4 5.4L15 12l3-3H7zm10 10H6l3 3-1.4 1.4L2.2 16l5.4-5.4L9 12l-3 3h11z"/></svg>',
+  grenade: '<svg viewBox="0 0 24 24"><path d="M10 2h4v2h2.5l1.5 2-1.6 1.2A7.5 7.5 0 1 1 7.6 7.2L6 6l1.5-2H10zm2 7a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zm-1 2h2v3h3v2h-3v3h-2v-3H8v-2h3z"/></svg>',
+  knife: '<svg viewBox="0 0 24 24"><path d="M20.5 2.5c.6 3.8-1.4 8-5.3 11.9l-2.1-2.1zM11.7 13.7l2.1 2.1-1.4 1.4 1.1 1.1-2.8 2.8a1.5 1.5 0 0 1-2.1 0l-1.6-1.6a1.5 1.5 0 0 1 0-2.1l2.8-2.8 1.1 1.1z"/></svg>',
+  shield: '<svg viewBox="0 0 24 24"><path d="M12 2l8 3v6c0 5.2-3.4 9.6-8 11-4.6-1.4-8-5.8-8-11V5z"/></svg>',
   phone: '<svg viewBox="0 0 24 24"><path d="M7 1h10a2 2 0 0 1 2 2v18a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2zm0 4v14h10V5z"/></svg>',
 };
 
@@ -22,6 +26,7 @@ export interface UICallbacks {
   openShop(): void;
   closeShop(): void;
   buy(id: string): void;
+  buyUpgrade(id: UpgradeId): void;
   equip(id: string): void;
   settings(s: Partial<Settings>): void;
   pause(): void;
@@ -64,7 +69,7 @@ export class UI {
     feed: HTMLElement; cross: HTMLElement; hit: HTMLElement; vign: HTMLElement; dmg: HTMLElement[];
     death: HTMLElement; deathCd: HTMLElement; deathBy: HTMLElement; popups: HTMLElement; scope: HTMLElement;
     reload: HTMLElement; reloadI: HTMLElement; aimBtn: HTMLElement; switchBtn: HTMLElement; touch: HTMLElement[];
-    keys: HTMLElement;
+    keys: HTMLElement; gCount: HTMLElement; banner: HTMLElement; warn: HTMLElement;
   };
   readonly minimap: HTMLCanvasElement;
   private last: Record<string, string | number | boolean> = {};
@@ -108,6 +113,7 @@ export class UI {
   }
 
   toast(msg: string): void {
+    this.root.querySelectorAll('.toast').forEach((x) => x.remove());
     const t = el('div', 'toast');
     t.textContent = msg;
     this.root.appendChild(t);
@@ -169,8 +175,12 @@ export class UI {
       <button class="tc jump" data-b="jump" aria-label="Zıpla">${ICON.jump}</button>
       <button class="tc reload" data-b="reload" aria-label="Şarjör">${ICON.reload}</button>
       <button class="tc switch" data-b="switch" aria-label="Silah değiştir">${ICON.swap}</button>
+      <button class="tc grenade" data-b="grenade" data-look="1" aria-label="El bombası">${ICON.grenade}<b class="badge" id="gc">3</b></button>
+      <button class="tc knife" data-b="knife" aria-label="Bıçak">${ICON.knife}</button>
+      <div class="banner"></div>
+      <div class="gwarn">${ICON.grenade}<span>BOMBA!</span></div>
       <button class="shop-btn" data-a="shop">${ICON.cart}MAĞAZA</button>
-      <div class="keys">WASD yürü · Fare nişan · Sol tık ateş · Sağ tık/E dürbün · R şarjör · Space zıpla · Q silah · B mağaza · Esc duraklat</div>
+      <div class="keys">WASD yürü · Fare nişan · Sol tık ateş · Sağ tık/E dürbün · R şarjör · G bomba (basılı tut) · V bıçak · Space zıpla · Q silah · B mağaza · Esc</div>
       <div class="death"><h2>ÖLDÜN!</h2><p id="dby"></p><div class="cd" id="dcd">3</div></div>`;
     s.prepend(this.minimap);
     const q = <T extends HTMLElement>(sel: string) => s.querySelector(sel) as T;
@@ -182,6 +192,7 @@ export class UI {
       death: q('.death'), deathCd: q('#dcd'), deathBy: q('#dby'), popups: q('.popups'), scope: q('.scope'),
       reload: q('.reloadbar'), reloadI: q('.reloadbar i'), aimBtn: q('.tc.aim'), switchBtn: q('.tc.switch'),
       touch: Array.from(s.querySelectorAll('.tc, .joy-hint')) as HTMLElement[], keys: q('.keys'),
+      gCount: q('#gc'), banner: q('.banner'), warn: q('.gwarn'),
     };
     s.addEventListener('click', (e) => {
       const a = (e.target as HTMLElement).closest('[data-a]')?.getAttribute('data-a');
@@ -231,20 +242,27 @@ export class UI {
   }
 
   updateHud(d: {
-    blue: number; red: number; limit: number; timeLeft: number; hp: number; ammo: number; mag: number; weapon: string;
+    blue: number; red: number; limit: number; timeLeft: number; hp: number; maxHp: number; ammo: number; mag: number; weapon: string;
     reloadFrac: number; money: number; aiming: boolean; scope: boolean; enemyUnderCross: boolean; owned: number; dt: number;
+    grenades: number; grenadeWarn: boolean;
   }): void {
     const h = this.hud;
+    this.set('gc', d.grenades, () => {
+      h.gCount.textContent = String(d.grenades);
+      h.gCount.parentElement!.classList.toggle('empty', d.grenades === 0);
+    });
+    this.set('gw', d.grenadeWarn, () => h.warn.classList.toggle('on', d.grenadeWarn));
     this.set('b', d.blue, () => { h.sb.textContent = String(d.blue); h.sbBar.style.width = `${(100 * d.blue) / d.limit}%`; });
     this.set('r', d.red, () => { h.sr.textContent = String(d.red); h.srBar.style.width = `${(100 * d.red) / d.limit}%`; });
     const tl = Math.max(0, Math.ceil(d.timeLeft));
     this.set('t', tl, () => (h.time.textContent = `${Math.floor(tl / 60)}:${String(tl % 60).padStart(2, '0')}`));
     const hp = Math.max(0, Math.round(d.hp));
     this.set('hp', hp, () => {
+      const pct = (100 * hp) / d.maxHp;
       h.hpTxt.textContent = String(hp);
-      h.hp.style.width = `${hp}%`;
-      h.hp.classList.toggle('low', hp <= 30);
-      h.vign.style.opacity = hp <= 30 && hp > 0 ? '0.8' : '0';
+      h.hp.style.width = `${pct}%`;
+      h.hp.classList.toggle('low', pct <= 30);
+      h.vign.style.opacity = pct <= 30 && hp > 0 ? '0.8' : '0';
     });
     this.set('am', `${d.ammo}/${d.mag}`, () => {
       h.ammo.textContent = String(d.ammo);
@@ -263,6 +281,15 @@ export class UI {
       this.hitTimer -= d.dt;
       if (this.hitTimer <= 0) h.hit.classList.remove('on');
     }
+  }
+
+  /** Big centred announcer text (kill streaks). */
+  banner(text: string, sub = ''): void {
+    const b = this.hud.banner;
+    b.innerHTML = `<div>${esc(text)}</div>${sub ? `<small>${esc(sub)}</small>` : ''}`;
+    b.classList.remove('on');
+    void b.offsetWidth;
+    b.classList.add('on');
   }
 
   hitmark(kind: 'hit' | 'head' | 'kill'): void {
@@ -318,6 +345,7 @@ export class UI {
       const a = t.dataset.a, id = t.dataset.id!;
       if (a === 'close') this.cb.closeShop();
       else if (a === 'buy') this.cb.buy(id);
+      else if (a === 'up') this.cb.buyUpgrade(id as UpgradeId);
       else if (a === 'equip') this.cb.equip(id);
     };
     this.renderShop(save);
@@ -341,13 +369,33 @@ export class UI {
       else if (owned) act = `<button class="act equip" data-a="equip" data-id="${w.id}">KUŞAN</button>`;
       else if (poor) act = `<button class="act buy" disabled>${formatTL(w.price - save.money)} eksik</button>`;
       else act = `<button class="act buy" data-a="buy" data-id="${w.id}">SATIN AL · ${formatTL(w.price)}</button>`;
+      const stars = i === 0 ? '' : '★'.repeat(Math.ceil(i / 2)) + '☆'.repeat(5 - Math.ceil(i / 2));
       return `<div class="card ${owned ? 'owned' : ''} ${eq ? 'equipped' : ''} ${poor ? 'poor' : ''}">
-        <span class="num">${i === 0 ? 'BAŞLANGIÇ' : '#' + i}</span>${owned ? '<span class="tag">SENİN</span>' : ''}
+        <span class="num">${i === 0 ? 'BAŞLANGIÇ' : `<span class="stars">${stars}</span>`}</span>${owned ? '<span class="tag">SENİN</span>' : ''}
         <div class="pic">${this.icons[w.id] ? `<img src="${this.icons[w.id]}" alt="">` : ''}</div>
         <h3>${esc(w.name)}</h3><p>${esc(w.desc)}</p>
         <div class="bars"><b>Hasar</b>${bar(st.damage)}<b>Hız</b>${bar(st.rate)}<b>Menzil</b>${bar(st.range)}<b>Şarjör</b>${bar(st.mag)}</div>
         ${act}</div>`;
+    }).join('') + this.equipmentHtml(save);
+  }
+
+  private equipmentHtml(save: SaveData): string {
+    const ups = UPGRADES.map((u) => {
+      const lvl = save.upgrades[u.id];
+      const max = lvl >= u.prices.length;
+      const price = max ? 0 : u.prices[lvl];
+      const act = max
+        ? `<button class="act on" disabled>EN ÜST SEVİYE</button>`
+        : save.money < price
+          ? `<button class="act buy" disabled>${formatTL(price - save.money)} eksik</button>`
+          : `<button class="act buy" data-a="up" data-id="${u.id}">YÜKSELT · ${formatTL(price)}</button>`;
+      const pips = u.prices.map((_, k) => `<i class="${k < lvl ? 'on' : ''}"></i>`).join('');
+      return `<div class="card gear"><span class="num">EKİPMAN</span><div class="pic icon">${u.id === 'bag' ? ICON.grenade : ICON.shield}</div>
+        <h3>${esc(u.name)}</h3><p>${esc(u.desc(lvl))}</p><div class="pips">${pips}</div>${act}</div>`;
     }).join('');
+    const free = `<div class="card gear free"><span class="num">HERKESTE VAR</span><div class="pic icon">${ICON.knife}</div>
+      <h3>Bıçak + ${START_GRENADES} Bomba</h3><p>Bıçakla arkadan tek vuruş: +100 TL bonus. Bombayı basılı tutup nişan al, bırakınca fırlat.</p></div>`;
+    return `<div class="sec">EKİPMAN</div>${ups}${free}`;
   }
 
   closeShop(): void {

@@ -53,26 +53,27 @@ test('match: 10 vs 10, player moves and shoots, bots fight', async ({ page }) =>
   expect(errors).toEqual([]);
 });
 
-test('kill gives 200 TL and shows popup', async ({ page }) => {
+test('headshot kill gives 200 + 50 TL and shows popup', async ({ page }) => {
   const errors = await boot(page);
   await page.click('.big-play');
   await page.waitForTimeout(300);
   await g(page, "(() => { const m = g.match; const e = m.combatants.find(c => c.team === 'red'); e.shieldT = 0; m.damage(e, m.player, 999, true, m.player.weapon.def); })()");
-  expect(await g(page, 'g.save.money')).toBe(200);
-  await expect(page.locator('.popup').first()).toContainText('200 TL');
+  expect(await g(page, 'g.save.money')).toBe(250);
+  await expect(page.locator('.popup').first()).toContainText('250 TL');
   await expect(page.locator('#killfeed')).toContainText('MUSTAFA');
-  expect(await g(page, 'JSON.parse(localStorage.getItem("takim-savasi-save-v1")).money')).toBe(200);
+  expect(await g(page, 'JSON.parse(localStorage.getItem("takim-savasi-save-v1")).money')).toBe(250);
   expect(errors).toEqual([]);
 });
 
-test('shop: cannot buy without money, buy with 7000 TL, equip in match', async ({ page }) => {
+test('shop: tiered prices, buy rifle for 3500 TL, equip in match', async ({ page }) => {
   const errors = await boot(page);
   await page.click('#menu .shop-btn');
-  await expect(page.locator('#shop .card')).toHaveCount(11);
-  await expect(page.locator('#shop .card').nth(2)).toContainText('7.000 TL eksik');
+  await expect(page.locator('#shop .card:not(.gear)')).toHaveCount(11);
+  await expect(page.locator('#shop .card').nth(1)).toContainText('1.500 TL eksik');
+  await expect(page.locator('#shop .card').nth(10)).toContainText('10.000 TL eksik');
   await page.screenshot({ path: `${shots}/04-shop-empty.png` });
   await page.click('#shop .close');
-  await g(page, '(g.save.money = 7300, g.toMenu())');
+  await g(page, '(g.save.money = 3800, g.toMenu())');
   await page.click('#menu .shop-btn');
   await page.click('#shop [data-a="buy"][data-id="rifle"]');
   expect(await g(page, 'g.save.money')).toBe(300);
@@ -133,6 +134,8 @@ test.describe('touch device', () => {
     await page.screenshot({ path: `${shots}/08-mobile-menu.png` });
     await page.tap('.big-play');
     await expect(page.locator('.tc.fire')).toBeVisible();
+    await expect(page.locator('.tc.grenade')).toBeVisible();
+    await expect(page.locator('.tc.knife')).toBeVisible();
     await expect(page.locator('#hud .shop-btn')).toBeVisible();
     // shop button sits in the bottom-right corner
     const box = (await page.locator('#hud .shop-btn').boundingBox())!;
@@ -166,4 +169,55 @@ test.describe('touch device', () => {
     expect(await g(page, 'g.state')).toBe('playing');
     expect(errors).toEqual([]);
   });
+});
+
+test('grenade: hold G to aim, release to throw; knife with V', async ({ page }) => {
+  const errors = await boot(page);
+  await page.click('.big-play');
+  await page.waitForTimeout(500);
+  expect(await g(page, 'g.match.player.grenades')).toBe(3);
+  await page.keyboard.down('KeyG');
+  await page.waitForTimeout(300);
+  expect(await g(page, 'g.ctrl.grenadeAiming')).toBe(true);
+  expect(await g(page, 'g.arcDots.visible')).toBe(true);
+  await page.keyboard.up('KeyG');
+  await page.waitForTimeout(200);
+  expect(await g(page, 'g.match.player.grenades')).toBe(2);
+  expect(await g(page, 'g.match.grenades.length')).toBe(1);
+  await page.waitForTimeout(2500);
+  expect(await g(page, 'g.match.grenades.length')).toBe(0); // exploded
+  // knife: put an enemy right in front, turned away -> backstab kill + knife bonus
+  await g(page, `(() => { const m = g.match, p = m.player; const e = m.combatants.find(c => c.team === 'red' && c.alive);
+    e.shieldT = 0; g.__e = e; m.brains.delete(e); p.yaw = Math.PI / 2; e.yaw = Math.PI / 2;
+    e.pos.set(p.pos.x + 1.2, 0, p.pos.z); })()`);
+  const money0 = await g(page, 'g.save.money');
+  await page.keyboard.press('KeyV');
+  await page.waitForTimeout(200);
+  expect(await g(page, 'g.__e.alive')).toBe(false);
+  expect(await g(page, 'g.save.money')).toBe(money0 + 300);
+  await expect(page.locator('#killfeed')).toContainText('Bıçak');
+  expect(errors).toEqual([]);
+});
+
+test('kill streak shows banner and pays bonus; equipment upgrade gives more grenades and HP', async ({ page }) => {
+  const errors = await boot(page);
+  await page.click('.big-play');
+  await page.waitForTimeout(300);
+  await g(page, `(() => { const m = g.match; for (const e of m.combatants.filter(c => c.team === 'red').slice(0, 3)) { e.shieldT = 0; m.damage(e, m.player, 999, false, m.player.weapon.def); } })()`);
+  await expect(page.locator('.banner')).toContainText('ÜÇLÜ LEŞ!');
+  expect(await g(page, 'g.save.money')).toBe(3 * 200 + 100);
+  await page.screenshot({ path: `${shots}/11-streak.png` });
+  await g(page, '(g.save.money = 5000, g.toMenu())');
+  await page.click('#menu .shop-btn');
+  await page.click('#shop [data-a="up"][data-id="bag"]');
+  await page.click('#shop [data-a="up"][data-id="armor"]');
+  expect(await g(page, 'g.save.upgrades')).toEqual({ bag: 1, armor: 1 });
+  expect(await g(page, 'g.save.money')).toBe(5000 - 1500 - 2500);
+  await page.locator('#shop .sec').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${shots}/12-equipment.png` });
+  await page.click('#shop .close');
+  await page.click('.big-play');
+  expect(await g(page, 'g.match.player.grenades')).toBe(4);
+  expect(await g(page, 'g.match.player.maxHp')).toBe(125);
+  expect(errors).toEqual([]);
 });

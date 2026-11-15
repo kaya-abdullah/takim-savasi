@@ -43,7 +43,6 @@ export interface SoundProfile {
   laser?: boolean;
 }
 
-export const WEAPON_PRICE = 7000;
 
 export const STARTER: WeaponDef = {
   id: 'pistol',
@@ -68,66 +67,66 @@ export const STARTER: WeaponDef = {
   sound: { freq: 140, noise: 3200, decay: 0.12, gain: 0.55 },
 };
 
-export const SHOP_WEAPONS: WeaponDef[] = [
+const SHOP_LIST: WeaponDef[] = [
   {
     id: 'smg', name: 'Şimşek SMG', desc: 'Çok hızlı ateş eder. Yakın dövüşün kralı.',
-    price: WEAPON_PRICE, mode: 'auto', damage: 14, fireRate: 12, mag: 30, reload: 1.6,
+    price: 1500, mode: 'auto', damage: 14, fireRate: 12, mag: 30, reload: 1.6,
     spread: 0.035, pellets: 1, range: 30, zoom: 0.85, moveMul: 1.08, recoil: 0.009,
     body: 0x1d2633, accent: 0x31c4ff, tracer: 0x8fe3ff, length: 0.55,
     sound: { freq: 170, noise: 4200, decay: 0.08, gain: 0.4 },
   },
   {
     id: 'rifle', name: 'Kartal Tüfek', desc: 'Dengeli taarruz tüfeği. Her mesafede iş görür.',
-    price: WEAPON_PRICE, mode: 'auto', damage: 24, fireRate: 8, mag: 30, reload: 2.0,
+    price: 3500, mode: 'auto', damage: 24, fireRate: 8, mag: 30, reload: 2.0,
     spread: 0.02, pellets: 1, range: 60, zoom: 0.7, moveMul: 1.0, recoil: 0.012,
     body: 0x3b3326, accent: 0xc9a25a, tracer: 0xffc66b, length: 0.85,
     sound: { freq: 110, noise: 3000, decay: 0.14, gain: 0.55 },
   },
   {
     id: 'shotgun', name: 'Fırtına Pompalı', desc: 'Yakından tek atışta yere serer.',
-    price: WEAPON_PRICE, mode: 'pump', damage: 13, fireRate: 1.2, mag: 6, reload: 2.6,
+    price: 2500, mode: 'pump', damage: 13, fireRate: 1.2, mag: 6, reload: 2.6,
     spread: 0.09, pellets: 9, range: 18, zoom: 0.9, moveMul: 1.0, recoil: 0.06,
     body: 0x4a2b1c, accent: 0x222222, tracer: 0xffb36b, length: 0.9,
     sound: { freq: 80, noise: 2200, decay: 0.3, gain: 0.8 },
   },
   {
     id: 'sniper', name: 'Şahin Keskin Nişancı', desc: 'Dürbünlü. Uzaktan tek atış.',
-    price: WEAPON_PRICE, mode: 'bolt', damage: 95, fireRate: 0.8, mag: 5, reload: 2.8,
+    price: 5500, mode: 'bolt', damage: 95, fireRate: 0.8, mag: 5, reload: 2.8,
     spread: 0.003, pellets: 1, range: 150, zoom: 0.3, moveMul: 0.92, recoil: 0.07,
     body: 0x24331f, accent: 0x6b7f4a, tracer: 0xffffff, length: 1.15,
     sound: { freq: 70, noise: 2600, decay: 0.45, gain: 0.85 },
   },
   {
     id: 'lmg', name: 'Ayı LMG', desc: 'Dev şarjör. Durmadan ateş et.',
-    price: WEAPON_PRICE, mode: 'auto', damage: 20, fireRate: 10, mag: 80, reload: 3.6,
+    price: 4500, mode: 'auto', damage: 20, fireRate: 10, mag: 80, reload: 3.6,
     spread: 0.032, pellets: 1, range: 55, zoom: 0.75, moveMul: 0.85, recoil: 0.01,
     body: 0x2e2e2e, accent: 0x5c6b3a, tracer: 0xffa04d, length: 1.0,
     sound: { freq: 95, noise: 2800, decay: 0.15, gain: 0.6 },
   },
   {
     id: 'burst', name: 'Üçlü Atış', desc: 'Üç mermilik seri. Çok isabetli.',
-    price: WEAPON_PRICE, mode: 'burst', burst: 3, damage: 27, fireRate: 3, mag: 24, reload: 2.0,
+    price: 3000, mode: 'burst', burst: 3, damage: 27, fireRate: 3, mag: 24, reload: 2.0,
     spread: 0.012, pellets: 1, range: 70, zoom: 0.65, moveMul: 1.0, recoil: 0.01,
     body: 0xe8e8ea, accent: 0x2a6df4, tracer: 0x9cc2ff, length: 0.8,
     sound: { freq: 125, noise: 3600, decay: 0.1, gain: 0.5 },
   },
   {
     id: 'revolver', name: 'Kobra Revolver', desc: 'Altı mermi, devasa hasar.',
-    price: WEAPON_PRICE, mode: 'semi', damage: 55, fireRate: 2, mag: 6, reload: 2.2,
+    price: 2000, mode: 'semi', damage: 55, fireRate: 2, mag: 6, reload: 2.2,
     spread: 0.01, pellets: 1, range: 50, zoom: 0.8, moveMul: 1.05, recoil: 0.05,
     body: 0xb8b8c0, accent: 0x6b3a1f, tracer: 0xffe08a, length: 0.38,
     sound: { freq: 90, noise: 2500, decay: 0.3, gain: 0.75 },
   },
   {
     id: 'minigun', name: 'Kasırga Minigun', desc: 'Isınınca mermi yağmuru başlar.',
-    price: WEAPON_PRICE, mode: 'auto', spinUp: 0.6, damage: 12, fireRate: 20, mag: 150, reload: 4.2,
+    price: 8000, mode: 'auto', spinUp: 0.6, damage: 12, fireRate: 20, mag: 150, reload: 4.2,
     spread: 0.045, pellets: 1, range: 45, zoom: 0.9, moveMul: 0.75, recoil: 0.004,
     body: 0x3a3d42, accent: 0xff6a00, tracer: 0xff9a3d, length: 1.0,
     sound: { freq: 150, noise: 3800, decay: 0.06, gain: 0.35 },
   },
   {
     id: 'rocket', name: 'Volkan Roketatar', desc: 'Patlayan roket. Alan hasarı verir.',
-    price: WEAPON_PRICE, mode: 'projectile', damage: 120, fireRate: 0.7, mag: 4, reload: 3.0,
+    price: 10000, mode: 'projectile', damage: 120, fireRate: 0.7, mag: 4, reload: 3.0,
     spread: 0.004, pellets: 1, range: 120, zoom: 0.8, moveMul: 0.88, recoil: 0.06,
     projectile: { speed: 38, radius: 0.12, splash: 4.5, gravity: 0, color: 0xff7a1a },
     body: 0x3d4a2a, accent: 0xd94a1a, tracer: 0xff7a1a, length: 1.2,
@@ -135,7 +134,7 @@ export const SHOP_WEAPONS: WeaponDef[] = [
   },
   {
     id: 'plasma', name: 'Plazma Tüfeği', desc: 'Parlayan enerji topları fırlatır.',
-    price: WEAPON_PRICE, mode: 'projectile', damage: 30, fireRate: 6, mag: 40, reload: 2.2,
+    price: 6500, mode: 'projectile', damage: 30, fireRate: 6, mag: 40, reload: 2.2,
     spread: 0.012, pellets: 1, range: 90, zoom: 0.75, moveMul: 1.0, recoil: 0.008,
     projectile: { speed: 75, radius: 0.14, splash: 0, gravity: 0, color: 0x6bfffa },
     body: 0x1b1f3a, accent: 0x6bfffa, tracer: 0x6bfffa, length: 0.9,
@@ -143,7 +142,25 @@ export const SHOP_WEAPONS: WeaponDef[] = [
   },
 ];
 
+/** Shop order: cheapest (weakest) first, price grows with power. */
+export const SHOP_WEAPONS: WeaponDef[] = [...SHOP_LIST].sort((a, b) => a.price - b.price);
+
 export const ALL_WEAPONS: WeaponDef[] = [STARTER, ...SHOP_WEAPONS];
+
+/** Pseudo weapons used for kill feed / damage attribution. */
+export const GRENADE: WeaponDef = {
+  ...STARTER, id: 'grenade', name: 'El Bombası', desc: 'Fırlat, 2 saniye sonra patlar.', mode: 'projectile',
+  damage: 115, pellets: 1, range: 22,
+  sound: { freq: 55, noise: 1500, decay: 0.7, gain: 0.8 },
+};
+export const KNIFE: WeaponDef = {
+  ...STARTER, id: 'knife', name: 'Bıçak', desc: 'Yakın dövüş. Arkadan tek vuruş.', damage: 55, range: 2.3,
+  sound: { freq: 300, noise: 5000, decay: 0.08, gain: 0.3 },
+};
+export const GRENADE_FUSE = 2.2;
+export const GRENADE_RADIUS = 5.5;
+export const GRENADE_SPEED = 19;
+export const START_GRENADES = 3;
 
 export function getWeapon(id: string): WeaponDef {
   return ALL_WEAPONS.find((w) => w.id === id) ?? STARTER;

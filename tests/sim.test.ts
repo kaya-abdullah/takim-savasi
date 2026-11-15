@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { createMap, mapColliders } from '../src/world/map';
 import { CollisionWorld } from '../src/world/collision';
 import { NavGrid } from '../src/world/navgrid';
-import { Match } from '../src/game/match';
+import * as THREE from 'three';
+import { Match, stepGrenade } from '../src/game/match';
 import { WeaponState } from '../src/game/combatant';
-import { getWeapon } from '../src/data/weapons';
+import { getWeapon, GRENADE_SPEED } from '../src/data/weapons';
 
 function setup(seed: number) {
   const map = createMap();
@@ -69,5 +70,84 @@ describe('bot-only match simulation', () => {
     expect(m.over).toBe(true);
     expect(winner).not.toBeNull();
     expect(Math.max(m.score.blue, m.score.red)).toBe(5);
+  });
+});
+
+describe('grenades, knife, regen, streaks', () => {
+  function quiet(seed = 3) {
+    const s = setup(seed);
+    const m = new Match(s.map, s.world, s.nav, 'pistol', {}, { seed });
+    m.brains.clear(); // freeze bots so the scenario is deterministic
+    for (const c of m.combatants) c.shieldT = 0;
+    return { s, m };
+  }
+  it('grenade falls, bounces, comes to rest and never sinks into the ground', () => {
+    const { s } = quiet();
+    const g = { pos: new THREE.Vector3(0, 1.5, 20), vel: new THREE.Vector3(0, 4, 12), resting: false };
+    let minY = Infinity;
+    for (let i = 0; i < 400 && !g.resting; i++) { stepGrenade(s.world, g, 1 / 120); minY = Math.min(minY, g.pos.y); }
+    expect(g.resting).toBe(true);
+    expect(minY).toBeGreaterThanOrEqual(0);
+  });
+  it('a thrown grenade explodes after the fuse and kills a nearby enemy', () => {
+    const { m } = quiet();
+    const p = m.player, e = m.combatants.find((c) => c.team === 'red')!;
+    p.pos.set(-20, 0, 0); p.yaw = Math.PI / 2;
+    e.pos.set(-8, 0, 0);
+    p.aimDir.set(Math.cos(0.3), Math.sin(0.3), 0);
+    let kills = 0;
+    m.events.kill = (k) => { if (k.weapon.id === 'grenade') kills++; };
+    expect(p.grenades).toBe(3);
+    expect(m.throwGrenade(p, GRENADE_SPEED * 0.55)).toBe(true);
+    expect(p.grenades).toBe(2);
+    // walk the enemy onto the grenade just before it goes off
+    while (m.grenades[0].fuse > 0.1) m.update(1 / 30);
+    const g = m.grenades[0];
+    e.pos.set(g.pos.x + 1, 0, g.pos.z);
+    e.hp = 60;
+    for (let i = 0; i < 10; i++) m.update(1 / 30);
+    expect(m.grenades.length).toBe(0);
+    expect(kills).toBe(1);
+  });
+  it('cannot throw with no grenades left; respawn refills them', () => {
+    const { m } = quiet();
+    const p = m.player;
+    p.grenades = 0;
+    expect(m.throwGrenade(p, GRENADE_SPEED)).toBe(false);
+    const e = m.combatants.find((c) => c.team === 'red')!;
+    m.damage(p, e, 999, false, getWeapon('pistol'));
+    for (let i = 0; i < 30 * 5; i++) m.update(1 / 30);
+    expect(p.alive).toBe(true);
+    expect(p.grenades).toBe(3);
+  });
+  it('knife: front hit does 55, backstab kills', () => {
+    const { m } = quiet();
+    const p = m.player, e = m.combatants.find((c) => c.team === 'red')!;
+    p.pos.set(0, 0, 20); p.yaw = 0; // facing +z
+    e.pos.set(0, 0, 21.5); e.yaw = Math.PI; // facing the player
+    m.melee(p);
+    expect(e.hp).toBe(45);
+    p.meleeCd = 0;
+    e.yaw = 0; // turned away
+    m.melee(p);
+    expect(e.alive).toBe(false);
+  });
+  it('health regenerates after 4 s without damage, up to max', () => {
+    const { m } = quiet();
+    const p = m.player, e = m.combatants.find((c) => c.team === 'red')!;
+    m.damage(p, e, 60, false, getWeapon('pistol'));
+    for (let i = 0; i < 30 * 3; i++) m.update(1 / 30);
+    expect(p.hp).toBe(40);
+    for (let i = 0; i < 30 * 6; i++) m.update(1 / 30);
+    expect(p.hp).toBe(100);
+  });
+  it('streak counts kills and resets on death', () => {
+    const { m } = quiet();
+    const p = m.player;
+    const reds = m.combatants.filter((c) => c.team === 'red');
+    for (const r of reds.slice(0, 3)) m.damage(r, p, 999, false, getWeapon('pistol'));
+    expect(p.streak).toBe(3);
+    m.damage(p, reds[5], 999, false, getWeapon('pistol'));
+    expect(p.streak).toBe(0);
   });
 });

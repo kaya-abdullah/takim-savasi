@@ -84,7 +84,7 @@ button { border: none; color: var(--text); }
 #killfeed .kb { color: #7fb6ff; } #killfeed .kr { color: #ff8a8a; }
 #killfeed .w { color: #ddd; font-weight: 400; margin: 0 6px; }
 @keyframes feedin { from { transform: translateX(30px); opacity: 0; } }
-#hud .money { top: auto; bottom: calc(86px + var(--safe-b)); right: calc(16px + var(--safe-r)); font-size: 16px; padding: 5px 14px 5px 8px; }
+#hud .money { top: calc(64px + var(--safe-t)); bottom: auto; right: auto; left: 50%; transform: translateX(-50%); font-size: 15px; padding: 4px 12px 4px 6px; }
 #hud .money .coin { width: 20px; height: 20px; font-size: 10px; }
 .cross { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
 .cross i { position: absolute; background: #fff; box-shadow: 0 0 2px #000; border-radius: 1px; transition: transform .08s; }
@@ -149,7 +149,7 @@ button { border: none; color: var(--text); }
 .tc.switch { width: 54px; height: 54px; right: calc(150px + var(--safe-r)); bottom: calc(222px + var(--safe-b)); }
 #hud .shop-btn { padding: 10px 16px; font-size: 15px; right: calc(14px + var(--safe-r)); bottom: calc(14px + var(--safe-b)); }
 #hud .shop-btn svg { width: 22px; height: 22px; }
-#hud .keys { position: absolute; left: 50%; top: calc(64px + var(--safe-t)); transform: translateX(-50%); font-size: 12px; color: var(--muted); white-space: nowrap; text-shadow: 0 1px 3px #000; }
+#hud .keys { position: absolute; left: 50%; top: calc(100px + var(--safe-t)); transform: translateX(-50%); font-size: 12px; color: var(--muted); white-space: nowrap; text-shadow: 0 1px 3px #000; }
 .joy-base { position: absolute; display: none; width: 130px; height: 130px; margin: -65px 0 0 -65px; border-radius: 50%; background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.3); pointer-events: none; }
 .joy-knob { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, rgba(255,255,255,.7), rgba(255,255,255,.25)); transform: translate(-50%,-50%); }
 .joy-hint { position: absolute; left: calc(60px + var(--safe-l)); bottom: calc(60px + var(--safe-b)); width: 110px; height: 110px; border-radius: 50%; border: 2px dashed rgba(255,255,255,.22); display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,.45); font-size: 11px; text-align: center; }
@@ -233,7 +233,34 @@ button { border: none; color: var(--text); }
   .tc.reload { right: calc(196px + var(--safe-r)); bottom: calc(60px + var(--safe-b)); width: 50px; height: 50px; }
   .tc.jump { right: calc(30px + var(--safe-r)); bottom: calc(176px + var(--safe-b)); width: 56px; height: 56px; }
   .tc.switch { right: calc(130px + var(--safe-r)); bottom: calc(190px + var(--safe-b)); width: 50px; height: 50px; }
-  #hud .money { bottom: calc(70px + var(--safe-b)); }
   .card .pic { height: 64px; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+}
+
+/* ---------- v2: grenades, knife, announcer, equipment ---------- */
+.tc.grenade { width: 58px; height: 58px; right: calc(32px + var(--safe-r)); bottom: calc(158px + var(--safe-b)); background: rgba(60,90,40,.55); }
+.tc.grenade.empty { opacity: .35; }
+.tc.knife { width: 52px; height: 52px; right: calc(38px + var(--safe-r)); bottom: calc(86px + var(--safe-b)); }
+.tc.jump { bottom: calc(232px + var(--safe-b)); right: calc(34px + var(--safe-r)); }
+.tc .badge { position: absolute; top: -4px; right: -4px; min-width: 22px; height: 22px; border-radius: 11px; background: var(--gold); color: #3a2400; font-size: 13px; font-weight: 900; display: flex; align-items: center; justify-content: center; padding: 0 5px; }
+.banner { position: absolute; left: 50%; top: 24%; transform: translateX(-50%); text-align: center; pointer-events: none; opacity: 0; white-space: nowrap; }
+.banner div { font-size: clamp(32px, 7vh, 60px); font-weight: 900; letter-spacing: 4px; color: #ffd84a; -webkit-text-stroke: 2px #6b4a00; paint-order: stroke fill; text-shadow: 0 4px 0 #6b4a00, 0 0 24px rgba(255,170,0,.85), 0 8px 18px rgba(0,0,0,.7); }
+.banner small { display: block; font-size: 18px; font-weight: 900; color: var(--gold); text-shadow: 0 2px 6px #000; }
+.banner.on { animation: banner 1.9s ease-out forwards; }
+@keyframes banner { 0% { opacity: 0; transform: translateX(-50%) scale(2.2); } 12% { opacity: 1; transform: translateX(-50%) scale(.95); } 20% { transform: translateX(-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) translateY(-20px); } }
+.gwarn { position: absolute; left: 50%; top: calc(50% + 70px); transform: translateX(-50%); display: none; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 20px; background: rgba(200,20,20,.75); font-weight: 900; letter-spacing: 2px; animation: blink .4s infinite alternate; }
+.gwarn.on { display: flex; }
+.gwarn svg { width: 22px; height: 22px; fill: #fff; }
+@keyframes blink { from { opacity: 1; } to { opacity: .45; } }
+.sec { grid-column: 1 / -1; font-weight: 900; letter-spacing: 3px; color: var(--gold); margin-top: 8px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.card .stars { color: var(--gold); letter-spacing: 1px; font-size: 12px; }
+.card.gear .pic.icon svg { width: 54px; height: 54px; fill: #cfe0ff; }
+.card.gear.free { border-style: dashed; }
+.pips { display: flex; gap: 6px; }
+.pips i { width: 26px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.15); }
+.pips i.on { background: var(--gold); }
+@media (max-height: 430px) {
+  .tc.grenade { width: 52px; height: 52px; right: calc(26px + var(--safe-r)); bottom: calc(128px + var(--safe-b)); }
+  .tc.knife { width: 46px; height: 46px; right: calc(30px + var(--safe-r)); bottom: calc(70px + var(--safe-b)); }
+  .tc.jump { bottom: calc(192px + var(--safe-b)); right: calc(28px + var(--safe-r)); }
 }

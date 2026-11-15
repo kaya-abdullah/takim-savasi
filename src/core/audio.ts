@@ -167,6 +167,28 @@ export class Audio {
     if (!this.ok()) return;
     this.noiseBurst(this.out(0.15, 0), 900, 0.1, 0.5);
   }
+  whoosh(): void {
+    if (!this.ok()) return;
+    this.noiseBurst(this.out(0.35, 0), 2500, 0.18, 0.7, 'bandpass');
+  }
+  stab(): void {
+    if (!this.ok()) return;
+    const d = this.out(0.5, 0);
+    this.noiseBurst(d, 900, 0.12, 0.8);
+    this.tone(d, 220, 90, 0.12, 0.5, 'square');
+  }
+  clink(dist: number, pan: number): void {
+    if (!this.ok() || dist > 30) return;
+    const d = this.out(Math.min(0.5, 6 / (6 + dist)), pan);
+    this.tone(d, 2600, 2400, 0.05, 0.4, 'triangle');
+    this.tone(d, 3900, 3700, 0.04, 0.2, 'sine');
+  }
+  streak(level: number): void {
+    if (!this.ok()) return;
+    const d = this.out(0.55, 0);
+    const base = [523, 659, 784, 1047, 1319, 1568].slice(0, 3 + Math.min(3, level));
+    base.forEach((f, i) => { this.tone(d, f, f, 0.18, 0.4, 'square', i * 0.06); this.tone(d, f / 2, f / 2, 0.22, 0.3, 'triangle', i * 0.06); });
+  }
   win(): void {
     if (!this.ok()) return;
     const d = this.out(0.5, 0);

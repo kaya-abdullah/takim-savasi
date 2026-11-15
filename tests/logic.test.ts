@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { buyWeapon, equipWeapon, KILL_REWARD, matchBonus } from '../src/game/economy';
+import { buyUpgrade, buyWeapon, equipWeapon, grenadeCount, KILL_REWARD, killReward, matchBonus, maxHp, streakReward } from '../src/game/economy';
 import { defaultSave, sanitize } from '../src/core/save';
-import { SHOP_WEAPONS, STARTER, WEAPON_PRICE, getWeapon } from '../src/data/weapons';
+import { SHOP_WEAPONS, STARTER, getWeapon } from '../src/data/weapons';
 import { createMap, mapColliders, propBox, buildingBox } from '../src/world/map';
 import { CollisionWorld, rayBox, rayCharacter } from '../src/world/collision';
 import { NavGrid } from '../src/world/navgrid';
 
 describe('weapons', () => {
-  it('has exactly 10 shop weapons, all 7000 TL, unique ids', () => {
+  it('has exactly 10 shop weapons with prices rising in shop order', () => {
     expect(SHOP_WEAPONS).toHaveLength(10);
-    expect(SHOP_WEAPONS.every((w) => w.price === 7000)).toBe(true);
+    for (let i = 1; i < SHOP_WEAPONS.length; i++) expect(SHOP_WEAPONS[i].price).toBeGreaterThan(SHOP_WEAPONS[i - 1].price);
+    expect(SHOP_WEAPONS[0].price).toBeLessThanOrEqual(2000); // first gun within ~1-2 matches
+    expect(SHOP_WEAPONS[9].price).toBeLessThanOrEqual(10000);
     const ids = new Set([STARTER.id, ...SHOP_WEAPONS.map((w) => w.id)]);
     expect(ids.size).toBe(11);
   });
@@ -20,11 +22,12 @@ describe('weapons', () => {
 });
 
 describe('economy', () => {
-  it('rejects purchase without money and accepts with exactly 7000', () => {
+  it('rejects purchase without money and accepts with the exact price', () => {
     const s = defaultSave();
-    s.money = WEAPON_PRICE - 1;
+    const price = getWeapon('rifle').price;
+    s.money = price - 1;
     expect(buyWeapon(s, 'rifle')).toBe('no-money');
-    s.money = WEAPON_PRICE;
+    s.money = price;
     expect(buyWeapon(s, 'rifle')).toBe('ok');
     expect(s.money).toBe(0);
     expect(s.owned).toContain('rifle');
@@ -40,6 +43,28 @@ describe('economy', () => {
   it('a typical match (10 kills + win) earns 3000 TL', () => {
     expect(10 * KILL_REWARD + matchBonus('win')).toBe(3000);
   });
+  it('kill rewards: headshot and knife bonuses, streak bonuses', () => {
+    expect(killReward(false, false)).toBe(200);
+    expect(killReward(true, false)).toBe(250);
+    expect(killReward(false, true)).toBe(300);
+    expect(streakReward(1)).toBeNull();
+    expect(streakReward(3)!.bonus).toBe(100);
+    expect(streakReward(5)!.text).toBe('DURDURULAMAZ!');
+  });
+  it('equipment upgrades: levels, prices, max', () => {
+    const s = defaultSave();
+    expect(grenadeCount(s)).toBe(3);
+    expect(maxHp(s)).toBe(100);
+    expect(buyUpgrade(s, 'bag')).toBe('no-money');
+    s.money = 100000;
+    expect(buyUpgrade(s, 'bag')).toBe('ok');
+    expect(buyUpgrade(s, 'bag')).toBe('ok');
+    expect(buyUpgrade(s, 'bag')).toBe('max');
+    expect(grenadeCount(s)).toBe(5);
+    expect(buyUpgrade(s, 'armor')).toBe('ok');
+    expect(maxHp(s)).toBe(125);
+    expect(s.money).toBe(100000 - 1500 - 3000 - 2500);
+  });
 });
 
 describe('save', () => {
@@ -51,8 +76,15 @@ describe('save', () => {
     expect(['low', 'medium', 'high']).toContain(s.settings.quality);
     expect(s.settings.sensitivity).toBe(1);
   });
+  it('migrates old saves to high quality once and keeps upgrades', () => {
+    const old = sanitize({ money: 5, settings: { quality: 'medium' } });
+    expect(old.settings.quality).toBe('high');
+    const cur = sanitize({ sv: 2, settings: { quality: 'low' }, upgrades: { bag: 1, armor: 9 } });
+    expect(cur.settings.quality).toBe('low');
+    expect(cur.upgrades).toEqual({ bag: 1, armor: 2 });
+  });
   it('keeps valid data', () => {
-    const s = sanitize({ money: 7200, owned: ['smg'], equipped: 'smg', settings: { quality: 'low', sensitivity: 1.5, sound: false } });
+    const s = sanitize({ sv: 2, money: 7200, owned: ['smg'], equipped: 'smg', settings: { quality: 'low', sensitivity: 1.5, sound: false } });
     expect(s.money).toBe(7200);
     expect(s.equipped).toBe('smg');
     expect(s.settings.sound).toBe(false);

@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import type { V2 } from '../world/map';
+import { GRENADE_SPEED } from '../data/weapons';
 import { EYE_Y, type Combatant } from './combatant';
+import { GRAVITY } from './match';
 import type { Match } from './match';
 
 type State = 'roam' | 'fight' | 'chase';
@@ -40,6 +42,7 @@ export class BotBrain {
   private stuckT = 0;
   private lastPos = { x: 0, z: 0 };
   private desiredYaw = 0;
+  private grenadeCd = 4 + Math.random() * 8;
 
   constructor(readonly skill: number) {}
 
@@ -59,6 +62,7 @@ export class BotBrain {
     }
     this.reactT -= dt;
     this.repathT -= dt;
+    this.grenadeCd -= dt;
     let mvx = 0, mvz = 0; // desired move direction (world, unnormalised)
     let speedMul = 1;
     c.trigger = false;
@@ -88,6 +92,12 @@ export class BotBrain {
       if (visible && aligned && inRange && this.reactT <= 0) {
         c.trigger = true;
         c.aiming = def.zoom < 0.6 && dist > 20;
+      }
+      // knife at point-blank range, grenades at mid range
+      if (visible && dist < 2.0) m.melee(c);
+      else if (visible && this.reactT <= 0 && this.grenadeCd <= 0 && c.grenades > 0 && dist > 9 && dist < 24) {
+        this.grenadeCd = 6 + Math.random() * 9;
+        if (Math.random() < 0.35) this.throwAt(c, m, t.pos.x, t.pos.z, dist);
       }
       if (c.weapon.ammo === 0 || (!visible && c.weapon.ammo < c.weapon.def.mag * 0.4)) c.weapon.startReload();
       // movement: close distance via path, otherwise strafe
@@ -172,6 +182,16 @@ export class BotBrain {
       this.lastPos = { x: c.pos.x, z: c.pos.z };
       this.stuckT = 0;
     }
+  }
+
+  /** Lobs a grenade on a ballistic arc that lands near (x, z). */
+  private throwAt(c: Combatant, m: Match, x: number, z: number, dist: number): void {
+    const v = GRENADE_SPEED;
+    const k = Math.min(1, (GRAVITY * dist) / (v * v));
+    const pitch = 0.5 * Math.asin(k) + (Math.random() - 0.5) * 0.08 * (1.3 - this.skill);
+    const yaw = Math.atan2(x - c.pos.x, z - c.pos.z) + (Math.random() - 0.5) * 0.12 * (1.3 - this.skill);
+    c.aimDir.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+    m.throwGrenade(c, v);
   }
 
   private turnTo(c: Combatant, dt: number, rate: number): void {

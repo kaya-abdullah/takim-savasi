@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SHOP_WEAPONS, STARTER, getWeapon, type WeaponDef } from '../data/weapons';
+import { GRENADE, GRENADE_FUSE, GRENADE_RADIUS, KNIFE, SHOP_WEAPONS, START_GRENADES, STARTER, getWeapon, type WeaponDef } from '../data/weapons';
 import type { Team } from '../render/character';
 import { CollisionWorld, rayCharacter } from '../world/collision';
 import type { MapData, V2 } from '../world/map';
@@ -25,6 +25,42 @@ export interface Projectile {
   alive: boolean;
 }
 
+export interface Grenade {
+  owner: Combatant;
+  pos: THREE.Vector3;
+  vel: THREE.Vector3;
+  fuse: number;
+  alive: boolean;
+  resting: boolean;
+}
+
+export const GRAVITY = 18;
+const REGEN_DELAY = 4;
+const REGEN_RATE = 15;
+const _gn = new THREE.Vector3();
+
+/** One physics step for a grenade: gravity, bounce off boxes/ground, roll friction. */
+export function stepGrenade(world: CollisionWorld, g: { pos: THREE.Vector3; vel: THREE.Vector3; resting: boolean }, dt: number): boolean {
+  if (g.resting) return false;
+  g.vel.y -= GRAVITY * dt;
+  const sx = g.vel.x * dt, sy = g.vel.y * dt, sz = g.vel.z * dt;
+  const h = world.raycast(g.pos.x, g.pos.y, g.pos.z, sx, sy, sz, 1);
+  if (!h) {
+    g.pos.x += sx; g.pos.y += sy; g.pos.z += sz;
+    return false;
+  }
+  g.pos.x += sx * h.t; g.pos.y += sy * h.t; g.pos.z += sz * h.t;
+  _gn.set(h.nx, h.ny, h.nz);
+  const vn = g.vel.dot(_gn);
+  g.vel.addScaledVector(_gn, -2 * vn).multiplyScalar(0.45);
+  g.pos.addScaledVector(_gn, 0.05);
+  if (h.ny > 0.5) {
+    g.vel.x *= 0.7; g.vel.z *= 0.7;
+    if (g.vel.lengthSq() < 0.6) { g.vel.set(0, 0, 0); g.resting = true; }
+  }
+  return Math.abs(vn) > 2; // audible bounce
+}
+
 export interface HitInfo {
   point: THREE.Vector3;
   normal: THREE.Vector3 | null;
@@ -42,6 +78,9 @@ export interface KillEntry {
 }
 
 export interface MatchEvents {
+  grenadeThrown?(g: Grenade): void;
+  grenadeBounce?(g: Grenade): void;
+  melee?(c: Combatant, victim: Combatant | null, backstab: boolean): void;
   shot?(c: Combatant, hit: HitInfo, def: WeaponDef): void;
   projectileFired?(p: Projectile): void;
   explosion?(pos: THREE.Vector3, radius: number, owner: Combatant): void;
@@ -64,6 +103,7 @@ export class Match {
   over = false;
   winner: Team | 'draw' | null = null;
   readonly projectiles: Projectile[] = [];
+  readonly grenades: Grenade[] = [];
   readonly killFeed: KillEntry[] = [];
   readonly brains = new Map<Combatant, BotBrain>();
   private rand: () => number;
@@ -74,7 +114,7 @@ export class Match {
     readonly nav: NavGrid,
     playerWeapon: string,
     public events: MatchEvents = {},
-    opts: { killLimit?: number; duration?: number; seed?: number; playerName?: string } = {},
+    opts: { killLimit?: number; duration?: number; seed?: number; playerName?: string; playerGrenades?: number; playerHp?: number } = {},
   ) {
     this.killLimit = opts.killLimit ?? KILL_LIMIT;
     this.duration = opts.duration ?? MATCH_TIME;
@@ -85,6 +125,8 @@ export class Match {
     };
     let id = 0;
     this.player = new Combatant(id++, opts.playerName ?? 'MUSTAFA', 'blue', true, getWeapon(playerWeapon));
+    this.player.maxGrenades = opts.playerGrenades ?? START_GRENADES;
+    this.player.maxHp = this.player.hp = opts.playerHp ?? MAX_HP;
     this.combatants.push(this.player);
     for (const n of BLUE_NAMES.slice(0, TEAM_SIZE - 1)) this.addBot(id++, n, 'blue');
     for (const n of RED_NAMES.slice(0, TEAM_SIZE)) this.addBot(id++, n, 'red');
@@ -97,6 +139,7 @@ export class Match {
       const p = list[i % list.length];
       this.placeAt(c, p);
       c.shieldT = SHIELD_TIME;
+      c.grenades = c.maxGrenades;
     }
   }
 
@@ -108,6 +151,7 @@ export class Match {
     const pool = [STARTER, ...SHOP_WEAPONS.filter((w) => w.id !== 'rocket' && w.id !== 'minigun'), STARTER];
     const def = pool[Math.floor(this.randomish(id) * pool.length)];
     const c = new Combatant(id, name, team, false, def);
+    c.maxGrenades = 2;
     this.combatants.push(c);
     this.brains.set(c, new BotBrain(0.55 + this.randomish(id * 7 + 3) * 0.4));
   }
@@ -149,8 +193,10 @@ export class Match {
       if (score > bestScore) { bestScore = score; best = p; }
     }
     this.placeAt(c, best);
-    c.hp = MAX_HP;
+    c.hp = c.maxHp;
     c.alive = true;
+    c.grenades = c.maxGrenades;
+    c.streak = 0;
     c.shieldT = SHIELD_TIME;
     c.lastAttacker = null;
     c.weapon.refill();
@@ -170,12 +216,15 @@ export class Match {
       }
       if (c.shieldT > 0) c.shieldT -= dt;
       c.kick = Math.max(0, c.kick - dt * 8);
+      if (c.meleeCd > 0) c.meleeCd -= dt;
+      if (c.hp < c.maxHp && this.time - c.lastHurtT > REGEN_DELAY) c.hp = Math.min(c.maxHp, c.hp + REGEN_RATE * dt);
       const brain = this.brains.get(c);
       if (brain) brain.update(dt, c, this);
       const shots = c.weapon.update(dt, c.trigger);
       for (let i = 0; i < shots; i++) this.fire(c);
     }
     this.updateProjectiles(dt);
+    this.updateGrenades(dt);
     if (this.score.blue >= this.killLimit || this.score.red >= this.killLimit || this.time >= this.duration) this.finish();
   }
 
@@ -272,18 +321,84 @@ export class Match {
   }
 
   private explode(p: Projectile, direct: Combatant | null): void {
-    const spec = p.def.projectile!;
-    this.events.explosion?.(p.pos.clone(), spec.splash, p.owner);
+    this.blast(p.pos, p.owner, p.def, p.def.projectile!.splash, direct);
+  }
+
+  /** Splash damage to enemies with line of sight to the blast centre. */
+  blast(pos: THREE.Vector3, owner: Combatant, def: WeaponDef, radius: number, direct: Combatant | null = null): void {
+    this.events.explosion?.(pos.clone(), radius, owner);
     for (const e of this.combatants) {
-      if (!e.alive || e.team === p.owner.team) continue;
+      if (!e.alive || e.team === owner.team) continue;
       const cx = e.pos.x, cy = e.pos.y + 1, cz = e.pos.z;
-      const d = Math.hypot(cx - p.pos.x, cy - p.pos.y, cz - p.pos.z);
-      if (e === direct) { this.damage(e, p.owner, p.def.damage, false, p.def); continue; }
-      if (d > spec.splash) continue;
-      if (!this.world.segmentClear(p.pos.x, p.pos.y, p.pos.z, cx, cy, cz)) continue;
-      const k = 1 - d / spec.splash;
-      this.damage(e, p.owner, p.def.damage * (0.25 + 0.75 * k), false, p.def);
+      const d = Math.hypot(cx - pos.x, cy - pos.y, cz - pos.z);
+      if (e === direct) { this.damage(e, owner, def.damage, false, def); continue; }
+      if (d > radius) continue;
+      if (!this.world.segmentClear(pos.x, pos.y + 0.2, pos.z, cx, cy, cz)) continue;
+      const k = 1 - d / radius;
+      this.damage(e, owner, def.damage * (0.25 + 0.75 * k), false, def);
     }
+  }
+
+  /** Throws a grenade along c.aimDir (lifted a little). Returns false if none left. */
+  throwGrenade(c: Combatant, speed: number): boolean {
+    if (!c.alive || c.grenades <= 0 || this.over) return false;
+    c.grenades--;
+    c.shieldT = 0;
+    const g: Grenade = {
+      owner: c,
+      pos: new THREE.Vector3(c.pos.x + Math.sin(c.yaw) * 0.4, c.pos.y + 1.55, c.pos.z + Math.cos(c.yaw) * 0.4),
+      vel: c.aimDir.clone().normalize().multiplyScalar(speed),
+      fuse: GRENADE_FUSE,
+      alive: true,
+      resting: false,
+    };
+    // start outside walls if the player hugs one
+    if (this.world.blocked(g.pos.x, g.pos.z, 0.05, g.pos.y - 0.1, 0.2)) g.pos.set(c.pos.x, c.pos.y + 1.55, c.pos.z);
+    g.vel.x += c.vx * 0.5;
+    g.vel.z += c.vz * 0.5;
+    this.grenades.push(g);
+    this.events.grenadeThrown?.(g);
+    return true;
+  }
+
+  private updateGrenades(dt: number): void {
+    for (const g of this.grenades) {
+      if (!g.alive) continue;
+      g.fuse -= dt;
+      // two sub-steps keep fast throws from tunnelling through thin props
+      for (let i = 0; i < 2; i++) if (stepGrenade(this.world, g, dt / 2)) this.events.grenadeBounce?.(g);
+      if (g.fuse <= 0) {
+        g.alive = false;
+        this.blast(g.pos, g.owner, GRENADE, GRENADE_RADIUS);
+      }
+    }
+    for (let i = this.grenades.length - 1; i >= 0; i--) if (!this.grenades[i].alive) this.grenades.splice(i, 1);
+  }
+
+  /** Knife swing. Backstabs kill instantly. Returns the victim, if any. */
+  melee(c: Combatant): Combatant | null {
+    if (!c.alive || c.meleeCd > 0 || this.over) return null;
+    c.meleeCd = 0.6;
+    c.shieldT = 0;
+    const fx = Math.sin(c.yaw), fz = Math.cos(c.yaw);
+    let best: Combatant | null = null, bestD = KNIFE.range;
+    for (const e of this.combatants) {
+      if (!e.alive || e.team === c.team) continue;
+      const dx = e.pos.x - c.pos.x, dz = e.pos.z - c.pos.z, d = Math.hypot(dx, dz);
+      if (d > bestD || Math.abs(e.pos.y - c.pos.y) > 1.2) continue;
+      if (d > 0.5 && (dx * fx + dz * fz) / d < 0.55) continue;
+      best = e;
+      bestD = d;
+    }
+    let backstab = false;
+    if (best) {
+      const dx = best.pos.x - c.pos.x, dz = best.pos.z - c.pos.z, d = Math.hypot(dx, dz) || 1;
+      // victim facing away from the attacker
+      backstab = (Math.sin(best.yaw) * dx + Math.cos(best.yaw) * dz) / d > 0.4;
+      this.damage(best, c, backstab ? 999 : KNIFE.damage, false, KNIFE);
+    }
+    this.events.melee?.(c, best, backstab);
+    return best;
   }
 
   damage(victim: Combatant, attacker: Combatant, amount: number, head: boolean, def: WeaponDef): void {
@@ -300,7 +415,9 @@ export class Match {
       victim.trigger = false;
       victim.respawnT = RESPAWN_TIME + (victim.isPlayer ? 1 : 0);
       victim.deaths++;
+      victim.streak = 0;
       attacker.kills++;
+      attacker.streak++;
       this.score[attacker.team]++;
       victim.view?.die();
       const entry: KillEntry = { killer: attacker, victim, weapon: def, head, t: this.time };

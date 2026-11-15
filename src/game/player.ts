@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import type { Input } from '../core/input';
 import type { Settings } from '../core/save';
-import { getWeapon } from '../data/weapons';
+import { GRENADE_SPEED, getWeapon } from '../data/weapons';
 import { WeaponState, type Combatant } from './combatant';
-import type { Match } from './match';
+import { stepGrenade, type Match } from './match';
 
 const BASE_FOV = 72;
 const PLAYER_SPEED = 5.4;
@@ -25,6 +25,10 @@ export class PlayerController {
   private bob = 0;
   jumped = false;
   reloaded = false;
+  /** True while the grenade button is held: the arc preview is shown. */
+  grenadeAiming = false;
+  threw = false;
+  slashed = false;
 
   constructor(readonly camera: THREE.PerspectiveCamera) {}
 
@@ -58,7 +62,7 @@ export class PlayerController {
   }
 
   update(dt: number, c: Combatant, input: Input, m: Match, settings: Settings): void {
-    this.jumped = this.reloaded = false;
+    this.jumped = this.reloaded = this.threw = this.slashed = false;
     const def = c.weapon.def;
     // ---- look
     const look = input.takeLook();
@@ -76,6 +80,7 @@ export class PlayerController {
 
     if (!c.alive) {
       c.trigger = false;
+      this.grenadeAiming = false;
       this.updateCamera(dt, c, m);
       return;
     }
@@ -113,6 +118,51 @@ export class PlayerController {
     const ahead = Math.max(0, _head.clone().sub(cam.position).dot(_dir));
     c.aimOrigin.copy(cam.position).addScaledVector(_dir, ahead + 0.3);
     c.aimDir.copy(_dir);
+
+    // knife: instant swing
+    if (input.consume('knife')) {
+      m.melee(c);
+      this.slashed = true;
+    }
+    // grenade: hold to aim (arc preview), release to throw
+    const held = input.isHeld('grenade');
+    input.consume('grenade');
+    if (held && c.grenades > 0) {
+      this.grenadeAiming = true;
+      c.trigger = false;
+    } else if (this.grenadeAiming) {
+      this.grenadeAiming = false;
+      const keep = c.aimDir.clone();
+      this.throwDir(c, c.aimDir);
+      if (m.throwGrenade(c, GRENADE_SPEED)) this.threw = true;
+      c.aimDir.copy(keep);
+    }
+  }
+
+  /** Throw direction: camera direction lifted a little so grenades arc. */
+  throwDir(c: Combatant, out: THREE.Vector3): THREE.Vector3 {
+    const p = Math.min(1.2, c.pitch + 0.22);
+    return out.set(Math.sin(c.yaw) * Math.cos(p), Math.sin(p), Math.cos(c.yaw) * Math.cos(p));
+  }
+
+  /** Simulates the throw to draw the preview arc. Returns number of points written. */
+  grenadeArc(c: Combatant, m: Match, out: THREE.Vector3[]): number {
+    const g = {
+      pos: new THREE.Vector3(c.pos.x + Math.sin(c.yaw) * 0.4, c.pos.y + 1.55, c.pos.z + Math.cos(c.yaw) * 0.4),
+      vel: this.throwDir(c, new THREE.Vector3()).multiplyScalar(GRENADE_SPEED),
+      resting: false,
+    };
+    g.vel.x += c.vx * 0.5;
+    g.vel.z += c.vz * 0.5;
+    let n = 0;
+    const step = 1 / 60;
+    for (let i = 0; i < 132 && n < out.length; i++) {
+      stepGrenade(m.world, g, step);
+      if (i % 3 === 0) out[n++].copy(g.pos);
+      if (g.resting) break;
+    }
+    if (n < out.length) out[n++].copy(g.pos);
+    return n;
   }
 
   private assist(dt: number, c: Combatant, m: Match, strength: number): void {
