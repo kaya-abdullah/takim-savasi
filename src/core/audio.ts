@@ -7,6 +7,7 @@ export class Audio {
   private noise: AudioBuffer | null = null;
   enabled = true;
   private recent = 0;
+  private echoIn: GainNode | null = null;
 
   /** Must be called from a user gesture (browser autoplay rules). */
   unlock(): void {
@@ -23,6 +24,19 @@ export class Audio {
       comp.threshold.value = -14;
       comp.ratio.value = 6;
       this.master.connect(comp).connect(this.ctx.destination);
+      // city slap-back echo for gunshots: delay -> lowpass -> feedback
+      const dl = this.ctx.createDelay(1);
+      dl.delayTime.value = 0.13;
+      const lp = this.ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 1400;
+      const fb = this.ctx.createGain();
+      fb.gain.value = 0.32;
+      this.echoIn = this.ctx.createGain();
+      this.echoIn.gain.value = 0.35;
+      this.echoIn.connect(dl);
+      dl.connect(lp).connect(fb).connect(dl);
+      lp.connect(this.master);
       const len = this.ctx.sampleRate;
       this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
       const d = this.noise.getChannelData(0);
@@ -97,6 +111,7 @@ export class Audio {
     const vol = dist <= 0 ? 1 : Math.min(0.8, 9 / (9 + dist));
     if (vol < 0.04) return;
     const dest = this.out(vol, pan);
+    if (this.echoIn) dest.connect(this.echoIn);
     const far = dist > 25;
     if (p.laser) {
       this.tone(dest, p.freq * 3, p.freq * 0.6, p.decay, p.gain * 0.6, 'sawtooth');
@@ -188,6 +203,18 @@ export class Audio {
     const d = this.out(0.55, 0);
     const base = [523, 659, 784, 1047, 1319, 1568].slice(0, 3 + Math.min(3, level));
     base.forEach((f, i) => { this.tone(d, f, f, 0.18, 0.4, 'square', i * 0.06); this.tone(d, f / 2, f / 2, 0.22, 0.3, 'triangle', i * 0.06); });
+  }
+  step(run: boolean): void {
+    if (!this.ok()) return;
+    const d = this.out(run ? 0.22 : 0.13, (Math.random() - 0.5) * 0.3);
+    this.noiseBurst(d, run ? 700 : 500, 0.07, 0.6);
+    this.tone(d, 90, 60, 0.06, 0.25, 'sine');
+  }
+  pickupGun(): void {
+    if (!this.ok()) return;
+    const d = this.out(0.45, 0);
+    this.noiseBurst(d, 3500, 0.05, 0.7, 'highpass');
+    setTimeout(() => this.ok() && this.noiseBurst(d, 2500, 0.06, 0.8, 'highpass'), 120);
   }
   powerup(): void {
     if (!this.ok()) return;

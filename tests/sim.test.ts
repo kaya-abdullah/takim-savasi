@@ -201,3 +201,44 @@ describe('power-ups and supply drops', () => {
     expect(['minigun', 'rocket', 'plasma', 'sniper', 'lmg']).toContain(b.weapon.def.id);
   });
 });
+
+describe('weapon drops', () => {
+  function quiet(seed = 5) {
+    const s = setup(seed);
+    const m = new Match(s.map, s.world, s.nav, 'pistol', {}, { seed });
+    m.brains.clear();
+    for (const c of m.combatants) c.shieldT = 0;
+    return m;
+  }
+  it('a killed fighter drops their gun; the player picking it up raises weaponFound', () => {
+    const m = quiet();
+    const p = m.player, e = m.combatants.find((c) => c.team === 'red')!;
+    e.setWeapon(getWeapon('sniper'));
+    m.damage(e, p, 999, false, getWeapon('pistol'));
+    expect(m.drops).toHaveLength(1);
+    expect(m.drops[0].def.id).toBe('sniper');
+    const found: string[] = [];
+    m.events.weaponFound = (_c, d) => found.push(d.def.id);
+    p.pos.set(m.drops[0].pos.x, 0, m.drops[0].pos.z);
+    for (let i = 0; i < 30; i++) m.update(1 / 30);
+    expect(found).toEqual(['sniper']);
+    expect(m.drops).toHaveLength(0);
+  });
+  it('bots only swap to a more valuable dropped gun, and drops expire', () => {
+    const m = quiet();
+    const [a, b] = m.combatants.filter((c) => c.team === 'red');
+    a.setWeapon(getWeapon('rifle'));
+    b.setWeapon(getWeapon('pistol'));
+    m.damage(a, m.player, 999, false, getWeapon('pistol'));
+    const d = m.drops[0];
+    b.pos.set(d.pos.x, 0, d.pos.z);
+    for (let i = 0; i < 30; i++) m.update(1 / 30);
+    expect(b.weapon.def.id).toBe('rifle');
+    // a cheaper gun is ignored and eventually disappears
+    const c = m.combatants.filter((x) => x.team === 'red')[2];
+    c.setWeapon(getWeapon('pistol'));
+    m.damage(c, m.player, 999, false, getWeapon('pistol'));
+    for (let i = 0; i < 30 * 26; i++) m.update(1 / 30);
+    expect(m.drops.filter((x) => x.def.id === 'pistol' && x.age > 25)).toHaveLength(0);
+  });
+});

@@ -20,6 +20,10 @@ export class PlayerController {
   private states = new Map<string, WeaponState>();
   owned: string[] = [];
   private camDist = 3.3;
+  private restT = 0;
+  /** Footstep phase for step sounds. */
+  stepPhase = 0;
+  stepped = false;
   private fov = BASE_FOV;
   private recoilP = 0;
   private bob = 0;
@@ -45,6 +49,15 @@ export class PlayerController {
     if (!st) this.states.set(id, (st = new WeaponState(getWeapon(id))));
     c.weapon = st;
     c.view?.setWeapon(st.def);
+  }
+
+  /** Full ammo for one weapon (picking up a gun you already carry). */
+  refill(id: string): void {
+    this.states.get(id)?.refill();
+  }
+
+  refillAll(): void {
+    for (const st of this.states.values()) st.refill();
   }
 
   cycle(c: Combatant): string {
@@ -97,7 +110,13 @@ export class PlayerController {
     input.poll();
     _f.set(Math.sin(c.yaw), 0, Math.cos(c.yaw));
     _r.set(-Math.cos(c.yaw), 0, Math.sin(c.yaw));
-    const sp = PLAYER_SPEED * def.moveMul * (c.aiming ? 0.65 : 1) * (c.speedBuffT > 0 ? 1.4 : 1);
+    // sprint: Shift, or the joystick pushed all the way forward; firing/aiming cancel it
+    const wantSprint = (input.sprintHeld() || input.moveY > 0.92) && input.moveY > 0.5 && !c.aiming && !c.trigger && !this.grenadeAiming;
+    if (wantSprint && c.stamina > (c.sprinting ? 0.02 : 0.25)) c.sprinting = true;
+    else c.sprinting = false;
+    if (c.sprinting) { c.stamina = Math.max(0, c.stamina - dt / 6); this.restT = 0; }
+    else { this.restT += dt; if (this.restT > 0.8) c.stamina = Math.min(1, c.stamina + dt / 4); }
+    const sp = PLAYER_SPEED * def.moveMul * (c.aiming ? 0.65 : 1) * (c.speedBuffT > 0 ? 1.4 : 1) * (c.sprinting ? 1.6 : 1);
     const tx = (_f.x * input.moveY + _r.x * input.moveX) * sp;
     const tz = (_f.z * input.moveY + _r.z * input.moveX) * sp;
     const acc = Math.min(1, dt * (c.onGround ? 12 : 3));
@@ -109,6 +128,12 @@ export class PlayerController {
       this.jumped = true;
     }
     m.move(c, c.vx * dt, c.vz * dt, dt);
+    const hs = Math.hypot(c.vx, c.vz);
+    this.stepped = false;
+    if (c.onGround && hs > 1) {
+      this.stepPhase += dt * hs * 0.55;
+      if (this.stepPhase >= 1) { this.stepPhase -= 1; this.stepped = true; }
+    }
     this.updateCamera(dt, c, m);
 
     // shots go down the camera ray, starting level with the player
@@ -194,7 +219,7 @@ export class PlayerController {
     const cam = this.camera;
     const aiming = c.aiming && c.alive;
     const def = c.weapon.def;
-    const targetFov = aiming ? BASE_FOV * def.zoom : BASE_FOV;
+    const targetFov = aiming ? BASE_FOV * def.zoom : BASE_FOV + (c.sprinting ? 7 : 0);
     this.fov += (targetFov - this.fov) * Math.min(1, dt * 12);
     if (Math.abs(cam.fov - this.fov) > 0.01) {
       cam.fov = this.fov;
@@ -209,7 +234,7 @@ export class PlayerController {
     _r.set(-Math.cos(yaw), 0, Math.sin(yaw));
     // pivot above the right shoulder
     const dist = aiming ? 1.7 : c.alive ? 3.3 : 5.5;
-    const shoulder = aiming ? 0.55 : 0.78;
+    const shoulder = aiming ? 0.62 : 0.95;
     _head.set(c.pos.x, c.pos.y + 1.62 + bobY, c.pos.z).addScaledVector(_r, shoulder);
     _want.copy(_head).addScaledVector(_dir, -dist);
     // keep the camera out of walls

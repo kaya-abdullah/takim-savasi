@@ -130,6 +130,9 @@ export class Combatant {
   /** Power-up timers (seconds left). */
   dmgBuffT = 0;
   speedBuffT = 0;
+  /** Sprinting (player: stamina-limited; bots: when roaming). */
+  sprinting = false;
+  stamina = 1;
 
   constructor(readonly id: number, readonly name: string, readonly team: Team, readonly isPlayer: boolean, weapon: WeaponDef) {
     this.weapon = new WeaponState(weapon);

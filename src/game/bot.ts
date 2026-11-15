@@ -154,7 +154,9 @@ export class BotBrain {
     tz += _sep.z * 0.8;
     const tl = Math.hypot(tx, tz);
     if (tl > 1) { tx /= tl; tz /= tl; }
-    const sp = BOT_SPEED * c.weapon.def.moveMul * speedMul * (c.speedBuffT > 0 ? 1.4 : 1);
+    // bots jog between objectives and slow down to fight
+    c.sprinting = this.state !== 'fight' && l > 0.01;
+    const sp = BOT_SPEED * c.weapon.def.moveMul * speedMul * (c.speedBuffT > 0 ? 1.4 : 1) * (c.sprinting ? 1.3 : 1);
     const acc = Math.min(1, dt * 10);
     c.vx += (tx * sp - c.vx) * acc;
     c.vz += (tz * sp - c.vz) * acc;

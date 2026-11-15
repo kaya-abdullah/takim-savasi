@@ -5,6 +5,50 @@ interface Tracer { mesh: THREE.Mesh; life: number; max: number; }
 interface SpriteFx { s: THREE.Sprite; life: number; max: number; vel: THREE.Vector3; grow: number; startScale: number; fade: number; rotV: number; }
 
 const MAX_SPARKS = 700;
+const MAX_CASINGS = 60;
+const MAX_DECALS = 90;
+const _m4 = new THREE.Matrix4();
+const _q = new THREE.Quaternion();
+const _s = new THREE.Vector3();
+const _p = new THREE.Vector3();
+const _z = new THREE.Vector3(0, 0, 1);
+
+function holeTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const x = c.getContext('2d')!;
+  const g = x.createRadialGradient(32, 32, 2, 32, 32, 30);
+  g.addColorStop(0, 'rgba(10,10,10,1)');
+  g.addColorStop(0.25, 'rgba(25,22,20,0.95)');
+  g.addColorStop(0.5, 'rgba(60,55,50,0.45)');
+  g.addColorStop(1, 'rgba(60,55,50,0)');
+  x.fillStyle = g;
+  x.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+function starTexture(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const x = c.getContext('2d')!;
+  x.translate(64, 64);
+  for (let i = 0; i < 6; i++) {
+    x.rotate(Math.PI / 3);
+    const g = x.createLinearGradient(0, 0, 60, 0);
+    g.addColorStop(0, 'rgba(255,250,220,1)');
+    g.addColorStop(0.5, 'rgba(255,170,60,0.6)');
+    g.addColorStop(1, 'rgba(255,120,20,0)');
+    x.fillStyle = g;
+    x.beginPath();
+    x.moveTo(0, -7); x.lineTo(60, 0); x.lineTo(0, 7);
+    x.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 
 /** Pooled visual effects: tracers, muzzle flashes, sparks, smoke, explosions. */
 export class Effects {
@@ -22,9 +66,47 @@ export class Effects {
   private sparks: THREE.Points;
   private tracerGeo: THREE.BoxGeometry;
   shake = 0;
+  // brass casings
+  private casings: THREE.InstancedMesh;
+  private cPos = new Float32Array(MAX_CASINGS * 3);
+  private cVel = new Float32Array(MAX_CASINGS * 3);
+  private cRot = new Float32Array(MAX_CASINGS * 2);
+  private cLife = new Float32Array(MAX_CASINGS);
+  private cIdx = 0;
+  // bullet holes
+  private decals: THREE.InstancedMesh;
+  private dIdx = 0;
+  // 3D muzzle flashes (crossed star planes)
+  private stars: { m: THREE.Mesh; life: number }[] = [];
 
   constructor() {
     this.group.name = 'effects';
+    const cg = new THREE.CylinderGeometry(0.0065, 0.0065, 0.028, 8);
+    this.casings = new THREE.InstancedMesh(cg, new THREE.MeshStandardMaterial({ color: 0xd8a13a, metalness: 1, roughness: 0.28 }), MAX_CASINGS);
+    this.casings.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.casings.frustumCulled = false;
+    _m4.makeScale(0, 0, 0);
+    for (let i = 0; i < MAX_CASINGS; i++) this.casings.setMatrixAt(i, _m4);
+    this.group.add(this.casings);
+    const dg = new THREE.PlaneGeometry(0.13, 0.13);
+    this.decals = new THREE.InstancedMesh(dg, new THREE.MeshBasicMaterial({
+      map: holeTexture(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+    }), MAX_DECALS);
+    this.decals.frustumCulled = false;
+    for (let i = 0; i < MAX_DECALS; i++) this.decals.setMatrixAt(i, _m4);
+    this.group.add(this.decals);
+    const st = starTexture();
+    const sg = new THREE.PlaneGeometry(1, 1);
+    for (let i = 0; i < 12; i++) {
+      const mat = new THREE.MeshBasicMaterial({ map: st, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false, color: new THREE.Color(2.2, 2, 1.6) });
+      const m = new THREE.Mesh(sg, mat);
+      const m2 = new THREE.Mesh(sg, mat);
+      m2.rotation.y = Math.PI / 2;
+      m.add(m2);
+      m.visible = false;
+      this.group.add(m);
+      this.stars.push({ m, life: 0 });
+    }
     this.tracerGeo = new THREE.BoxGeometry(1, 1, 1);
     this.tracerGeo.translate(0, 0, 0.5);
     for (let i = 0; i < 48; i++) {
@@ -90,6 +172,40 @@ export class Effects {
     f.vel.set(0, 0, 0);
     f.grow = 0;
     f.fade = 1;
+  }
+
+  /** Side-on star flash at the muzzle, aligned with the shot direction. */
+  muzzleStar(at: THREE.Vector3, dir: THREE.Vector3, size = 0.5): void {
+    const f = this.stars.find((x) => x.life <= 0) ?? this.stars[0];
+    f.m.position.copy(at);
+    f.m.quaternion.setFromUnitVectors(_z, dir);
+    f.m.rotateY(Math.PI / 2);
+    f.m.scale.set(size * 1.6, size * (0.8 + Math.random() * 0.4), 1);
+    f.m.visible = true;
+    f.life = 0.045;
+  }
+
+  /** Ejects a brass casing to the right of the shooter. */
+  casing(at: THREE.Vector3, right: THREE.Vector3): void {
+    const k = this.cIdx;
+    this.cIdx = (this.cIdx + 1) % MAX_CASINGS;
+    this.cPos.set([at.x, at.y, at.z], k * 3);
+    const sp = 1.6 + Math.random() * 1.2;
+    this.cVel.set([right.x * sp + (Math.random() - 0.5) * 0.6, 1.8 + Math.random() * 1.2, right.z * sp + (Math.random() - 0.5) * 0.6], k * 3);
+    this.cRot.set([Math.random() * 6, Math.random() * 6], k * 2);
+    this.cLife[k] = 3.5;
+  }
+
+  /** Bullet hole on a wall/ground, oriented to the surface. */
+  decal(at: THREE.Vector3, normal: THREE.Vector3): void {
+    _q.setFromUnitVectors(_z, normal);
+    _p.copy(at).addScaledVector(normal, 0.01);
+    const sc = 0.7 + Math.random() * 0.6;
+    _s.set(sc, sc, sc);
+    _m4.compose(_p, _q, _s);
+    this.decals.setMatrixAt(this.dIdx, _m4);
+    this.dIdx = (this.dIdx + 1) % MAX_DECALS;
+    this.decals.instanceMatrix.needsUpdate = true;
   }
 
   /** Burst of additive particles. */
@@ -197,9 +313,53 @@ export class Effects {
     (this.sparks.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
     (this.sparks.geometry.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
     this.shake = Math.max(0, this.shake - dt * 2.5);
+    for (const f of this.stars) {
+      if (f.life <= 0) continue;
+      f.life -= dt;
+      if (f.life <= 0) f.m.visible = false;
+    }
+    let anyCasing = false;
+    for (let k = 0; k < MAX_CASINGS; k++) {
+      if (this.cLife[k] <= 0) continue;
+      anyCasing = true;
+      this.cLife[k] -= dt;
+      const i = k * 3;
+      if (this.cLife[k] <= 0) {
+        _m4.makeScale(0, 0, 0);
+        this.casings.setMatrixAt(k, _m4);
+        continue;
+      }
+      this.cVel[i + 1] -= 14 * dt;
+      this.cPos[i] += this.cVel[i] * dt;
+      this.cPos[i + 1] += this.cVel[i + 1] * dt;
+      this.cPos[i + 2] += this.cVel[i + 2] * dt;
+      if (this.cPos[i + 1] < 0.007) {
+        // tinkle and roll to a stop on the ground
+        this.cPos[i + 1] = 0.007;
+        this.cVel[i + 1] *= -0.35;
+        this.cVel[i] *= 0.6;
+        this.cVel[i + 2] *= 0.6;
+        this.cRot[k * 2] = Math.PI / 2;
+      } else {
+        this.cRot[k * 2] += dt * 18;
+        this.cRot[k * 2 + 1] += dt * 11;
+      }
+      _q.setFromEuler(new THREE.Euler(this.cRot[k * 2], this.cRot[k * 2 + 1], 0));
+      _s.set(1, 1, 1);
+      _p.set(this.cPos[i], this.cPos[i + 1], this.cPos[i + 2]);
+      _m4.compose(_p, _q, _s);
+      this.casings.setMatrixAt(k, _m4);
+    }
+    if (anyCasing) this.casings.instanceMatrix.needsUpdate = true;
   }
 
   clear(): void {
+    _m4.makeScale(0, 0, 0);
+    for (let i = 0; i < MAX_DECALS; i++) this.decals.setMatrixAt(i, _m4);
+    this.decals.instanceMatrix.needsUpdate = true;
+    for (let i = 0; i < MAX_CASINGS; i++) { this.cLife[i] = 0; this.casings.setMatrixAt(i, _m4); }
+    this.casings.instanceMatrix.needsUpdate = true;
+    for (const f of this.stars) { f.life = 0; f.m.visible = false; }
     for (const t of this.tracers) { t.life = 0; t.mesh.visible = false; }
     for (const list of [this.flashes, this.fires, this.smokes]) for (const f of list) { f.life = 0; f.s.visible = false; }
     this.sparkLife.fill(0);

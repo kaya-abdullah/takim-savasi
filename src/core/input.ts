@@ -197,6 +197,10 @@ export class Input {
     return r;
   }
 
+  sprintHeld(): boolean {
+    return this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
+  }
+
   keyDown(code: string): boolean {
     return this.keys.has(code);
   }

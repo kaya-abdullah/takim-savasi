@@ -49,6 +49,15 @@ const AIRDROP_FIRST = 35;
 const AIRDROP_EVERY = 55;
 const AIRDROP_FALL = 5; // m/s under the parachute
 
+/** A weapon lying on the ground after its owner fell. */
+export interface Drop {
+  def: WeaponDef;
+  pos: THREE.Vector3;
+  age: number;
+  alive: boolean;
+}
+export const DROP_LIFETIME = 25;
+
 export const GRAVITY = 18;
 const REGEN_DELAY = 4;
 const REGEN_RATE = 15;
@@ -96,6 +105,9 @@ export interface MatchEvents {
   grenadeThrown?(g: Grenade): void;
   pickupSpawned?(p: Pickup): void;
   pickedUp?(c: Combatant, p: Pickup, weapon?: WeaponDef): void;
+  dropSpawned?(d: Drop): void;
+  /** Player walked over a dropped weapon; the app decides how it joins the inventory. */
+  weaponFound?(c: Combatant, d: Drop): void;
   grenadeBounce?(g: Grenade): void;
   melee?(c: Combatant, victim: Combatant | null, backstab: boolean): void;
   shot?(c: Combatant, hit: HitInfo, def: WeaponDef): void;
@@ -122,6 +134,7 @@ export class Match {
   readonly projectiles: Projectile[] = [];
   readonly grenades: Grenade[] = [];
   readonly pickups: Pickup[] = [];
+  readonly drops: Drop[] = [];
   private pickupT = 6;
   private airdropT = AIRDROP_FIRST;
   readonly killFeed: KillEntry[] = [];
@@ -248,6 +261,7 @@ export class Match {
     this.updateProjectiles(dt);
     this.updateGrenades(dt);
     this.updatePickups(dt);
+    this.updateDrops(dt);
     if (this.score.blue >= this.killLimit || this.score.red >= this.killLimit || this.time >= this.duration) this.finish();
   }
 
@@ -466,6 +480,30 @@ export class Match {
     this.events.pickedUp?.(c, p, weapon);
   }
 
+  private updateDrops(dt: number): void {
+    for (const d of this.drops) {
+      if (!d.alive) continue;
+      d.age += dt;
+      if (d.age > DROP_LIFETIME) { d.alive = false; continue; }
+      if (d.age < 0.6) continue; // let it land before anyone grabs it
+      for (const c of this.combatants) {
+        if (!c.alive || Math.hypot(c.pos.x - d.pos.x, c.pos.z - d.pos.z) > 1.3) continue;
+        if (c.isPlayer) {
+          d.alive = false;
+          this.events.weaponFound?.(c, d);
+          break;
+        }
+        // bots trade up to a better gun
+        if (d.def.price > c.weapon.def.price) {
+          d.alive = false;
+          c.setWeapon(d.def);
+          break;
+        }
+      }
+    }
+    for (let i = this.drops.length - 1; i >= 0; i--) if (!this.drops[i].alive) this.drops.splice(i, 1);
+  }
+
   /** Knife swing. Backstabs kill instantly. Returns the victim, if any. */
   melee(c: Combatant): Combatant | null {
     if (!c.alive || c.meleeCd > 0 || this.over) return null;
@@ -512,6 +550,11 @@ export class Match {
       attacker.streak++;
       this.score[attacker.team]++;
       victim.view?.die();
+      // the fallen fighter's gun drops where they stood
+      const drop: Drop = { def: victim.weapon.def, pos: new THREE.Vector3(victim.pos.x, 0, victim.pos.z), age: 0, alive: true };
+      this.drops.push(drop);
+      if (this.drops.length > 24) this.drops.shift();
+      this.events.dropSpawned?.(drop);
       const entry: KillEntry = { killer: attacker, victim, weapon: def, head, t: this.time };
       this.killFeed.push(entry);
       if (this.killFeed.length > 30) this.killFeed.shift();

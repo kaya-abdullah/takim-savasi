@@ -13,6 +13,8 @@ const PAL = {
 };
 const SKIN = 0xe0b48f, BOOT = 0x2a2522, GLOVE = 0x262626, BELT = 0x3a3128, GOGGLE = 0x30363e;
 
+const STANCE_YAW = 0.55;
+
 enum BoneId { Root, Hips, Spine, Chest, Head, LUpper, LFore, RUpper, RFore, LThigh, LShin, RThigh, RShin }
 
 // bind pose positions (world) of each bone, parent index
@@ -162,6 +164,7 @@ export interface AnimInput {
   airborne: boolean;
   kick: number; // 0..1 recoil pulse
   reloading: boolean;
+  sprint: boolean;
 }
 
 export class CharacterView {
@@ -176,6 +179,7 @@ export class CharacterView {
   private flash = 0;
   private shield = 0;
   private slashT = 0;
+  private sprintK = 0;
   private throwT = 0;
   private knife = makeKnife();
   private hiGeo!: THREE.BufferGeometry;
@@ -208,7 +212,7 @@ export class CharacterView {
     this.mesh.bind(new THREE.Skeleton(this.bones));
     this.root.add(this.mesh);
     // gun hangs off the chest so it pitches with aim
-    this.gunMount.position.set(-0.13, 0.13, 0.26);
+    this.gunMount.position.set(-0.2, 0.15, 0.14);
     this.bones[BoneId.Chest].add(this.gunMount);
     this.knife.position.set(0, -0.3, 0.02);
     this.knife.rotation.x = -0.3;
@@ -224,6 +228,8 @@ export class CharacterView {
   setWeapon(w: WeaponDef): void {
     if (this.gun) this.gunMount.remove(this.gun);
     this.gun = makeWeaponMesh(w);
+    // the local player's gun is seen from behind; scale it up so it reads on screen
+    if (!this.marker.visible) this.gun.scale.multiplyScalar(1.25);
     this.gunMount.add(this.gun);
   }
 
@@ -257,9 +263,13 @@ export class CharacterView {
   throwAnim(): void { this.throwT = 0.4; }
   setShield(v: number): void { this.shield = v; }
 
-  die(): void { this.deadT = 0; }
+  die(): void {
+    this.deadT = 0;
+    if (this.gun) this.gun.visible = false; // it dropped to the ground
+  }
   revive(): void {
     this.deadT = -1;
+    if (this.gun) this.gun.visible = true;
     this.root.visible = true;
     this.root.rotation.x = 0;
     this.mesh.position.y = 0;
@@ -311,12 +321,14 @@ export class CharacterView {
     B[BoneId.Spine].rotation.x = -0.08 * moving;
     // aim: chest pitches with view, head follows a bit more
     const pitch = THREE.MathUtils.clamp(a.pitch, -0.9, 0.9);
-    B[BoneId.Chest].rotation.x = -pitch * 0.8;
-    B[BoneId.Head].rotation.x = -pitch * 0.3;
+    // bladed rifle stance: torso turned right, head and gun counter-turned to the target
+    const blade = STANCE_YAW * (1 - this.sprintK);
+    B[BoneId.Chest].rotation.set(-pitch * 0.8, -blade, 0);
+    B[BoneId.Head].rotation.set(-pitch * 0.3, blade * 0.9, 0);
     // arms hold the gun in front
     const kick = a.kick * 0.25;
     const rel = a.reloading ? Math.sin(performance.now() * 0.012) * 0.25 + 0.4 : 0;
-    B[BoneId.RUpper].rotation.set(-1.25 + kick, 0, -0.15);
+    B[BoneId.RUpper].rotation.set(-1.25 + kick, 0, -0.38);
     B[BoneId.RFore].rotation.set(-0.55, 0, 0);
     B[BoneId.LUpper].rotation.set(-1.45 + kick + rel, 0, -0.75);
     B[BoneId.LFore].rotation.set(-0.35 - rel, 0.2, 0);
@@ -337,7 +349,20 @@ export class CharacterView {
       B[BoneId.LUpper].rotation.set(-3.0 + k * 2.2, 0, 0.2);
       B[BoneId.LFore].rotation.set(-0.8 + k * 0.6, 0, 0);
     }
-    this.gunMount.position.z = 0.26 - a.kick * 0.06;
-    this.gunMount.rotation.x = -a.kick * 0.12 + (a.reloading ? 0.5 : 0);
+    // sprint: lean in, pump the arms, carry the gun low across the chest
+    this.sprintK += ((a.sprint && a.speed > 2 ? 1 : 0) - this.sprintK) * Math.min(1, dt * 8);
+    const sk = this.sprintK;
+    if (sk > 0.01) {
+      B[BoneId.Spine].rotation.x += -0.28 * sk;
+      B[BoneId.Chest].rotation.x = B[BoneId.Chest].rotation.x * (1 - sk) + 0.25 * sk;
+      B[BoneId.LThigh].rotation.x *= 1 + 0.45 * sk;
+      B[BoneId.RThigh].rotation.x *= 1 + 0.45 * sk;
+      B[BoneId.RUpper].rotation.x += 0.55 * sk + s * 0.25 * sk;
+      B[BoneId.LUpper].rotation.x += 0.4 * sk - s * 0.25 * sk;
+    }
+    this.gunMount.position.z = 0.14 - a.kick * 0.06;
+    this.gunMount.rotation.set(-a.kick * 0.12 + (a.reloading ? 0.5 : 0) + 0.75 * sk, blade + 0.55 * sk, -0.3 * sk);
+    // a little weapon bob while moving
+    this.gunMount.position.y = 0.15 + Math.sin(this.phase * 2) * 0.012 * moving;
   }
 }

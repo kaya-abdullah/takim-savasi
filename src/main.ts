@@ -4,12 +4,14 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { audio } from './core/audio';
 import { Input } from './core/input';
 import { loadSave, writeSave, type SaveData, type Settings } from './core/save';
-import { getWeapon } from './data/weapons';
+import { ALL_WEAPONS, getWeapon } from './data/weapons';
+import { makeWeaponMesh } from './render/weaponModel';
 import { canSpin, spinWheel, buyUpgrade, buyWeapon, equipWeapon, formatTL, grenadeCount, killReward, matchBonus, maxHp, streakReward, UPGRADES, type UpgradeId } from './game/economy';
-import { Match, type Grenade, type HitInfo, type Projectile } from './game/match';
+import { Match, type Drop, type Grenade, type HitInfo, type Projectile } from './game/match';
 import type { Combatant } from './game/combatant';
 import { PlayerController } from './game/player';
 import { CharacterView } from './render/character';
@@ -30,6 +32,8 @@ type State = 'loading' | 'menu' | 'playing' | 'paused' | 'end';
 
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
+const _v3 = new THREE.Vector3();
+const _v4 = new THREE.Vector3();
 
 class Game {
   state: State = 'loading';
@@ -62,6 +66,9 @@ class Game {
   private arcPts = Array.from({ length: 44 }, () => new THREE.Vector3());
   private arcRing!: THREE.Mesh;
   private pickupViews = new PickupViews();
+  private dropViews = new Map<Drop, THREE.Group>();
+  /** Weapons picked up during the current match (lost when it ends). */
+  private matchInv: string[] = [];
   private update: MenuExtras['update'];
   private readonly native = Capacitor.isNativePlatform();
   private killMoney = 0;
@@ -109,6 +116,7 @@ class Game {
         return i;
       },
       openLink: (url) => { window.location.href = url; },
+      selectWeapon: (id) => this.selectWeapon(id),
     }, this.input);
     audio.enabled = this.save.settings.sound;
   }
@@ -194,6 +202,10 @@ class Game {
       if (this.state === 'playing' && e.code === 'KeyB') this.openShop();
       else if (e.code === 'Escape' && this.state === 'paused' && !this.ui.root.querySelector('#shop.on')) this.resume();
       if (this.state === 'playing' && e.code === 'KeyQ') this.switchWeapon();
+      if (this.state === 'playing' && /^Digit[1-9]$/.test(e.code)) {
+        const id = this.inventoryIds()[Number(e.code.slice(5)) - 1];
+        if (id) this.selectWeapon(id);
+      }
     });
     document.addEventListener('pointerlockchange', () => {
       const locked = document.pointerLockElement === this.canvas;
@@ -280,6 +292,15 @@ class Game {
       const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
       this.composer = new EffectComposer(r, rt);
       this.composer.addPass(new RenderPass(this.scene, this.camera));
+      // Safety net: a single NaN/Inf pixel would be smeared into big black blocks by bloom.
+      this.composer.addPass(new ShaderPass({
+        uniforms: { tDiffuse: { value: null } },
+        vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
+          void main(){ vec4 c = texture2D(tDiffuse, vUv);
+            if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0);
+            gl_FragColor = min(c, vec4(64.0)); }`,
+      }));
       this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.5, 0.88);
       this.composer.addPass(this.bloom);
       this.composer.addPass(new OutputPass());
@@ -329,6 +350,8 @@ class Game {
     this.grenadeMeshes.clear();
     this.arcDots.visible = this.arcRing.visible = false;
     this.pickupViews.clear();
+    for (const g of this.dropViews.values()) this.scene.remove(g);
+    this.dropViews.clear();
     this.effects.clear();
     this.match = null;
   }
@@ -345,6 +368,14 @@ class Game {
         audio.siren();
       },
       pickedUp: (c, p, w) => this.onPickup(c, p.kind, w),
+      weaponFound: (c, d) => {
+        const have = this.inventoryIds().includes(d.def.id);
+        const better = d.def.price > c.weapon.def.price;
+        this.addToInventory(d.def.id, !have && better);
+        this.ctrl.refill(d.def.id);
+        audio.pickupGun();
+        this.ui.popup(have ? `${d.def.name}: mermi doldu` : `+ ${d.def.name}`, 'kill');
+      },
       grenadeThrown: (g) => { g.owner.view?.throwAnim(); const s = this.listenerPan(g.pos); if (s.dist < 25) audio.whoosh(); },
       grenadeBounce: (g) => { const s = this.listenerPan(g.pos); audio.clink(s.dist, s.pan); },
       melee: (c, v, back) => this.onMelee(c, v, back),
@@ -356,11 +387,7 @@ class Game {
       respawn: (c) => {
         if (!c.isPlayer) return;
         this.ui.death(false);
-        // a supply-drop weapon lasts one life
-        if (!this.save.owned.includes(c.weapon.def.id)) {
-          this.ctrl.equip(c, this.save.equipped);
-          c.weapon.refill();
-        }
+        this.ctrl.refillAll();
       },
       end: (w) => this.onEnd(w),
     }, { playerGrenades: grenadeCount(this.save), playerHp: maxHp(this.save) });
@@ -371,7 +398,8 @@ class Game {
       c.view.root.position.copy(c.pos);
       this.scene.add(c.view.root);
     }
-    this.ctrl.attach(m.player, this.save.owned);
+    this.matchInv = [];
+    this.ctrl.attach(m.player, this.inventoryIds());
     this.killMoney = 0;
     this.state = 'playing';
     this.input.reset();
@@ -453,9 +481,35 @@ class Game {
     this.ui.renderShop(this.save);
   }
 
+  /** Test/debug helper. */
+  weaponDef(id: string) {
+    return getWeapon(id);
+  }
+
+  /** Owned weapons in shop order, then this match's pick-ups. */
+  inventoryIds(): string[] {
+    const owned = ALL_WEAPONS.filter((w) => this.save.owned.includes(w.id)).map((w) => w.id);
+    return [...owned, ...this.matchInv.filter((id) => !owned.includes(id))];
+  }
+
+  selectWeapon(id: string): void {
+    if (this.state !== 'playing' || !this.match) return;
+    const p = this.match.player;
+    if (!this.ctrl.owned.includes(id) || p.weapon.def.id === id) return;
+    this.ctrl.equip(p, id);
+    audio.click();
+  }
+
+  private addToInventory(id: string, autoEquip: boolean): void {
+    const m = this.match!;
+    if (!this.inventoryIds().includes(id)) this.matchInv.push(id);
+    this.ctrl.owned = this.inventoryIds();
+    if (autoEquip) this.ctrl.equip(m.player, id);
+  }
+
   private applyEquip(id: string): void {
     if (!this.match) return;
-    this.ctrl.owned = [...this.save.owned];
+    this.ctrl.owned = this.inventoryIds();
     this.ctrl.equip(this.match.player, id);
   }
 
@@ -492,12 +546,20 @@ class Game {
       // the player's tracer is drawn from the muzzle to the crosshair point
       this.effects.tracer(from, hit.point, tracer ?? 0xffd27a, c.isPlayer ? 0.03 : 0.022, c.isPlayer ? 0.06 : 0.08);
       this.effects.muzzleFlash(from, wid === 'shotgun' || wid === 'sniper' ? 0.7 : 0.45);
+      const dir = _v2.copy(hit.point).sub(from).normalize();
+      this.effects.muzzleStar(from, dir, wid === 'shotgun' || wid === 'sniper' || wid === 'lmg' ? 0.55 : 0.38);
       const s = this.listenerPan(from);
+      if (s.dist < 30 && Math.random() < 1 / c.weapon.def.pellets && wid !== 'revolver') {
+        // brass flies out of the ejection port to the shooter's right
+        const port = _v3.copy(from).addScaledVector(dir, -0.3);
+        this.effects.casing(port, _v4.set(-Math.cos(c.yaw), 0, Math.sin(c.yaw)));
+      }
       audio.shot(c.weapon.def.sound, c.isPlayer ? 0 : s.dist, c.isPlayer ? 0 : s.pan);
       if (c.isPlayer) {
         this.ctrl.onShot(c);
         this.effects.shake = Math.min(1, this.effects.shake + c.weapon.def.recoil * 2);
-        this.lights.flash.position.copy(from);
+        // keep the light a little in front of the barrel so it never sits inside a surface
+        this.lights.flash.position.copy(from).addScaledVector(dir, 0.35);
         this.flashT = 0.05;
       }
     }
@@ -505,6 +567,7 @@ class Game {
       this.effects.sparkBurst(hit.point, null, hit.victim.team === 'blue' ? 0x6fb0ff : 0xff6a4a, 7, 4);
     } else if (hit.normal) {
       this.effects.sparkBurst(hit.point, hit.normal, isProjectile ? (tracer ?? 0x6bfffa) : 0xffd27a, isProjectile ? 14 : 5, 6);
+      if (!isProjectile) this.effects.decal(hit.point, hit.normal);
       if (Math.random() < 0.6) this.effects.puff(_v.copy(hit.point).addScaledVector(hit.normal, 0.1), 0.35, 0xbdb5a6, 0.6, 0.4);
     }
     if (isProjectile) {
@@ -567,9 +630,9 @@ class Game {
     if (c.isPlayer) {
       audio.powerup();
       if (kind === 'airdrop' && w) {
-        this.ctrl.equip(c, w.id);
+        this.addToInventory(w.id, true);
         c.weapon.refill();
-        this.ui.banner(w.name.toUpperCase() + '!', 'Süper silah · bu can boyunca');
+        this.ui.banner(w.name.toUpperCase() + '!', 'Süper silah · bu maç boyunca envanterinde');
       } else this.ui.banner(PICKUP_NAMES[kind]);
     } else if (s.dist < 25) audio.powerup();
     if (kind === 'airdrop' && !c.isPlayer && w) {
@@ -669,11 +732,13 @@ class Game {
       this.ctrl.update(dt, m.player, this.input, m, this.save.settings);
       if (this.ctrl.reloaded) audio.reload();
       if (this.ctrl.jumped) audio.jump();
+      if (this.ctrl.stepped) audio.step(m.player.sprinting);
       m.update(dt);
     }
     if (m && this.state !== 'menu') {
       this.syncViews(dt, m);
       this.syncGrenades(m);
+      this.syncDrops(m, dt);
       this.pickupViews.sync(m.pickups, dt, (pos) => this.effects.puff(_v.set(pos.x + (Math.random() - 0.5), 0.3, pos.z + (Math.random() - 0.5)), 0.9, 0xff4a3a, 2.2, 1.6));
       if (this.state === 'playing') this.updateHud(dt, m);
     } else {
@@ -720,6 +785,7 @@ class Game {
         airborne: !c.onGround,
         kick: c.kick,
         reloading: c.weapon.reloading,
+        sprint: c.sprinting,
       });
       // hide own body when the scope is up or the camera is squeezed against a wall
       if (c.isPlayer && c.alive) {
@@ -743,6 +809,37 @@ class Game {
         if (p.def.projectile!.splash > 0) this.effects.puff(p.pos, 0.35, 0xd8d0c4, 0.7, 0.2);
         else this.effects.sparkBurst(p.pos, null, p.def.projectile!.color, 2, 1);
       }
+    }
+  }
+
+  private syncDrops(m: Match, dt: number): void {
+    for (const d of m.drops) {
+      let g = this.dropViews.get(d);
+      if (!g) {
+        g = new THREE.Group();
+        const gun = makeWeaponMesh(d.def);
+        gun.rotation.set(0, 0, Math.PI / 2); // lying on its side
+        gun.position.y = 0.06;
+        g.add(gun);
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.68, 28), new THREE.MeshBasicMaterial({ color: new THREE.Color(2.4, 2, 0.6), transparent: true, opacity: 0.8, depthWrite: false, toneMapped: false }));
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.y = 0.03;
+        g.add(ring);
+        this.scene.add(g);
+        this.dropViews.set(d, g);
+      }
+      g.position.set(d.pos.x, 0, d.pos.z);
+      g.rotation.y += dt * 1.5;
+      // drop in from waist height, then blink before vanishing
+      g.position.y = Math.max(0, 0.9 - d.age * 3);
+      g.visible = d.age < 20 || Math.sin(d.age * 14) > 0;
+    }
+    for (const [d, g] of this.dropViews) {
+      if (d.alive && m.drops.includes(d)) continue;
+      this.scene.remove(g);
+      ((g.children[1] as THREE.Mesh).material as THREE.Material).dispose();
+      (g.children[1] as THREE.Mesh).geometry.dispose();
+      this.dropViews.delete(d);
     }
   }
 
@@ -806,9 +903,10 @@ class Game {
       money: this.save.money, aiming: p.aiming, scope: p.alive && p.aiming && w.def.zoom < 0.5,
       enemyUnderCross: this.enemyUnderCross, owned: this.save.owned.length, dt,
       grenades: p.grenades,
-      dmgBuff: p.dmgBuffT, speedBuff: p.speedBuffT,
+      dmgBuff: p.dmgBuffT, speedBuff: p.speedBuffT, stamina: p.stamina,
       grenadeWarn: p.alive && m.grenades.some((g) => g.owner.team !== p.team && g.pos.distanceTo(p.pos) < 7),
     });
+    this.ui.inventory(this.ctrl.owned.map((id) => ({ id, name: getWeapon(id).name, temp: !this.save.owned.includes(id), current: p.weapon.def.id === id })));
     if (!p.alive) this.ui.death(true, p.lastAttacker?.name ?? '', p.respawnT);
     else this.ui.death(false);
     this.minimap.draw(m, dt);

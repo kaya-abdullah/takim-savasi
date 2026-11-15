@@ -14,7 +14,7 @@ function beamMaterial(color: number): THREE.ShaderMaterial {
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
     // bright at the bottom, fading upward, with slow rising bands
     fragmentShader: `uniform vec3 color; uniform float time; varying vec2 vUv;
-      void main(){ float a = pow(1.0 - vUv.y, 2.2) * (0.55 + 0.25 * sin(vUv.y * 30.0 - time * 4.0));
+      void main(){ float a = pow(clamp(1.0 - vUv.y, 0.0, 1.0), 2.2) * (0.55 + 0.25 * sin(vUv.y * 30.0 - time * 4.0));
       gl_FragColor = vec4(color * 1.6, a * 0.75); }`,
   });
 }

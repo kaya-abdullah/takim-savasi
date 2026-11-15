@@ -221,3 +221,29 @@ test('kill streak shows banner and pays bonus; equipment upgrade gives more gren
   expect(await g(page, 'g.match.player.maxHp')).toBe(125);
   expect(errors).toEqual([]);
 });
+
+test('sprint drains stamina; dropped gun goes to the inventory bar and can be selected', async ({ page }) => {
+  const errors = await boot(page);
+  await page.click('.big-play');
+  await page.waitForTimeout(400);
+  await page.keyboard.down('KeyW');
+  await page.keyboard.down('ShiftLeft');
+  await page.waitForTimeout(1200);
+  expect(await g(page, 'g.match.player.sprinting')).toBe(true);
+  expect(await g(page, 'g.match.player.stamina')).toBeLessThan(0.95);
+  await page.keyboard.up('ShiftLeft');
+  await page.keyboard.up('KeyW');
+  // kill a bot carrying an LMG right next to the player: the gun drops at the player's feet
+  await g(page, `(() => { const m = g.match, p = m.player; const e = m.combatants.find(c => c.team === 'red' && c.alive);
+    m.brains.delete(e); e.setWeapon(g.weaponDef('lmg')); e.shieldT = 0;
+    e.pos.set(p.pos.x + 0.5, 0, p.pos.z); m.damage(e, p, 999, false, p.weapon.def); })()`);
+  await page.waitForTimeout(1200);
+  await expect(page.locator('#hud .inv .slot')).toHaveCount(2);
+  await expect(page.locator('#hud .inv .slot.temp')).toHaveCount(1);
+  await page.screenshot({ path: `${shots}/13-inventory.png` });
+  await page.keyboard.press('Digit1');
+  expect(await g(page, 'g.match.player.weapon.def.id')).toBe('pistol');
+  await page.keyboard.press('Digit2');
+  expect(await g(page, 'g.match.player.weapon.def.id')).not.toBe('pistol');
+  expect(errors).toEqual([]);
+});

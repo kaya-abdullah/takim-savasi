@@ -323,3 +323,19 @@ button { border: none; color: var(--text); }
 @media (max-height: 500px) { .banner small { font-size: 14px; } }
 
 .diag { font-size: 10px; color: var(--muted); max-width: 420px; word-break: break-all; }
+
+/* v3.2: inventory, stamina */
+.inv { position: absolute; left: 50%; bottom: calc(70px + var(--safe-b)); transform: translateX(-50%); display: flex; gap: 6px; max-width: min(46vw, 520px); overflow-x: auto; touch-action: pan-x; scrollbar-width: none; pointer-events: auto; padding: 4px 2px; }
+.inv::-webkit-scrollbar { display: none; }
+.slot { position: relative; flex: 0 0 auto; width: 70px; height: 40px; border-radius: 9px; background: rgba(10,16,28,.62); border: 2px solid rgba(255,255,255,.18); display: flex; align-items: center; justify-content: center; padding: 2px 6px; font-size: 10px; font-weight: 700; }
+.slot img { max-width: 100%; max-height: 30px; pointer-events: none; }
+.slot.on { border-color: var(--gold); background: rgba(255,204,51,.22); box-shadow: 0 0 10px rgba(255,204,51,.45); }
+.slot.temp { border-style: dashed; }
+.slot .k { position: absolute; left: 4px; top: 1px; font-size: 9px; color: var(--muted); pointer-events: none; }
+.slot em { position: absolute; right: 3px; bottom: 1px; font-size: 7px; font-style: normal; color: #7dff6a; pointer-events: none; }
+.buffs { bottom: calc(122px + var(--safe-b)); }
+.stam { height: 4px; border-radius: 3px; margin-top: 3px; background: rgba(0,0,0,.4); overflow: hidden; transition: opacity .3s; opacity: 0; }
+.stam i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #3dd8ff, #b0f0ff); }
+.joy-hint small { font-size: 9px; opacity: .8; }
+#hud .keys { white-space: normal; max-width: 92vw; text-align: center; }
+@media (max-height: 430px) { .slot { width: 58px; height: 34px; } .slot img { max-height: 24px; } .inv { bottom: calc(62px + var(--safe-b)); max-width: 40vw; } }

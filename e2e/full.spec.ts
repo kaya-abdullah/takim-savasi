@@ -163,19 +163,25 @@ test('phone: every in-match control, pause flow, death and end screen', async ({
   await page.waitForTimeout(200);
   expect(await g(page, 'g.match.player.dmgBuffT')).toBeGreaterThan(5);
   await expect(page.locator('#hud .buffs')).toContainText('2X HASAR');
-  // supply drop gives a premium weapon for this life only
+  // supply drop gives a premium weapon that stays in the inventory for the match
   await g(page, "(() => { const m = g.match, p = m.player; const d = m.spawnPickup('airdrop', p.pos.clone()); d.pos.y = 0.2; })()");
   await page.waitForTimeout(300);
   expect(['minigun', 'rocket', 'plasma', 'sniper', 'lmg']).toContain(await g(page, 'g.match.player.weapon.def.id'));
   await page.screenshot({ path: `${shots}/23-airdrop.png` });
 
-  // death overlay, then respawn with the owned weapon back
+  // death overlay, then respawn keeping the match inventory
   await g(page, "(() => { const m = g.match; const e = m.combatants.find(c => c.team === 'red'); m.player.shieldT = 0; m.damage(m.player, e, 999, false, e.weapon.def); })()");
   await expect(page.locator('#hud .death')).toHaveClass(/on/);
   await page.waitForFunction(() => (window as G).__game.match.player.alive, null, { timeout: 8000 });
   await page.waitForTimeout(200);
   await expect(page.locator('#hud .death')).not.toHaveClass(/on/);
-  expect(['smg', 'pistol']).toContain(await g(page, 'g.match.player.weapon.def.id'));
+  const drop = await g(page, 'g.match.player.weapon.def.id');
+  expect(['minigun', 'rocket', 'plasma', 'sniper', 'lmg']).toContain(drop);
+  await expect(page.locator('#hud .inv .slot.temp')).toHaveCount(1);
+  await expect(page.locator('#hud .inv .slot')).toHaveCount(3);
+  // tap the first inventory slot to switch back to the pistol
+  await page.locator('#hud .inv .slot').first().tap();
+  expect(await g(page, 'g.match.player.weapon.def.id')).toBe('pistol');
 
   // win -> end screen buttons are reachable on a phone
   await g(page, "(() => { const m = g.match; m.score.blue = m.killLimit - 1; const e = m.combatants.find(c => c.team === 'red' && c.alive); e.shieldT = 0; m.damage(e, m.player, 999, false, m.player.weapon.def); m.update(0.016); })()");

@@ -36,7 +36,10 @@ export interface UICallbacks {
   switchWeapon(): void;
   spin(): number;
   openLink(url: string): void;
+  selectWeapon(id: string): void;
 }
+
+export interface InvSlot { id: string; name: string; temp: boolean; current: boolean; }
 
 export interface MenuExtras {
   update?: { version: string; url: string };
@@ -80,6 +83,7 @@ export class UI {
     death: HTMLElement; deathCd: HTMLElement; deathBy: HTMLElement; popups: HTMLElement; scope: HTMLElement;
     reload: HTMLElement; reloadI: HTMLElement; aimBtn: HTMLElement; switchBtn: HTMLElement; touch: HTMLElement[];
     keys: HTMLElement; gCount: HTMLElement; banner: HTMLElement; warn: HTMLElement; buffs: HTMLElement; nums: HTMLElement;
+    inv: HTMLElement; stam: HTMLElement;
   };
   private numPool: HTMLElement[] = [];
   private numIdx = 0;
@@ -186,9 +190,9 @@ export class UI {
       <div class="popups"></div>
       <div class="vignette"></div>
       <div class="dmgdir"><i></i><i></i><i></i><i></i></div>
-      <div class="hpm"><div class="lbl"><span><span id="hpt">100</span> ❤</span><span class="ammo"><span id="am">12</span><small id="wn"></small></span></div><div class="bar"><i id="hpb"></i></div></div>
+      <div class="hpm"><div class="lbl"><span><span id="hpt">100</span> ❤</span><span class="ammo"><span id="am">12</span><small id="wn"></small></span></div><div class="bar"><i id="hpb"></i></div><div class="stam"><i></i></div></div>
       <div class="money"><span class="coin">₺</span><span id="mn">0 TL</span></div>
-      <div class="joy-hint">YÜRÜ</div>
+      <div class="joy-hint">YÜRÜ<br><small>sonuna it: KOŞ</small></div>
       <button class="tc fire" data-b="fire" data-look="1" aria-label="Ateş">${ICON.fire}</button>
       <button class="tc fire2" data-b="fire" aria-label="Ateş">${ICON.fire}</button>
       <button class="tc aim" data-b="aim" aria-label="Nişan">${ICON.aim}</button>
@@ -199,10 +203,11 @@ export class UI {
       <button class="tc knife" data-b="knife" aria-label="Bıçak">${ICON.knife}</button>
       <div class="banner"></div>
       <div class="buffs"></div>
+      <div class="inv"></div>
       <div class="nums"></div>
       <div class="gwarn">${ICON.grenade}<span>BOMBA!</span></div>
       <button class="shop-btn" data-a="shop">${ICON.cart}MAĞAZA</button>
-      <div class="keys">WASD yürü · Fare nişan · Sol tık ateş · Sağ tık/E dürbün · R şarjör · G bomba (basılı tut) · V bıçak · Space zıpla · Q silah · B mağaza · Esc</div>
+      <div class="keys">WASD yürü · Fare nişan · Sol tık ateş · Sağ tık/E dürbün · R şarjör · G bomba (basılı tut) · V bıçak · Space zıpla · Shift koş · 1-9/Q silah · B mağaza · Esc</div>
       <div class="death"><h2>ÖLDÜN!</h2><p id="dby"></p><div class="cd" id="dcd">3</div></div>`;
     s.prepend(this.minimap);
     const q = <T extends HTMLElement>(sel: string) => s.querySelector(sel) as T;
@@ -215,7 +220,15 @@ export class UI {
       reload: q('.reloadbar'), reloadI: q('.reloadbar i'), aimBtn: q('.tc.aim'), switchBtn: q('.tc.switch'),
       touch: Array.from(s.querySelectorAll('.tc, .joy-hint')) as HTMLElement[], keys: q('.keys'),
       gCount: q('#gc'), banner: q('.banner'), warn: q('.gwarn'), buffs: q('.buffs'), nums: q('.nums'),
+      inv: q('.inv'), stam: q('.stam i'),
     };
+    this.hud.inv.addEventListener('pointerdown', (e) => {
+      const b = (e.target as HTMLElement).closest('[data-w]') as HTMLElement | null;
+      if (!b) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.cb.selectWeapon(b.dataset.w!);
+    });
     for (let i = 0; i < 10; i++) {
       const n = el('div', 'dnum');
       this.hud.nums.appendChild(n);
@@ -271,9 +284,14 @@ export class UI {
   updateHud(d: {
     blue: number; red: number; limit: number; timeLeft: number; hp: number; maxHp: number; ammo: number; mag: number; weapon: string;
     reloadFrac: number; money: number; aiming: boolean; scope: boolean; enemyUnderCross: boolean; owned: number; dt: number;
-    grenades: number; grenadeWarn: boolean; dmgBuff: number; speedBuff: number;
+    grenades: number; grenadeWarn: boolean; dmgBuff: number; speedBuff: number; stamina: number;
   }): void {
     const h = this.hud;
+    const st = Math.round(d.stamina * 50);
+    this.set('stam', st, () => {
+      h.stam.style.width = `${st * 2}%`;
+      h.stam.parentElement!.style.opacity = st >= 50 ? '0' : '1';
+    });
     const bkey = `${Math.ceil(d.dmgBuff)}|${Math.ceil(d.speedBuff)}`;
     this.set('buffs', bkey, () => {
       h.buffs.innerHTML = (d.dmgBuff > 0 ? `<div class="buff dmg">2X HASAR <b>${Math.ceil(d.dmgBuff)}</b></div>` : '')
@@ -333,6 +351,15 @@ export class UI {
     n.style.top = `${y}px`;
     void n.offsetWidth;
     n.classList.add('go');
+  }
+
+  /** Bottom inventory bar: owned weapons plus ones picked up this match. */
+  inventory(slots: InvSlot[]): void {
+    const key = slots.map((x) => x.id + (x.current ? '*' : '') + (x.temp ? 't' : '')).join(',');
+    this.set('inv', key, () => {
+      this.hud.inv.innerHTML = slots.map((x, i) => `<button class="slot ${x.current ? 'on' : ''} ${x.temp ? 'temp' : ''}" data-w="${x.id}" title="${esc(x.name)}">
+        <span class="k">${i + 1}</span>${this.icons[x.id] ? `<img src="${this.icons[x.id]}" alt="">` : esc(x.name)}${x.temp ? '<em>GEÇİCİ</em>' : ''}</button>`).join('');
+    });
   }
 
   /** Short line in the kill feed (events like supply drops). */
