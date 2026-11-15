@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { WeaponDef } from '../data/weapons';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { GeomBuilder } from './geomBuilder';
 import { makeWeaponMesh } from './weaponModel';
 
@@ -31,21 +32,24 @@ const BONES: { p: [number, number, number]; parent: number }[] = [
   { p: [-0.11, 0.47, 0], parent: BoneId.RThigh },
 ];
 
-const geoCache = new Map<Team, THREE.BufferGeometry>();
+const geoCache = new Map<string, THREE.BufferGeometry>();
 
-function buildGeometry(team: Team): THREE.BufferGeometry {
+function buildGeometry(team: Team, lo = false): THREE.BufferGeometry {
   const c = PAL[team];
+  // far LOD: same shapes with a fraction of the segments
+  const k = lo ? 0.5 : 1;
+  const seg = (n: number, min = 3) => Math.max(min, Math.round(n * k));
   const gb = new GeomBuilder(true);
   const M = (x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) =>
     new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(sx, sy, sz));
   // Smooth, high-segment primitives: the old boxy look came from 1-segment boxes.
-  const caps = (r: number, len: number) => new THREE.CapsuleGeometry(r, len, 8, 18);
-  const sph = (r: number, w = 20, h = 14) => new THREE.SphereGeometry(r, w, h);
-  const rbox = (x: number, y: number, z: number, r = 0.035) => new RoundedBoxGeometry(x, y, z, 4, Math.min(r, x / 2.01, y / 2.01, z / 2.01));
+  const caps = (r: number, len: number) => new THREE.CapsuleGeometry(r, len, seg(4, 2), seg(12, 6));
+  const sph = (r: number, w = 14, h = 10) => new THREE.SphereGeometry(r, seg(Math.min(w, 16), 6), seg(Math.min(h, 12), 4));
+  const rbox = (x: number, y: number, z: number, r = 0.035) => new RoundedBoxGeometry(x, y, z, lo ? 1 : 2, Math.min(r, x / 2.01, y / 2.01, z / 2.01));
   const H = BoneId;
   // ---- pelvis + belt
   gb.add(caps(0.15, 0.08), c.uniform, M(0, 0.95, 0, 0, 0, Math.PI / 2, 1, 1, 0.82), undefined, H.Hips);
-  gb.add(new THREE.TorusGeometry(0.165, 0.032, 10, 28), BELT, M(0, 1.04, 0, Math.PI / 2, 0, 0, 1, 0.8, 1), undefined, H.Hips);
+  gb.add(new THREE.TorusGeometry(0.165, 0.032, 6, 18), BELT, M(0, 1.04, 0, Math.PI / 2, 0, 0, 1, 0.8, 1), undefined, H.Hips);
   gb.add(rbox(0.07, 0.06, 0.03, 0.01), 0xb8a46a, M(0, 1.04, 0.135), undefined, H.Hips); // buckle
   // ---- torso: rounded body under a padded vest
   gb.add(caps(0.165, 0.2), c.uniform, M(0, 1.2, 0, 0, 0, 0, 1, 1, 0.8), undefined, H.Spine);
@@ -67,11 +71,11 @@ function buildGeometry(team: Team): THREE.BufferGeometry {
     gb.add(rbox(0.085, 0.055, 0.03, 0.02), GOGGLE, M(x, 1.705, 0.14), undefined, H.Head);
     gb.add(rbox(0.07, 0.042, 0.01, 0.015), 0x9fe3ff, M(x, 1.705, 0.156), undefined, H.Head);
   }
-  gb.add(new THREE.TorusGeometry(0.152, 0.012, 6, 28), GOGGLE, M(0, 1.705, 0.005, Math.PI / 2, 0, 0, 1, 1, 1), undefined, H.Head);
+  gb.add(new THREE.TorusGeometry(0.152, 0.012, 4, 18), GOGGLE, M(0, 1.705, 0.005, Math.PI / 2, 0, 0, 1, 1, 1), undefined, H.Head);
   // helmet with a rim and a strap
-  gb.add(new THREE.SphereGeometry(0.18, 26, 14, 0, Math.PI * 2, 0, Math.PI * 0.52), c.helmet, M(0, 1.715, -0.005), undefined, H.Head);
-  gb.add(new THREE.TorusGeometry(0.178, 0.018, 8, 30), c.helmet, M(0, 1.72, -0.005, Math.PI / 2, 0, 0, 1, 1, 1), undefined, H.Head);
-  gb.add(new THREE.TorusGeometry(0.18, 0.012, 6, 30), c.accent, M(0, 1.78, -0.005, Math.PI / 2, 0, 0, 0.93, 0.93, 1), undefined, H.Head);
+  gb.add(new THREE.SphereGeometry(0.18, 18, 8, 0, Math.PI * 2, 0, Math.PI * 0.52), c.helmet, M(0, 1.715, -0.005), undefined, H.Head);
+  gb.add(new THREE.TorusGeometry(0.178, 0.018, 5, 20), c.helmet, M(0, 1.72, -0.005, Math.PI / 2, 0, 0, 1, 1, 1), undefined, H.Head);
+  gb.add(new THREE.TorusGeometry(0.18, 0.012, 4, 20), c.accent, M(0, 1.78, -0.005, Math.PI / 2, 0, 0, 0.93, 0.93, 1), undefined, H.Head);
   // ---- arms
   for (const [side, up, fo] of [[1, H.LUpper, H.LFore], [-1, H.RUpper, H.RFore]] as const) {
     const x = 0.25 * side;
@@ -92,7 +96,8 @@ function buildGeometry(team: Team): THREE.BufferGeometry {
     gb.add(rbox(0.135, 0.12, 0.27, 0.045), BOOT, M(x, 0.06, 0.035), undefined, sh);
     gb.add(rbox(0.14, 0.03, 0.28, 0.012), 0x141210, M(x, 0.012, 0.035), undefined, sh); // sole
   }
-  const g = gb.build();
+  // Indexing shares vertices between triangles: ~6x fewer vertices to skin per frame.
+  const g = mergeVertices(gb.build());
   g.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1, 0), 1.6);
   return g;
 }
@@ -173,11 +178,17 @@ export class CharacterView {
   private slashT = 0;
   private throwT = 0;
   private knife = makeKnife();
+  private hiGeo!: THREE.BufferGeometry;
+  private loGeo!: THREE.BufferGeometry;
   readonly marker: THREE.Sprite;
 
   constructor(readonly team: Team, showMarker: boolean) {
     let geo = geoCache.get(team);
     if (!geo) geoCache.set(team, (geo = buildGeometry(team)));
+    let lo = geoCache.get(team + '-lo');
+    if (!lo) geoCache.set(team + '-lo', (lo = buildGeometry(team, true)));
+    this.hiGeo = geo;
+    this.loGeo = lo;
     this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.05 });
     addRim(this.mat, new THREE.Color(team === 'blue' ? 0x3d7bff : 0xff4a3a).multiplyScalar(0.55));
     this.mesh = new THREE.SkinnedMesh(geo, this.mat);
@@ -220,6 +231,14 @@ export class CharacterView {
   muzzle(out: THREE.Vector3): THREE.Vector3 {
     if (!this.gun) return out.set(0, 1.4, 0).applyMatrix4(this.root.matrixWorld);
     return out.copy(this.gun.userData.muzzle as THREE.Vector3).applyMatrix4(this.gun.matrixWorld);
+  }
+
+  /** Distance-based detail: far fighters use the light mesh and skip the shadow pass. */
+  setDistance(d: number): void {
+    const g = d > 18 ? this.loGeo : this.hiGeo;
+    if (this.mesh.geometry !== g) this.mesh.geometry = g;
+    this.mesh.castShadow = d < 32;
+    if (this.gun) for (const ch of this.gun.children) ch.castShadow = d < 20;
   }
 
   hitFlash(): void { this.flash = 1; }

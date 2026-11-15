@@ -8,7 +8,7 @@ import { audio } from './core/audio';
 import { Input } from './core/input';
 import { loadSave, writeSave, type SaveData, type Settings } from './core/save';
 import { getWeapon } from './data/weapons';
-import { buyUpgrade, buyWeapon, equipWeapon, formatTL, grenadeCount, killReward, matchBonus, maxHp, streakReward, UPGRADES, type UpgradeId } from './game/economy';
+import { canSpin, spinWheel, buyUpgrade, buyWeapon, equipWeapon, formatTL, grenadeCount, killReward, matchBonus, maxHp, streakReward, UPGRADES, type UpgradeId } from './game/economy';
 import { Match, type Grenade, type HitInfo, type Projectile } from './game/match';
 import type { Combatant } from './game/combatant';
 import { PlayerController } from './game/player';
@@ -16,7 +16,10 @@ import { CharacterView } from './render/character';
 import { Effects } from './render/effects';
 import { makeEnvMap, makeLights, makeSky, updateSun, type Lights } from './render/env';
 import { renderWeaponIcons } from './render/icons';
-import { UI } from './ui/ui';
+import { UI, type MenuExtras } from './ui/ui';
+import { PickupViews, PICKUP_NAMES } from './render/pickups';
+import { APK_URL, SITE_URL, VERSION, VERSION_CODE } from './version';
+import { Capacitor } from '@capacitor/core';
 import { Minimap } from './ui/minimap';
 import { buildWorld } from './world/build3d';
 import { CollisionWorld } from './world/collision';
@@ -58,6 +61,9 @@ class Game {
   private arcDots!: THREE.InstancedMesh;
   private arcPts = Array.from({ length: 44 }, () => new THREE.Vector3());
   private arcRing!: THREE.Mesh;
+  private pickupViews = new PickupViews();
+  private update: MenuExtras['update'];
+  private readonly native = Capacitor.isNativePlatform();
   private killMoney = 0;
   private flashT = 0;
   private crossT = 0;
@@ -72,10 +78,12 @@ class Game {
   private trailT = 0;
   private endTimer: number | null = null;
   frames = 0;
+  private shadowEvery = 1;
   errors: string[] = [];
 
   constructor() {
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: false, powerPreference: 'high-performance', stencil: false });
+    // Native MSAA is the cheapest anti-aliasing on phones (used when post-processing is off).
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance', stencil: false });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
@@ -95,6 +103,12 @@ class Game {
       resume: () => this.resume(),
       quit: () => this.toMenu(),
       switchWeapon: () => this.switchWeapon(),
+      spin: () => {
+        const i = spinWheel(this.save);
+        if (i >= 0) { writeSave(this.save); audio.unlock(); audio.siren(); setTimeout(() => audio.buy(), 4300); }
+        return i;
+      },
+      openLink: (url) => { window.location.href = url; },
     }, this.input);
     audio.enabled = this.save.settings.sound;
   }
@@ -117,6 +131,7 @@ class Game {
     this.arcDots.frustumCulled = false;
     this.arcDots.visible = false;
     this.scene.add(this.arcDots);
+    this.scene.add(this.pickupViews.group);
     const ringGeo = new THREE.RingGeometry(5.1, 5.5, 48);
     ringGeo.rotateX(-Math.PI / 2);
     this.arcRing = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(2.5, 0.5, 0.3), transparent: true, opacity: 0.7, depthWrite: false, toneMapped: false }));
@@ -144,6 +159,7 @@ class Game {
     this.ui.loading(1, 'Hazır!');
     this.bindGlobal();
     this.toMenu();
+    void this.checkUpdate();
     this.ui.hideLoading();
     requestAnimationFrame((t) => this.frame(t));
   }
@@ -176,17 +192,44 @@ class Game {
     }).catch(() => {});
   }
 
+  /** Installed app: ask the website which version is current. */
+  private async checkUpdate(): Promise<void> {
+    if (!this.native) return;
+    try {
+      const r = await fetch(SITE_URL + 'version.json?t=' + Date.now(), { cache: 'no-store' });
+      const v = (await r.json()) as { version: string; code: number; apk: string };
+      if (typeof v.code === 'number' && v.code > VERSION_CODE) {
+        this.update = { version: String(v.version), url: String(v.apk || APK_URL) };
+        if (this.state === 'menu') this.ui.showMenu(this.save, this.menuExtras());
+      }
+    } catch { /* offline: try again next launch */ }
+  }
+
+  private menuExtras(): MenuExtras {
+    const ua = navigator.userAgent;
+    return {
+      update: this.update,
+      androidUrl: !this.native && /Android/i.test(ua) ? APK_URL : undefined,
+      iosHint: !this.native && /iPhone|iPad/i.test(ua) && !(navigator as unknown as { standalone?: boolean }).standalone,
+      canSpin: canSpin(this.save),
+      version: VERSION,
+    };
+  }
+
   // ------------------------------------------------------------------ quality
   applyQuality(): void {
     const q = this.save.settings.quality;
     const r = this.renderer;
     const mobile = this.input.isTouch;
-    // Sharp by default: phones render at up to 2x; adaptive scaling backs off if FPS drops.
+    // low: 1x, no shadows. medium (phone default): native MSAA, no post-processing,
+    // shadows refreshed every other frame. high: bloom + 4x MSAA post chain.
     const maxDpr = q === 'low' ? 1 : q === 'medium' ? 1.5 : 2;
     r.setPixelRatio(Math.min(window.devicePixelRatio || 1, maxDpr) * this.dprScale);
     const shadows = q !== 'low';
-    if (r.shadowMap.enabled !== shadows) {
+    const soft = q === 'high' ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+    if (r.shadowMap.enabled !== shadows || r.shadowMap.type !== soft) {
       r.shadowMap.enabled = shadows;
+      r.shadowMap.type = soft;
       this.scene.traverse((o) => {
         const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
         if (m) (Array.isArray(m) ? m : [m]).forEach((x) => (x.needsUpdate = true));
@@ -200,13 +243,12 @@ class Game {
       sh.map = null;
     }
     this.lights.sun.castShadow = shadows;
-    if (q === 'low') {
-      this.composer?.dispose();
-      this.composer = null;
-      this.bloom = null;
-    } else {
-      this.composer?.dispose();
-      // 4x MSAA removes the jagged ("pixelly") edges on characters and buildings
+    this.shadowEvery = q === 'high' ? 1 : 2;
+    sh.autoUpdate = this.shadowEvery === 1;
+    this.composer?.dispose();
+    this.composer = null;
+    this.bloom = null;
+    if (q === 'high') {
       const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
       this.composer = new EffectComposer(r, rt);
       this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -214,7 +256,6 @@ class Game {
       this.composer.addPass(this.bloom);
       this.composer.addPass(new OutputPass());
     }
-    this.scene.fog = this.scene.fog; // keep
     this.onResize();
   }
 
@@ -242,7 +283,7 @@ class Game {
     document.getElementById('touch')!.style.display = 'none';
     this.camera.fov = 60;
     this.camera.updateProjectionMatrix();
-    this.ui.showMenu(this.save);
+    this.ui.showMenu(this.save, this.menuExtras());
   }
 
   private clearMatch(): void {
@@ -253,6 +294,7 @@ class Game {
     for (const g of this.grenadeMeshes.values()) this.scene.remove(g);
     this.grenadeMeshes.clear();
     this.arcDots.visible = this.arcRing.visible = false;
+    this.pickupViews.clear();
     this.effects.clear();
     this.match = null;
   }
@@ -263,6 +305,12 @@ class Game {
     audio.click();
     this.clearMatch();
     const m = new Match(this.map, this.world, this.nav, this.save.equipped, {
+      pickupSpawned: (p) => {
+        if (p.kind !== 'airdrop') return;
+        this.ui.banner('HAVA İKMALİ!', 'Haritadaki ★ işaretine koş');
+        audio.siren();
+      },
+      pickedUp: (c, p, w) => this.onPickup(c, p.kind, w),
       grenadeThrown: (g) => { g.owner.view?.throwAnim(); const s = this.listenerPan(g.pos); if (s.dist < 25) audio.whoosh(); },
       grenadeBounce: (g) => { const s = this.listenerPan(g.pos); audio.clink(s.dist, s.pan); },
       melee: (c, v, back) => this.onMelee(c, v, back),
@@ -271,7 +319,15 @@ class Game {
       explosion: (pos, r) => this.onExplosion(pos, r),
       damage: (v, a, amt, head) => this.onDamage(v, a, amt, head),
       kill: (e) => this.onKill(e),
-      respawn: (c) => { if (c.isPlayer) this.ui.death(false); },
+      respawn: (c) => {
+        if (!c.isPlayer) return;
+        this.ui.death(false);
+        // a supply-drop weapon lasts one life
+        if (!this.save.owned.includes(c.weapon.def.id)) {
+          this.ctrl.equip(c, this.save.equipped);
+          c.weapon.refill();
+        }
+      },
       end: (w) => this.onEnd(w),
     }, { playerGrenades: grenadeCount(this.save), playerHp: maxHp(this.save) });
     this.match = m;
@@ -328,7 +384,7 @@ class Game {
     audio.click();
     this.ui.closeShop();
     if (this.state === 'paused' && this.shopFrom === 'playing') this.resume();
-    else if (this.state === 'menu') this.ui.showMenu(this.save);
+    else if (this.state === 'menu') this.ui.showMenu(this.save, this.menuExtras());
   }
 
   buy(id: string): void {
@@ -459,11 +515,33 @@ class Game {
       this.ui.damageFrom(rel);
       audio.hurt();
       this.effects.shake = Math.min(1, this.effects.shake + 0.25);
-    } else if (a.isPlayer && v.alive) {
+    }
+    if (a.isPlayer) {
+      _v.set(v.pos.x, v.pos.y + 2.0, v.pos.z).project(this.camera);
+      if (_v.z < 1) this.ui.damageNumber((_v.x * 0.5 + 0.5) * innerWidth, (-_v.y * 0.5 + 0.5) * innerHeight, _amt, v.alive ? (head ? 'head' : 'hit') : 'kill');
+    }
+    if (a.isPlayer && v.alive) {
       this.ui.hitmark(head ? 'head' : 'hit');
       if (head) audio.headshot();
       else audio.hit();
     }
+  }
+
+  private onPickup(c: Combatant, kind: 'health' | 'damage' | 'speed' | 'airdrop', w?: { id: string; name: string }): void {
+    const s = this.listenerPan(c.pos);
+    if (c.isPlayer) {
+      audio.powerup();
+      if (kind === 'airdrop' && w) {
+        this.ctrl.equip(c, w.id);
+        c.weapon.refill();
+        this.ui.banner(w.name.toUpperCase() + '!', 'Süper silah · bu can boyunca');
+      } else this.ui.banner(PICKUP_NAMES[kind]);
+    } else if (s.dist < 25) audio.powerup();
+    if (kind === 'airdrop' && !c.isPlayer && w) {
+      const cls = c.team === 'blue' ? 'kb' : 'kr';
+      this.ui.feedText(`<span class="${cls}">${c.name}</span><span class="w">ikmalden aldı:</span>${w.name}`);
+    }
+    this.effects.sparkBurst(_v.set(c.pos.x, c.pos.y + 1, c.pos.z), _v2.set(0, 1, 0), kind === 'health' ? 0x3dff7a : kind === 'damage' ? 0xff3b3b : kind === 'speed' ? 0x3dd8ff : 0xffc533, 30, 7);
   }
 
   private onMelee(c: Combatant, v: Combatant | null, back: boolean): void {
@@ -480,6 +558,9 @@ class Game {
   private onKill(e: { killer: Combatant; victim: Combatant; head: boolean; weapon: { id: string; name: string } }): void {
     const m = this.match!;
     this.ui.feed(e as never, m.player);
+    // celebratory burst where the fighter fell
+    const at = _v.set(e.victim.pos.x, e.victim.pos.y + 1.1, e.victim.pos.z);
+    for (const col of [0xffd84a, 0xff5a5a, 0x5ad1ff, 0x7dff6a, 0xff7ac8]) this.effects.sparkBurst(at, _v2.set(0, 1, 0), col, e.killer.isPlayer ? 10 : 4, 7);
     if (e.killer.isPlayer) {
       const knife = e.weapon.id === 'knife';
       const reward = killReward(e.head, knife);
@@ -558,6 +639,7 @@ class Game {
     if (m && this.state !== 'menu') {
       this.syncViews(dt, m);
       this.syncGrenades(m);
+      this.pickupViews.sync(m.pickups, dt, (pos) => this.effects.puff(_v.set(pos.x + (Math.random() - 0.5), 0.3, pos.z + (Math.random() - 0.5)), 0.9, 0xff4a3a, 2.2, 1.6));
       if (this.state === 'playing') this.updateHud(dt, m);
     } else {
       // menu: slow cinematic orbit over the city
@@ -578,6 +660,7 @@ class Game {
     this.lights.flash.intensity = this.flashT > 0 ? 40 : 0;
     const focus = m && this.state !== 'menu' ? m.player.pos : _v.set(0, 0, 0);
     updateSun(this.lights, focus);
+    if (this.shadowEvery > 1 && this.frames % this.shadowEvery === 0) this.lights.sun.shadow.needsUpdate = true;
     this.render();
     this.measureFps();
   }
@@ -593,6 +676,7 @@ class Game {
       f.set(Math.sin(c.yaw), 0, Math.cos(c.yaw));
       r.set(-Math.cos(c.yaw), 0, Math.sin(c.yaw));
       v.setShield(c.shieldT);
+      v.setDistance(c.isPlayer ? 0 : this.camera.position.distanceTo(c.pos));
       v.update(dt, {
         speed,
         fwd: speed > 0.1 ? (c.vx * f.x + c.vz * f.z) / speed : 0,
@@ -687,6 +771,7 @@ class Game {
       money: this.save.money, aiming: p.aiming, scope: p.alive && p.aiming && w.def.zoom < 0.5,
       enemyUnderCross: this.enemyUnderCross, owned: this.save.owned.length, dt,
       grenades: p.grenades,
+      dmgBuff: p.dmgBuffT, speedBuff: p.speedBuffT,
       grenadeWarn: p.alive && m.grenades.some((g) => g.owner.team !== p.team && g.pos.distanceTo(p.pos) < 7),
     });
     if (!p.alive) this.ui.death(true, p.lastAttacker?.name ?? '', p.respawnT);

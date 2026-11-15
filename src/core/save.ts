@@ -20,6 +20,8 @@ export interface SaveData {
   settings: Settings;
   /** Equipment upgrade levels bought in the shop. */
   upgrades: { bag: number; armor: number };
+  /** Local date (YYYY-MM-DD) of the last daily wheel spin. */
+  lastSpin: string;
   /** Settings schema version; older saves get the new quality default once. */
   sv: number;
 }
@@ -27,8 +29,9 @@ export interface SaveData {
 const KEY = 'takim-savasi-save-v1';
 
 export function defaultQuality(): Quality {
-  // Modern phones handle 'high'; adaptive resolution scaling covers slow ones.
-  return 'high';
+  if (typeof navigator === 'undefined') return 'high';
+  // Phones get 'medium' (sharp, no post-processing); desktops get bloom.
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || navigator.maxTouchPoints > 1 ? 'medium' : 'high';
 }
 
 export function defaultSave(): SaveData {
@@ -42,7 +45,8 @@ export function defaultSave(): SaveData {
     wins: 0,
     settings: { quality: defaultQuality(), sensitivity: 1, sound: true, aimAssist: true },
     upgrades: { bag: 0, armor: 0 },
-    sv: 2,
+    lastSpin: '',
+    sv: 3,
   };
 }
 
@@ -69,8 +73,9 @@ export function sanitize(raw: unknown): SaveData {
     if (typeof s.sound === 'boolean') d.settings.sound = s.sound;
     if (typeof s.aimAssist === 'boolean') d.settings.aimAssist = s.aimAssist;
   }
-  // v1 saves defaulted phones to 'medium'; move everyone to the sharper default once
-  if (r.sv !== 2) d.settings.quality = defaultQuality();
+  // Quality defaults changed in v2 and v3: re-pick the device default once.
+  if (r.sv !== 3) d.settings.quality = defaultQuality();
+  if (typeof r.lastSpin === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.lastSpin)) d.lastSpin = r.lastSpin;
   const u = r.upgrades as Record<string, unknown> | undefined;
   if (u && typeof u === 'object') {
     d.upgrades.bag = Math.min(2, num(u.bag, 0));

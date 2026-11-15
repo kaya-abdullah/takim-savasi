@@ -154,7 +154,7 @@ export class BotBrain {
     tz += _sep.z * 0.8;
     const tl = Math.hypot(tx, tz);
     if (tl > 1) { tx /= tl; tz /= tl; }
-    const sp = BOT_SPEED * c.weapon.def.moveMul * speedMul;
+    const sp = BOT_SPEED * c.weapon.def.moveMul * speedMul * (c.speedBuffT > 0 ? 1.4 : 1);
     const acc = Math.min(1, dt * 10);
     c.vx += (tx * sp - c.vx) * acc;
     c.vz += (tz * sp - c.vz) * acc;
@@ -251,6 +251,18 @@ export class BotBrain {
   }
 
   private pickGoal(c: Combatant, m: Match): void {
+    // power-ups and supply drops nearby are worth a detour
+    let near = null as { x: number; z: number } | null, nd = 40;
+    for (const p of m.pickups) {
+      if (!p.alive) continue;
+      const d = Math.hypot(p.pos.x - c.pos.x, p.pos.z - c.pos.z) * (p.kind === 'airdrop' ? 0.5 : 1);
+      if (d < nd) { nd = d; near = { x: p.pos.x, z: p.pos.z }; }
+    }
+    if (near && Math.random() < 0.6) {
+      this.goal = near;
+      this.path = [];
+      return;
+    }
     const pois = m.map.pois;
     const enemyX = c.team === 'blue' ? 1 : -1;
     // weight objectives toward the middle and the enemy side

@@ -34,6 +34,21 @@ export interface Grenade {
   resting: boolean;
 }
 
+export type PickupKind = 'health' | 'damage' | 'speed' | 'airdrop';
+export interface Pickup {
+  kind: PickupKind;
+  pos: THREE.Vector3;
+  alive: boolean;
+  falling: boolean;
+  age: number;
+}
+export const BUFF_TIME = 10;
+export const AIRDROP_WEAPONS = ['minigun', 'rocket', 'plasma', 'sniper', 'lmg'];
+const PICKUP_EVERY = 12;
+const AIRDROP_FIRST = 35;
+const AIRDROP_EVERY = 55;
+const AIRDROP_FALL = 5; // m/s under the parachute
+
 export const GRAVITY = 18;
 const REGEN_DELAY = 4;
 const REGEN_RATE = 15;
@@ -79,6 +94,8 @@ export interface KillEntry {
 
 export interface MatchEvents {
   grenadeThrown?(g: Grenade): void;
+  pickupSpawned?(p: Pickup): void;
+  pickedUp?(c: Combatant, p: Pickup, weapon?: WeaponDef): void;
   grenadeBounce?(g: Grenade): void;
   melee?(c: Combatant, victim: Combatant | null, backstab: boolean): void;
   shot?(c: Combatant, hit: HitInfo, def: WeaponDef): void;
@@ -104,6 +121,9 @@ export class Match {
   winner: Team | 'draw' | null = null;
   readonly projectiles: Projectile[] = [];
   readonly grenades: Grenade[] = [];
+  readonly pickups: Pickup[] = [];
+  private pickupT = 6;
+  private airdropT = AIRDROP_FIRST;
   readonly killFeed: KillEntry[] = [];
   readonly brains = new Map<Combatant, BotBrain>();
   private rand: () => number;
@@ -217,6 +237,8 @@ export class Match {
       if (c.shieldT > 0) c.shieldT -= dt;
       c.kick = Math.max(0, c.kick - dt * 8);
       if (c.meleeCd > 0) c.meleeCd -= dt;
+      if (c.dmgBuffT > 0) c.dmgBuffT -= dt;
+      if (c.speedBuffT > 0) c.speedBuffT -= dt;
       if (c.hp < c.maxHp && this.time - c.lastHurtT > REGEN_DELAY) c.hp = Math.min(c.maxHp, c.hp + REGEN_RATE * dt);
       const brain = this.brains.get(c);
       if (brain) brain.update(dt, c, this);
@@ -225,6 +247,7 @@ export class Match {
     }
     this.updateProjectiles(dt);
     this.updateGrenades(dt);
+    this.updatePickups(dt);
     if (this.score.blue >= this.killLimit || this.score.red >= this.killLimit || this.time >= this.duration) this.finish();
   }
 
@@ -375,6 +398,74 @@ export class Match {
     for (let i = this.grenades.length - 1; i >= 0; i--) if (!this.grenades[i].alive) this.grenades.splice(i, 1);
   }
 
+  private freePoi(minDist: number): THREE.Vector3 | null {
+    const pois = this.map.pois;
+    for (let tries = 0; tries < 12; tries++) {
+      const p = pois[Math.floor(this.rand() * pois.length)];
+      if (this.pickups.some((q) => q.alive && Math.hypot(q.pos.x - p.x, q.pos.z - p.z) < minDist)) continue;
+      return new THREE.Vector3(p.x, 0, p.z);
+    }
+    return null;
+  }
+
+  spawnPickup(kind: PickupKind, at?: THREE.Vector3): Pickup | null {
+    const pos = at ?? this.freePoi(kind === 'airdrop' ? 6 : 10);
+    if (!pos) return null;
+    const p: Pickup = { kind, pos, alive: true, falling: kind === 'airdrop', age: 0 };
+    if (p.falling) p.pos.y = 45;
+    this.pickups.push(p);
+    this.events.pickupSpawned?.(p);
+    return p;
+  }
+
+  private updatePickups(dt: number): void {
+    this.pickupT -= dt;
+    if (this.pickupT <= 0) {
+      this.pickupT = PICKUP_EVERY;
+      if (this.pickups.filter((p) => p.alive && p.kind !== 'airdrop').length < 3) {
+        const kinds: PickupKind[] = ['health', 'damage', 'speed'];
+        this.spawnPickup(kinds[Math.floor(this.rand() * 3)]);
+      }
+    }
+    this.airdropT -= dt;
+    if (this.airdropT <= 0) {
+      this.airdropT = AIRDROP_EVERY;
+      this.spawnPickup('airdrop');
+    }
+    for (const p of this.pickups) {
+      if (!p.alive) continue;
+      p.age += dt;
+      if (p.falling) {
+        p.pos.y -= AIRDROP_FALL * dt;
+        if (p.pos.y <= 0) { p.pos.y = 0; p.falling = false; }
+        continue;
+      }
+      if (p.kind !== 'airdrop' && p.age > 40) { p.alive = false; continue; }
+      for (const c of this.combatants) {
+        if (!c.alive || Math.hypot(c.pos.x - p.pos.x, c.pos.z - p.pos.z) > 1.4 || c.pos.y > 1.5) continue;
+        if (p.kind === 'health' && c.hp >= c.maxHp) continue;
+        this.collect(c, p);
+        break;
+      }
+    }
+    for (let i = this.pickups.length - 1; i >= 0; i--) if (!this.pickups[i].alive) this.pickups.splice(i, 1);
+  }
+
+  private collect(c: Combatant, p: Pickup): void {
+    p.alive = false;
+    let weapon: WeaponDef | undefined;
+    if (p.kind === 'health') c.hp = c.maxHp;
+    else if (p.kind === 'damage') c.dmgBuffT = BUFF_TIME;
+    else if (p.kind === 'speed') c.speedBuffT = BUFF_TIME;
+    else {
+      weapon = getWeapon(AIRDROP_WEAPONS[Math.floor(this.rand() * AIRDROP_WEAPONS.length)]);
+      // the player's weapon swap is handled by the controller (keeps per-weapon ammo)
+      if (!c.isPlayer) c.setWeapon(weapon);
+      c.grenades = Math.max(c.grenades, c.maxGrenades);
+    }
+    this.events.pickedUp?.(c, p, weapon);
+  }
+
   /** Knife swing. Backstabs kill instantly. Returns the victim, if any. */
   melee(c: Combatant): Combatant | null {
     if (!c.alive || c.meleeCd > 0 || this.over) return null;
@@ -403,6 +494,7 @@ export class Match {
 
   damage(victim: Combatant, attacker: Combatant, amount: number, head: boolean, def: WeaponDef): void {
     if (!victim.alive || victim.shieldT > 0 || this.over) return;
+    if (attacker.dmgBuffT > 0) amount *= 2;
     amount = Math.round(amount);
     victim.hp -= amount;
     victim.lastHurtT = this.time;

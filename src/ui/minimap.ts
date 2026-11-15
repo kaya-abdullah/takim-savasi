@@ -46,6 +46,27 @@ export class Minimap {
     const g = this.ctx;
     g.drawImage(this.bg, 0, 0);
     const p = m.player;
+    const pc: Record<string, string> = { health: '#3dff7a', damage: '#ff3b3b', speed: '#3dd8ff', airdrop: '#ffc533' };
+    for (const q of m.pickups) {
+      const x = this.X(q.pos.x), y = this.Z(q.pos.z);
+      g.fillStyle = pc[q.kind];
+      g.strokeStyle = '#000';
+      g.lineWidth = 2;
+      g.beginPath();
+      if (q.kind === 'airdrop') {
+        // pulsing star for the supply drop
+        const r = 11 + Math.sin(m.time * 6) * 2;
+        for (let k = 0; k < 10; k++) {
+          const a = (k / 10) * Math.PI * 2 - Math.PI / 2, rr = k % 2 ? r * 0.45 : r;
+          if (k) g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); else g.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+        }
+      } else {
+        g.moveTo(x, y - 7); g.lineTo(x + 7, y); g.lineTo(x, y + 7); g.lineTo(x - 7, y);
+      }
+      g.closePath();
+      g.stroke();
+      g.fill();
+    }
     for (const c of m.combatants) {
       if (!c.alive || c === p) continue;
       const ally = c.team === p.team;

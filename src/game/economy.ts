@@ -95,3 +95,25 @@ export function matchBonus(result: 'win' | 'lose' | 'draw'): number {
 export function formatTL(n: number): string {
   return n.toLocaleString('tr-TR') + ' TL';
 }
+
+// ---------------------------------------------------------------- daily wheel
+export const WHEEL = [100, 300, 150, 1000, 200, 500, 250, 2000];
+// weights keep the big prizes rare
+const WHEEL_W = [22, 14, 20, 5, 18, 9, 10, 2];
+
+export function today(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+export function canSpin(save: SaveData, now = new Date()): boolean {
+  return save.lastSpin !== today(now);
+}
+/** Picks a wheel segment, pays it and stamps today's date. Returns the segment index or -1. */
+export function spinWheel(save: SaveData, rnd = Math.random(), now = new Date()): number {
+  if (!canSpin(save, now)) return -1;
+  const total = WHEEL_W.reduce((a, b) => a + b, 0);
+  let x = rnd * total, i = 0;
+  while (i < WHEEL.length - 1 && x >= WHEEL_W[i]) { x -= WHEEL_W[i]; i++; }
+  save.money += WHEEL[i];
+  save.lastSpin = today(now);
+  return i;
+}

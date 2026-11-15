@@ -97,7 +97,7 @@ export class PlayerController {
     input.poll();
     _f.set(Math.sin(c.yaw), 0, Math.cos(c.yaw));
     _r.set(-Math.cos(c.yaw), 0, Math.sin(c.yaw));
-    const sp = PLAYER_SPEED * def.moveMul * (c.aiming ? 0.65 : 1);
+    const sp = PLAYER_SPEED * def.moveMul * (c.aiming ? 0.65 : 1) * (c.speedBuffT > 0 ? 1.4 : 1);
     const tx = (_f.x * input.moveY + _r.x * input.moveX) * sp;
     const tz = (_f.z * input.moveY + _r.z * input.moveX) * sp;
     const acc = Math.min(1, dt * (c.onGround ? 12 : 3));

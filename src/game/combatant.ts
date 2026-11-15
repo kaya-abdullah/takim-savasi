@@ -127,6 +127,9 @@ export class Combatant {
   /** Kills since last death. */
   streak = 0;
   meleeCd = 0;
+  /** Power-up timers (seconds left). */
+  dmgBuffT = 0;
+  speedBuffT = 0;
 
   constructor(readonly id: number, readonly name: string, readonly team: Team, readonly isPlayer: boolean, weapon: WeaponDef) {
     this.weapon = new WeaponState(weapon);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buyUpgrade, buyWeapon, equipWeapon, grenadeCount, KILL_REWARD, killReward, matchBonus, maxHp, streakReward } from '../src/game/economy';
+import { canSpin, spinWheel, WHEEL, buyUpgrade, buyWeapon, equipWeapon, grenadeCount, KILL_REWARD, killReward, matchBonus, maxHp, streakReward } from '../src/game/economy';
 import { defaultSave, sanitize } from '../src/core/save';
 import { SHOP_WEAPONS, STARTER, getWeapon } from '../src/data/weapons';
 import { createMap, mapColliders, propBox, buildingBox } from '../src/world/map';
@@ -77,14 +77,14 @@ describe('save', () => {
     expect(s.settings.sensitivity).toBe(1);
   });
   it('migrates old saves to high quality once and keeps upgrades', () => {
-    const old = sanitize({ money: 5, settings: { quality: 'medium' } });
-    expect(old.settings.quality).toBe('high');
-    const cur = sanitize({ sv: 2, settings: { quality: 'low' }, upgrades: { bag: 1, armor: 9 } });
+    const old = sanitize({ money: 5, settings: { quality: 'low' } });
+    expect(old.settings.quality).toBe('high'); // node has no phone UA -> desktop default
+    const cur = sanitize({ sv: 3, settings: { quality: 'low' }, upgrades: { bag: 1, armor: 9 } });
     expect(cur.settings.quality).toBe('low');
     expect(cur.upgrades).toEqual({ bag: 1, armor: 2 });
   });
   it('keeps valid data', () => {
-    const s = sanitize({ sv: 2, money: 7200, owned: ['smg'], equipped: 'smg', settings: { quality: 'low', sensitivity: 1.5, sound: false } });
+    const s = sanitize({ sv: 3, money: 7200, owned: ['smg'], equipped: 'smg', settings: { quality: 'low', sensitivity: 1.5, sound: false } });
     expect(s.money).toBe(7200);
     expect(s.equipped).toBe('smg');
     expect(s.settings.sound).toBe(false);
@@ -157,5 +157,22 @@ describe('map', () => {
     for (let i = 1; i < path.length; i++) {
       expect(world.segmentClear(path[i - 1].x, 0.5, path[i - 1].z, path[i].x, 0.5, path[i].z)).toBe(true);
     }
+  });
+});
+
+describe('daily wheel', () => {
+  it('pays a wheel prize once per day', () => {
+    const s = defaultSave();
+    const day = new Date(2026, 10, 15, 12);
+    expect(canSpin(s, day)).toBe(true);
+    const i = spinWheel(s, 0.5, day);
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(s.money).toBe(WHEEL[i]);
+    expect(spinWheel(s, 0.5, day)).toBe(-1);
+    expect(canSpin(s, new Date(2026, 10, 16, 9))).toBe(true);
+  });
+  it('the jackpot is rare (top weight segment index 7 only at the end of the range)', () => {
+    const s = defaultSave();
+    expect(WHEEL[spinWheel(s, 0.999, new Date(2026, 0, 1))]).toBe(2000);
   });
 });

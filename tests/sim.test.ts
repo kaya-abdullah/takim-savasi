@@ -69,7 +69,9 @@ describe('bot-only match simulation', () => {
     for (let i = 0; i < 30 * 300 && !m.over; i++) m.update(1 / 30);
     expect(m.over).toBe(true);
     expect(winner).not.toBeNull();
-    expect(Math.max(m.score.blue, m.score.red)).toBe(5);
+    // a grenade or rocket can take out two at once, so the winner may overshoot by a little
+    expect(Math.max(m.score.blue, m.score.red)).toBeGreaterThanOrEqual(5);
+    expect(Math.max(m.score.blue, m.score.red)).toBeLessThanOrEqual(7);
   });
 });
 
@@ -149,5 +151,53 @@ describe('grenades, knife, regen, streaks', () => {
     expect(p.streak).toBe(3);
     m.damage(p, reds[5], 999, false, getWeapon('pistol'));
     expect(p.streak).toBe(0);
+  });
+});
+
+describe('power-ups and supply drops', () => {
+  function quiet(seed = 4) {
+    const s = setup(seed);
+    const m = new Match(s.map, s.world, s.nav, 'pistol', {}, { seed });
+    m.brains.clear();
+    for (const c of m.combatants) c.shieldT = 0;
+    return m;
+  }
+  it('power-ups appear over time and an airdrop falls then lands', () => {
+    const m = quiet();
+    for (let i = 0; i < 30 * 40; i++) m.update(1 / 30);
+    expect(m.pickups.filter((p) => p.kind !== 'airdrop').length).toBeGreaterThan(0);
+    const drop = m.pickups.find((p) => p.kind === 'airdrop')!;
+    expect(drop).toBeTruthy();
+    expect(drop.falling).toBe(true);
+    for (let i = 0; i < 30 * 10; i++) m.update(1 / 30);
+    expect(drop.falling).toBe(false);
+    expect(drop.pos.y).toBe(0);
+  });
+  it('health pickup heals; damage pickup doubles damage; speed pickup sets buff', () => {
+    const m = quiet();
+    const p = m.player, e = m.combatants.find((c) => c.team === 'red')!;
+    p.hp = 30;
+    m.spawnPickup('health', new THREE.Vector3(p.pos.x, 0, p.pos.z));
+    m.update(1 / 30);
+    expect(p.hp).toBe(100);
+    m.spawnPickup('damage', new THREE.Vector3(p.pos.x, 0, p.pos.z));
+    m.update(1 / 30);
+    expect(p.dmgBuffT).toBeGreaterThan(9);
+    m.damage(e, p, 20, false, getWeapon('pistol'));
+    expect(e.hp).toBe(60);
+    m.spawnPickup('speed', new THREE.Vector3(p.pos.x, 0, p.pos.z));
+    m.update(1 / 30);
+    expect(p.speedBuffT).toBeGreaterThan(9);
+  });
+  it('a bot that reaches a landed airdrop gets a premium weapon', () => {
+    const m = quiet();
+    const b = m.combatants.find((c) => c.team === 'red')!;
+    const got: string[] = [];
+    m.events.pickedUp = (_c, _p, w) => w && got.push(w.id);
+    const drop = m.spawnPickup('airdrop', new THREE.Vector3(b.pos.x, 0, b.pos.z))!;
+    drop.pos.y = 0.5;
+    for (let i = 0; i < 10; i++) m.update(1 / 30);
+    expect(got).toHaveLength(1);
+    expect(['minigun', 'rocket', 'plasma', 'sniper', 'lmg']).toContain(b.weapon.def.id);
   });
 });

@@ -1,7 +1,7 @@
 import type { Btn, Input } from '../core/input';
 import type { SaveData, Settings } from '../core/save';
 import { SHOP_WEAPONS, STARTER, getWeapon, weaponStats, type WeaponDef } from '../data/weapons';
-import { formatTL, UPGRADES, type UpgradeId } from '../game/economy';
+import { formatTL, UPGRADES, WHEEL, type UpgradeId } from '../game/economy';
 import { START_GRENADES } from '../data/weapons';
 import type { Combatant } from '../game/combatant';
 import type { KillEntry } from '../game/match';
@@ -34,6 +34,16 @@ export interface UICallbacks {
   quit(): void;
   again(): void;
   switchWeapon(): void;
+  spin(): number;
+  openLink(url: string): void;
+}
+
+export interface MenuExtras {
+  update?: { version: string; url: string };
+  androidUrl?: string;
+  iosHint?: boolean;
+  canSpin: boolean;
+  version: string;
 }
 
 export interface EndData {
@@ -69,8 +79,10 @@ export class UI {
     feed: HTMLElement; cross: HTMLElement; hit: HTMLElement; vign: HTMLElement; dmg: HTMLElement[];
     death: HTMLElement; deathCd: HTMLElement; deathBy: HTMLElement; popups: HTMLElement; scope: HTMLElement;
     reload: HTMLElement; reloadI: HTMLElement; aimBtn: HTMLElement; switchBtn: HTMLElement; touch: HTMLElement[];
-    keys: HTMLElement; gCount: HTMLElement; banner: HTMLElement; warn: HTMLElement;
+    keys: HTMLElement; gCount: HTMLElement; banner: HTMLElement; warn: HTMLElement; buffs: HTMLElement; nums: HTMLElement;
   };
+  private numPool: HTMLElement[] = [];
+  private numIdx = 0;
   readonly minimap: HTMLCanvasElement;
   private last: Record<string, string | number | boolean> = {};
   private hitTimer = 0;
@@ -78,7 +90,7 @@ export class UI {
 
   constructor(root: HTMLElement, private cb: UICallbacks, private input: Input) {
     this.root = root;
-    for (const id of ['loading', 'menu', 'hud', 'shop', 'settings', 'pause', 'end']) {
+    for (const id of ['loading', 'menu', 'hud', 'shop', 'settings', 'pause', 'end', 'wheel']) {
       const s = el('div', 'screen');
       s.id = id;
       root.appendChild(s);
@@ -121,7 +133,7 @@ export class UI {
   }
 
   // ------------------------------------------------------------------ menu
-  showMenu(save: SaveData): void {
+  showMenu(save: SaveData, x: MenuExtras = { canSpin: false, version: '' }): void {
     const w = getWeapon(save.equipped);
     const s = this.screens.menu;
     s.innerHTML = `
@@ -140,12 +152,20 @@ export class UI {
         </div>
         <div class="hint">10'a 10 takım savaşı. Her leş <b style="color:var(--gold)">200 TL</b>, kazanırsan <b style="color:var(--gold)">+1000 TL</b>. Mağazada her silah 7.000 TL.</div>
       </div>
-      <button class="shop-btn" data-a="shop">${ICON.cart}MAĞAZA</button>`;
+      <button class="shop-btn" data-a="shop">${ICON.cart}MAĞAZA</button>
+      <button class="wheel-btn ${x.canSpin ? 'ready' : ''}" data-a="wheel"><span class="wico"></span>ŞANS ÇARKI${x.canSpin ? '<b>!</b>' : ''}</button>
+      ${x.update ? `<button class="notice update" data-a="link" data-url="${esc(x.update.url)}">🔔 Yeni sürüm v${esc(x.update.version)} çıktı! <b>GÜNCELLE</b></button>`
+        : x.androidUrl ? `<button class="notice" data-a="link" data-url="${esc(x.androidUrl)}">📱 Android uygulamasını indir</button>`
+        : x.iosHint ? `<div class="notice ios">iPhone: Paylaş → <b>Ana Ekrana Ekle</b> ile uygulama gibi oyna</div>` : ''}
+      <div class="ver">v${esc(x.version)}</div>`;
     s.onclick = (e) => {
-      const a = (e.target as HTMLElement).closest('[data-a]')?.getAttribute('data-a');
+      const t = (e.target as HTMLElement).closest('[data-a]') as HTMLElement | null;
+      const a = t?.getAttribute('data-a');
       if (a === 'play') this.cb.play();
       else if (a === 'shop') this.cb.openShop();
       else if (a === 'settings') this.openSettings(save.settings);
+      else if (a === 'wheel') this.openWheel(save, x);
+      else if (a === 'link') this.cb.openLink(t!.dataset.url!);
     };
     this.only('menu');
   }
@@ -178,6 +198,8 @@ export class UI {
       <button class="tc grenade" data-b="grenade" data-look="1" aria-label="El bombası">${ICON.grenade}<b class="badge" id="gc">3</b></button>
       <button class="tc knife" data-b="knife" aria-label="Bıçak">${ICON.knife}</button>
       <div class="banner"></div>
+      <div class="buffs"></div>
+      <div class="nums"></div>
       <div class="gwarn">${ICON.grenade}<span>BOMBA!</span></div>
       <button class="shop-btn" data-a="shop">${ICON.cart}MAĞAZA</button>
       <div class="keys">WASD yürü · Fare nişan · Sol tık ateş · Sağ tık/E dürbün · R şarjör · G bomba (basılı tut) · V bıçak · Space zıpla · Q silah · B mağaza · Esc</div>
@@ -192,8 +214,13 @@ export class UI {
       death: q('.death'), deathCd: q('#dcd'), deathBy: q('#dby'), popups: q('.popups'), scope: q('.scope'),
       reload: q('.reloadbar'), reloadI: q('.reloadbar i'), aimBtn: q('.tc.aim'), switchBtn: q('.tc.switch'),
       touch: Array.from(s.querySelectorAll('.tc, .joy-hint')) as HTMLElement[], keys: q('.keys'),
-      gCount: q('#gc'), banner: q('.banner'), warn: q('.gwarn'),
+      gCount: q('#gc'), banner: q('.banner'), warn: q('.gwarn'), buffs: q('.buffs'), nums: q('.nums'),
     };
+    for (let i = 0; i < 10; i++) {
+      const n = el('div', 'dnum');
+      this.hud.nums.appendChild(n);
+      this.numPool.push(n);
+    }
     s.addEventListener('click', (e) => {
       const a = (e.target as HTMLElement).closest('[data-a]')?.getAttribute('data-a');
       if (a === 'pause') this.cb.pause();
@@ -244,9 +271,14 @@ export class UI {
   updateHud(d: {
     blue: number; red: number; limit: number; timeLeft: number; hp: number; maxHp: number; ammo: number; mag: number; weapon: string;
     reloadFrac: number; money: number; aiming: boolean; scope: boolean; enemyUnderCross: boolean; owned: number; dt: number;
-    grenades: number; grenadeWarn: boolean;
+    grenades: number; grenadeWarn: boolean; dmgBuff: number; speedBuff: number;
   }): void {
     const h = this.hud;
+    const bkey = `${Math.ceil(d.dmgBuff)}|${Math.ceil(d.speedBuff)}`;
+    this.set('buffs', bkey, () => {
+      h.buffs.innerHTML = (d.dmgBuff > 0 ? `<div class="buff dmg">2X HASAR <b>${Math.ceil(d.dmgBuff)}</b></div>` : '')
+        + (d.speedBuff > 0 ? `<div class="buff spd">SÜPER HIZ <b>${Math.ceil(d.speedBuff)}</b></div>` : '');
+    });
     this.set('gc', d.grenades, () => {
       h.gCount.textContent = String(d.grenades);
       h.gCount.parentElement!.classList.toggle('empty', d.grenades === 0);
@@ -290,6 +322,25 @@ export class UI {
     b.classList.remove('on');
     void b.offsetWidth;
     b.classList.add('on');
+  }
+
+  /** Floating damage number at a screen position (pixels). */
+  damageNumber(x: number, y: number, amount: number, kind: 'hit' | 'head' | 'kill'): void {
+    const n = this.numPool[this.numIdx++ % this.numPool.length];
+    n.textContent = String(amount);
+    n.className = 'dnum ' + kind;
+    n.style.left = `${x + (Math.random() - 0.5) * 30}px`;
+    n.style.top = `${y}px`;
+    void n.offsetWidth;
+    n.classList.add('go');
+  }
+
+  /** Short line in the kill feed (events like supply drops). */
+  feedText(html: string): void {
+    const d = el('div', 'me', html);
+    this.hud.feed.prepend(d);
+    while (this.hud.feed.children.length > 5) this.hud.feed.lastChild!.remove();
+    setTimeout(() => d.remove(), 5000);
   }
 
   hitmark(kind: 'hit' | 'head' | 'kill'): void {
@@ -451,6 +502,45 @@ export class UI {
   closePause(): void {
     this.show('pause', false);
     this.show('settings', false);
+  }
+
+  // ------------------------------------------------------------------ wheel
+  openWheel(save: SaveData, x: MenuExtras): void {
+    const s = this.screens.wheel;
+    const n = WHEEL.length;
+    const cols = ['#ff5a5a', '#ffb800', '#3d8bff', '#9b5cff', '#36d17a', '#ff7ac8', '#2fd3d3', '#ffd84a'];
+    const conic = WHEEL.map((_, i) => `${cols[i]} ${(i * 360) / n}deg ${((i + 1) * 360) / n}deg`).join(',');
+    // labels sit on the segment centres, counter-rotated so they stay readable
+    const labels = WHEEL.map((v, i) => {
+      const a = ((i + 0.5) * 2 * Math.PI) / n;
+      return `<span style="left:calc(50% + ${Math.sin(a) * 96}px);top:calc(50% - ${Math.cos(a) * 96}px)">${v.toLocaleString('tr-TR')}</span>`;
+    }).join('');
+    const can = x.canSpin;
+    s.innerHTML = `<div class="overlay"><div class="panel wheelp"><h2>GÜNLÜK ŞANS ÇARKI</h2>
+      <div class="wheel-wrap"><div class="pointer"></div><div class="wheel" style="background: conic-gradient(${conic})">${labels}<i></i></div></div>
+      <div class="wres">${can ? 'Her gün 1 bedava çevirme hakkın var!' : 'Bugünkü hakkını kullandın. Yarın tekrar gel!'}</div>
+      <div class="btns"><button class="btn primary" data-a="spin" ${can ? '' : 'disabled'}>ÇEVİR!</button><button class="btn" data-a="close">KAPAT</button></div></div></div>`;
+    const wheel = s.querySelector('.wheel') as HTMLElement;
+    s.onclick = (e) => {
+      const a = (e.target as HTMLElement).closest('[data-a]')?.getAttribute('data-a');
+      if (a === 'close') { this.show('wheel', false); this.showMenu(save, { ...x, canSpin: false }); }
+      else if (a === 'spin') {
+        const btn = s.querySelector('[data-a="spin"]') as HTMLButtonElement;
+        if (btn.disabled) return;
+        btn.disabled = true;
+        const i = this.cb.spin();
+        if (i < 0) return;
+        // land segment i under the top pointer after 6 full turns
+        const target = 360 * 6 + (360 - (i + 0.5) * (360 / n));
+        wheel.style.transition = 'transform 4.2s cubic-bezier(.12,.75,.12,1)';
+        wheel.style.transform = `rotate(${target}deg)`;
+        setTimeout(() => {
+          (s.querySelector('.wres') as HTMLElement).innerHTML = `<b class="win">+${formatTL(WHEEL[i])}</b> kazandın!`;
+          x.canSpin = false;
+        }, 4300);
+      }
+    };
+    this.show('wheel');
   }
 
   // ------------------------------------------------------------------ end

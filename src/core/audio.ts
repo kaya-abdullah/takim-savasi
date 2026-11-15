@@ -189,6 +189,16 @@ export class Audio {
     const base = [523, 659, 784, 1047, 1319, 1568].slice(0, 3 + Math.min(3, level));
     base.forEach((f, i) => { this.tone(d, f, f, 0.18, 0.4, 'square', i * 0.06); this.tone(d, f / 2, f / 2, 0.22, 0.3, 'triangle', i * 0.06); });
   }
+  powerup(): void {
+    if (!this.ok()) return;
+    const d = this.out(0.5, 0);
+    [660, 880, 1320, 1760].forEach((f, i) => this.tone(d, f, f * 1.02, 0.12, 0.35, 'sine', i * 0.05));
+  }
+  siren(): void {
+    if (!this.ok()) return;
+    const d = this.out(0.35, 0);
+    for (let i = 0; i < 3; i++) { this.tone(d, 600, 900, 0.35, 0.3, 'sawtooth', i * 0.4); }
+  }
   win(): void {
     if (!this.ok()) return;
     const d = this.out(0.5, 0);
