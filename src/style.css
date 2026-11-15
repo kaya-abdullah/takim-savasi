@@ -321,3 +321,5 @@ button { border: none; color: var(--text); }
 #ui #loading { z-index: 50; }
 
 @media (max-height: 500px) { .banner small { font-size: 14px; } }
+
+.diag { font-size: 10px; color: var(--muted); max-width: 420px; word-break: break-all; }

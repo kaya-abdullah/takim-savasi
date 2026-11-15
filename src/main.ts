@@ -164,7 +164,32 @@ class Game {
     requestAnimationFrame((t) => this.frame(t));
   }
 
+  private wakeLock: { release(): Promise<void> } | null = null;
+
+  /** Keeps the phone screen from dimming/locking during a match (web; the APK uses a window flag). */
+  private async keepAwake(on: boolean): Promise<void> {
+    try {
+      const nav = navigator as unknown as { wakeLock?: { request(t: 'screen'): Promise<{ release(): Promise<void> }> } };
+      if (on && !this.wakeLock && nav.wakeLock && document.visibilityState === 'visible') {
+        this.wakeLock = await nav.wakeLock.request('screen');
+        (this.wakeLock as unknown as EventTarget).addEventListener?.('release', () => { this.wakeLock = null; });
+      } else if (!on && this.wakeLock) {
+        await this.wakeLock.release();
+        this.wakeLock = null;
+      }
+    } catch { /* not supported or refused: harmless */ }
+  }
+
   private bindGlobal(): void {
+    // Phones can drop the WebGL context under memory pressure: the canvas turns black.
+    // Progress is saved, so the safest recovery is a quick reload.
+    this.canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      diag('webglcontextlost');
+      if (this.state === 'playing') this.pause();
+      this.ui.toast('Grafik yeniden başlatılıyor...');
+      setTimeout(() => location.reload(), 1500);
+    });
     window.addEventListener('keydown', (e) => {
       if (this.state === 'playing' && e.code === 'KeyB') this.openShop();
       else if (e.code === 'Escape' && this.state === 'paused' && !this.ui.root.querySelector('#shop.on')) this.resume();
@@ -179,7 +204,10 @@ class Game {
       if (document.hidden) {
         if (this.state === 'playing') this.pause();
         audio.suspend();
-      } else audio.resume();
+      } else {
+        audio.resume();
+        if (this.match) void this.keepAwake(true);
+      }
     });
     void import('@capacitor/app').then(({ App }) => {
       void App.addListener('backButton', () => {
@@ -274,6 +302,7 @@ class Game {
 
   // ------------------------------------------------------------------ flow
   toMenu(): void {
+    void this.keepAwake(false);
     if (this.endTimer !== null) { clearTimeout(this.endTimer); this.endTimer = null; }
     this.clearMatch();
     this.state = 'menu';
@@ -288,7 +317,12 @@ class Game {
 
   private clearMatch(): void {
     if (!this.match) return;
-    for (const c of this.match.combatants) if (c.view) this.scene.remove(c.view.root);
+    for (const c of this.match.combatants) {
+      if (!c.view) continue;
+      this.scene.remove(c.view.root);
+      c.view.dispose();
+    }
+    for (const mesh of this.projMeshes.values()) (mesh.material as THREE.Material).dispose();
     for (const m of this.projMeshes.values()) this.scene.remove(m);
     this.projMeshes.clear();
     for (const g of this.grenadeMeshes.values()) this.scene.remove(g);
@@ -345,6 +379,7 @@ class Game {
     this.input.aimToggle = false;
     document.getElementById('touch')!.style.display = 'block';
     this.ui.showHud(this.input.isTouch, m.killLimit);
+    void this.keepAwake(true);
     this.input.requestPointerLock();
   }
 
@@ -621,7 +656,7 @@ class Game {
     } catch (err) {
       // never let one bad frame kill the loop; record for diagnostics
       const msg = String((err as Error)?.stack ?? err);
-      if (this.errors.length < 20) this.errors.push(msg);
+      if (this.errors.length < 20) { this.errors.push(msg); diag(msg); }
       console.error(err);
     }
   }
@@ -806,10 +841,20 @@ class Game {
   }
 }
 
+/** Keeps the last few problems in storage so they survive the reload after a crash. */
+function diag(msg: string): void {
+  try {
+    const k = 'takim-savasi-diag';
+    const list = JSON.parse(localStorage.getItem(k) || '[]') as string[];
+    list.push(new Date().toISOString().slice(0, 19) + ' ' + msg.slice(0, 200));
+    localStorage.setItem(k, JSON.stringify(list.slice(-8)));
+  } catch { /* ignore */ }
+}
+
 const game = new Game();
 // Exposed for automated tests and debugging.
 (window as unknown as { __game: Game }).__game = game;
-window.addEventListener('error', (e) => game.errors.push(String(e.message)));
+window.addEventListener('error', (e) => { game.errors.push(String(e.message)); diag(String(e.message)); });
 window.addEventListener('unhandledrejection', (e) => game.errors.push(String(e.reason)));
 game.boot().catch((e) => {
   game.errors.push(String(e?.stack ?? e));

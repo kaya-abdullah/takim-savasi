@@ -233,6 +233,17 @@ export class CharacterView {
     return out.copy(this.gun.userData.muzzle as THREE.Vector3).applyMatrix4(this.gun.matrixWorld);
   }
 
+  /** Frees per-character GPU resources (shared geometry is kept). */
+  dispose(): void {
+    this.mat.dispose();
+    this.mesh.skeleton.dispose(); // bone texture lives on the GPU
+    this.marker.material.dispose();
+    this.knife.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) { m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
+    });
+  }
+
   /** Distance-based detail: far fighters use the light mesh and skip the shadow pass. */
   setDistance(d: number): void {
     const g = d > 18 ? this.loGeo : this.hiGeo;

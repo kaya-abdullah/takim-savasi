@@ -463,7 +463,8 @@ export class UI {
       <div class="row">Hassasiyet <input type="range" min="0.3" max="2" step="0.1" value="${st.sensitivity}"></div>
       <div class="row">Ses ${seg('sound', [['1', 'Açık'], ['0', 'Kapalı']], st.sound ? '1' : '0')}</div>
       <div class="row">Nişan yardımı ${seg('aimAssist', [['1', 'Açık'], ['0', 'Kapalı']], st.aimAssist ? '1' : '0')}</div>
-      <div class="btns"><button class="btn primary" data-a="close">TAMAM</button></div></div></div>`;
+      <div class="btns"><button class="btn primary" data-a="close">TAMAM</button></div>
+      <div class="diag">${esc(this.diagText())}</div></div></div>`;
     s.onclick = (e) => {
       const t = e.target as HTMLElement;
       if (t.closest('[data-a="close"]')) { this.show('settings', false); return; }
@@ -479,6 +480,13 @@ export class UI {
     const range = s.querySelector('input') as HTMLInputElement;
     range.oninput = () => this.cb.settings({ sensitivity: parseFloat(range.value) });
     this.show('settings');
+  }
+
+  private diagText(): string {
+    try {
+      const l = JSON.parse(localStorage.getItem('takim-savasi-diag') || '[]') as string[];
+      return l.length ? 'Son hatalar: ' + l.slice(-3).join(' | ') : '';
+    } catch { return ''; }
   }
 
   // ------------------------------------------------------------------ pause
