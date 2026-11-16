@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import type { WeaponDef } from '../data/weapons';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { GeomBuilder } from './geomBuilder';
 import { makeWeaponMesh } from './weaponModel';
 
@@ -131,6 +133,135 @@ function makeKnife(): THREE.Group {
   return g;
 }
 
+// ------------------------------------------------------------------ realistic soldier
+/**
+ * The realistic body: a rigged, textured soldier (Mixamo "Vanguard", as shipped
+ * with the three.js examples). Our 13-bone procedural rig still does all the
+ * animation; its pose is copied onto the soldier's skeleton every frame.
+ * Without the asset (load failed) the procedural figure is used instead.
+ */
+interface HumanAsset { scene: THREE.Object3D; maps: Record<Team, THREE.Texture>; height: number; minY: number }
+let HUMAN: HumanAsset | null = null;
+/** Height of the soldier in metres (helmet top). */
+const HUMAN_H = 1.84;
+
+/** Repaints the tan armour plates in the team colour, keeping scratches and shading. */
+function teamTexture(src: THREE.Texture, team: Team): THREE.Texture {
+  const img = src.image as CanvasImageSource & { width: number; height: number };
+  const cv = document.createElement('canvas');
+  cv.width = img.width;
+  cv.height = img.height;
+  const cx = cv.getContext('2d', { willReadFrequently: true })!;
+  cx.drawImage(img, 0, 0);
+  const d = cx.getImageData(0, 0, cv.width, cv.height);
+  const px = d.data;
+  const armour = team === 'blue' ? [0.33, 0.5, 0.86] : [0.84, 0.27, 0.22];
+  const stripe = team === 'blue' ? [0.9, 0.94, 1.0] : [0.98, 0.86, 0.5];
+  for (let i = 0; i < px.length; i += 4) {
+    const r = px[i] / 255, g = px[i + 1] / 255, b = px[i + 2] / 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), sat = mx > 0 ? (mx - mn) / mx : 0;
+    if (mx - mn < 1e-3) continue;
+    let h = mx === r ? ((g - b) / (mx - mn)) % 6 : mx === g ? (b - r) / (mx - mn) + 2 : (r - g) / (mx - mn) + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+    const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    let c: number[] | null = null, k = 0;
+    if (h > 18 && h < 48 && sat > 0.18 && sat < 0.7 && mx > 0.42) { c = armour; k = lum / 0.62; } // tan plates
+    else if ((h < 12 || h > 345) && sat > 0.5 && mx > 0.3) { c = stripe; k = lum / 0.3; } // red stripes
+    if (!c) continue;
+    px[i] = Math.min(255, c[0] * k * 200);
+    px[i + 1] = Math.min(255, c[1] * k * 200);
+    px[i + 2] = Math.min(255, c[2] * k * 200);
+  }
+  cx.putImageData(d, 0, 0);
+  const t = new THREE.CanvasTexture(cv);
+  t.flipY = src.flipY;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = src.wrapS;
+  t.wrapT = src.wrapT;
+  t.anisotropy = 4;
+  return t;
+}
+
+/** Loads the soldier once. Returns false (procedural fallback) if it cannot be loaded. */
+export async function loadHumans(url = 'models/soldier.glb'): Promise<boolean> {
+  try {
+    const gltf = await new GLTFLoader().loadAsync(url);
+    const scene = gltf.scene;
+    let map: THREE.Texture | null = null;
+    scene.traverse((o) => {
+      const m = o as THREE.SkinnedMesh;
+      if (m.isSkinnedMesh && !map) map = (m.material as THREE.MeshStandardMaterial).map;
+    });
+    if (!map) return false;
+    scene.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(scene);
+    HUMAN = { scene, maps: { blue: teamTexture(map, 'blue'), red: teamTexture(map, 'red') }, height: box.max.y - box.min.y, minY: box.min.y };
+    return true;
+  } catch (e) {
+    console.warn('soldier model unavailable, using the simple figure', e);
+    return false;
+  }
+}
+
+/** Soldier bone (Mixamo name), our rig bone driving it, and the soldier bone it points at. */
+const RETARGET: [string, BoneId, string][] = [
+  ['Hips', BoneId.Hips, 'Spine'],
+  ['Spine', BoneId.Spine, 'Spine1'],
+  ['Spine2', BoneId.Chest, 'Neck'],
+  ['Head', BoneId.Head, 'HeadTop_End'],
+  ['LeftArm', BoneId.LUpper, 'LeftForeArm'],
+  ['LeftForeArm', BoneId.LFore, 'LeftHand'],
+  ['RightArm', BoneId.RUpper, 'RightForeArm'],
+  ['RightForeArm', BoneId.RFore, 'RightHand'],
+  ['LeftUpLeg', BoneId.LThigh, 'LeftLeg'],
+  ['LeftLeg', BoneId.LShin, 'LeftFoot'],
+  ['RightUpLeg', BoneId.RThigh, 'RightLeg'],
+  ['RightLeg', BoneId.RShin, 'RightFoot'],
+];
+/** Direction each of our rig bones points in its rest pose. */
+const RIG_DIR: Partial<Record<BoneId, [number, number, number]>> = {
+  [BoneId.Hips]: [0, 1, 0], [BoneId.Spine]: [0, 1, 0], [BoneId.Chest]: [0, 1, 0], [BoneId.Head]: [0, 1, 0],
+  [BoneId.LUpper]: [0, -1, 0], [BoneId.LFore]: [0, -1, 0], [BoneId.RUpper]: [0, -1, 0], [BoneId.RFore]: [0, -1, 0],
+  [BoneId.LThigh]: [0, -1, 0], [BoneId.LShin]: [0, -1, 0], [BoneId.RThigh]: [0, -1, 0], [BoneId.RShin]: [0, -1, 0],
+};
+const findBone = (root: THREE.Object3D, n: string) =>
+  (root.getObjectByName('mixamorig' + n) ?? root.getObjectByName('mixamorig:' + n)) as THREE.Bone | undefined;
+const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _p = new THREE.Vector3();
+const _t = new THREE.Vector3(), _pole = new THREE.Vector3();
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _e = new THREE.Vector3(), _d = new THREE.Vector3(), _u = new THREE.Vector3();
+
+/** Turns a bone in world space so its direction `from` becomes `to` (minimal rotation keeps the twist). */
+function turnBone(bone: THREE.Bone, from: THREE.Vector3, to: THREE.Vector3): void {
+  const r = _q.setFromUnitVectors(from.normalize(), to.normalize());
+  bone.getWorldQuaternion(_q2);
+  _q2.premultiply(r);
+  bone.parent!.getWorldQuaternion(_q);
+  bone.quaternion.copy(_q.invert().multiply(_q2));
+  bone.updateMatrixWorld(true);
+}
+
+/** Two-bone IK: [upper, fore, hand] so the hand reaches `target`, elbow bent toward `pole`. */
+function ikSolve([up, fore, hand]: THREE.Bone[], target: THREE.Vector3, pole: THREE.Vector3): void {
+  up.getWorldPosition(_a);
+  fore.getWorldPosition(_b);
+  hand.getWorldPosition(_c);
+  const l1 = _a.distanceTo(_b), l2 = _b.distanceTo(_c);
+  _d.copy(target).sub(_a);
+  const dist = THREE.MathUtils.clamp(_d.length(), Math.abs(l1 - l2) + 1e-3, l1 + l2 - 1e-3);
+  _d.normalize();
+  const x = (l1 * l1 - l2 * l2 + dist * dist) / (2 * dist), h = Math.sqrt(Math.max(0, l1 * l1 - x * x));
+  _u.copy(pole).sub(_a);
+  _u.addScaledVector(_d, -_u.dot(_d)).normalize();
+  _e.copy(_a).addScaledVector(_d, x).addScaledVector(_u, h); // elbow
+  turnBone(up, _b.sub(_a), _t.copy(_e).sub(_a));
+  fore.getWorldPosition(_b);
+  hand.getWorldPosition(_c);
+  // reach toward the (clamped) target from the new elbow
+  _u.copy(_a).addScaledVector(_d, dist);
+  turnBone(fore, _c.sub(_b), _u.sub(_b));
+}
+
 let markerTex: Record<Team, THREE.Texture> | null = null;
 function markerTextures(): Record<Team, THREE.Texture> {
   if (markerTex) return markerTex;
@@ -171,9 +302,26 @@ export interface AnimInput {
 
 export class CharacterView {
   readonly root = new THREE.Group();
+  /** Everything that falls over on death: our rig and the visible body. */
+  private body = new THREE.Group();
   readonly mesh: THREE.SkinnedMesh;
   readonly mat: THREE.MeshStandardMaterial;
+  /** Every material of the visible body (emissive flash/shield tint). */
+  private mats: THREE.MeshStandardMaterial[] = [];
+  private meshes: THREE.Mesh[] = [];
   private bones: THREE.Bone[] = [];
+  /** Soldier bones driven from our rig (empty for the simple figure). */
+  private drive: { bone: THREE.Bone; rig: THREE.Bone; off: THREE.Quaternion }[] = [];
+  /** Soldier hips: rest position in its parent's space and body-space → parent-space (linear part). */
+  private hips: { bone: THREE.Bone; rest: THREE.Vector3; toLocal: THREE.Matrix3 } | null = null;
+  /** Per-frame world rotations, accumulated down the hierarchy (no matrix updates). */
+  private qCache = new Map<THREE.Object3D, { q: THREE.Quaternion; s: number }>();
+  private stamp = 0;
+  private dist = 0;
+  private frameNo = Math.floor(Math.random() * 2);
+  /** Soldier arm chains for hand IK onto the gun: [upper arm, forearm, hand]. */
+  private arms: { r: THREE.Bone[]; l: THREE.Bone[] } | null = null;
+  private reloading = false;
   private gunMount = new THREE.Group();
   gun: THREE.Group | null = null;
   private phase = Math.random() * 10;
@@ -189,17 +337,8 @@ export class CharacterView {
   readonly marker: THREE.Sprite;
 
   constructor(readonly team: Team, showMarker: boolean) {
-    let geo = geoCache.get(team);
-    if (!geo) geoCache.set(team, (geo = buildGeometry(team)));
-    let lo = geoCache.get(team + '-lo');
-    if (!lo) geoCache.set(team + '-lo', (lo = buildGeometry(team, true)));
-    this.hiGeo = geo;
-    this.loGeo = lo;
-    this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.05 });
-    addRim(this.mat, new THREE.Color(team === 'blue' ? 0x3d7bff : 0xff4a3a).multiplyScalar(0.55));
-    this.mesh = new THREE.SkinnedMesh(geo, this.mat);
-    this.mesh.castShadow = true;
-    this.mesh.receiveShadow = false;
+    const rim = new THREE.Color(team === 'blue' ? 0x3d7bff : 0xff4a3a).multiplyScalar(0.55);
+    // our animation rig (never drawn itself)
     for (const b of BONES) {
       const bone = new THREE.Bone();
       if (b.parent >= 0) {
@@ -209,10 +348,73 @@ export class CharacterView {
       } else bone.position.set(...b.p);
       this.bones.push(bone);
     }
-    this.mesh.add(this.bones[0]);
-    this.mesh.updateMatrixWorld(true);
-    this.mesh.bind(new THREE.Skeleton(this.bones));
-    this.root.add(this.mesh);
+    this.body.add(this.bones[0]);
+    this.root.add(this.body);
+    if (HUMAN) {
+      const model = SkeletonUtils.clone(HUMAN.scene);
+      const wrap = new THREE.Group();
+      const k = HUMAN_H / HUMAN.height;
+      wrap.scale.setScalar(k);
+      wrap.position.y = -HUMAN.minY * k;
+      wrap.rotation.y = Math.PI; // the model faces -z, our fighters face +z
+      wrap.add(model);
+      this.body.add(wrap);
+      let main: THREE.SkinnedMesh | null = null;
+      model.traverse((o) => {
+        const m = o as THREE.SkinnedMesh;
+        if (!m.isSkinnedMesh) return;
+        const mat = (m.material as THREE.MeshStandardMaterial).clone();
+        if (!main) { main = m; mat.map = HUMAN!.maps[team]; }
+        mat.roughness = 0.8;
+        addRim(mat, rim);
+        m.material = mat;
+        m.castShadow = true;
+        m.receiveShadow = false;
+        this.mats.push(mat);
+        this.meshes.push(m);
+      });
+      this.mesh = main!;
+      this.mat = this.mats[0];
+      this.hiGeo = this.loGeo = this.mesh.geometry;
+      this.root.updateMatrixWorld(true);
+      // rest-pose alignment: a soldier bone's world rotation = rig bone's world rotation * off
+      const dir = new THREE.Vector3(), want = new THREE.Vector3(), rw = new THREE.Quaternion(), bw = new THREE.Quaternion();
+      for (const [name, id, child] of RETARGET) {
+        const bone = findBone(model, name), tip = findBone(model, child);
+        if (!bone || !tip) continue;
+        dir.copy(tip.getWorldPosition(_p)).sub(bone.getWorldPosition(want)).normalize();
+        want.set(...RIG_DIR[id]!);
+        const align = new THREE.Quaternion().setFromUnitVectors(dir, want);
+        this.bones[id].getWorldQuaternion(rw);
+        bone.getWorldQuaternion(bw);
+        this.drive.push({ bone, rig: this.bones[id], off: rw.clone().invert().multiply(align).multiply(bw) });
+      }
+      const chain = (s: string) => ['Arm', 'ForeArm', 'Hand'].map((n) => findBone(model, s + n)!);
+      const ra = chain('Right'), la = chain('Left');
+      if (ra.every(Boolean) && la.every(Boolean)) this.arms = { r: ra, l: la };
+      const hb = findBone(model, 'Hips');
+      if (hb) {
+        const toLocal = new THREE.Matrix4().copy(hb.parent!.matrixWorld).invert().multiply(this.body.matrixWorld);
+        this.hips = { bone: hb, rest: hb.position.clone(), toLocal: new THREE.Matrix3().setFromMatrix4(toLocal) };
+      }
+    } else {
+      let geo = geoCache.get(team);
+      if (!geo) geoCache.set(team, (geo = buildGeometry(team)));
+      let lo = geoCache.get(team + '-lo');
+      if (!lo) geoCache.set(team + '-lo', (lo = buildGeometry(team, true)));
+      this.hiGeo = geo;
+      this.loGeo = lo;
+      this.mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.05 });
+      addRim(this.mat, rim);
+      this.mesh = new THREE.SkinnedMesh(geo, this.mat);
+      this.mesh.castShadow = true;
+      this.mesh.receiveShadow = false;
+      this.body.add(this.mesh);
+      this.body.updateMatrixWorld(true);
+      this.mesh.bind(new THREE.Skeleton(this.bones));
+      this.mats.push(this.mat);
+      this.meshes.push(this.mesh);
+    }
     // gun hangs off the chest so it pitches with aim
     this.gunMount.position.set(-0.2, 0.15, 0.14);
     this.bones[BoneId.Chest].add(this.gunMount);
@@ -243,8 +445,8 @@ export class CharacterView {
 
   /** Frees per-character GPU resources (shared geometry is kept). */
   dispose(): void {
-    this.mat.dispose();
-    this.mesh.skeleton.dispose(); // bone texture lives on the GPU
+    for (const m of this.mats) m.dispose();
+    for (const m of this.meshes) (m as THREE.SkinnedMesh).skeleton?.dispose(); // bone textures live on the GPU
     this.marker.material.dispose();
     this.knife.traverse((o) => {
       const m = o as THREE.Mesh;
@@ -254,9 +456,10 @@ export class CharacterView {
 
   /** Distance-based detail: far fighters use the light mesh and skip the shadow pass. */
   setDistance(d: number): void {
+    this.dist = d;
     const g = d > 18 ? this.loGeo : this.hiGeo;
     if (this.mesh.geometry !== g) this.mesh.geometry = g;
-    this.mesh.castShadow = d < 32;
+    for (const m of this.meshes) m.castShadow = d < 32;
     if (this.gun) for (const ch of this.gun.children) ch.castShadow = d < 20;
   }
 
@@ -274,25 +477,90 @@ export class CharacterView {
     if (this.gun) this.gun.visible = true;
     this.root.visible = true;
     this.root.rotation.x = 0;
-    this.mesh.position.y = 0;
-    this.mesh.rotation.x = 0;
+    this.body.position.y = 0;
+    this.body.rotation.x = 0;
   }
 
   update(dt: number, a: AnimInput): void {
+    this.animate(dt, a);
+    this.reloading = a.reloading;
+    if (this.drive.length && this.root.visible) {
+      // far soldiers pose every other frame; hands only matter up close
+      if (this.dist > 30 && (++this.frameNo & 1)) return;
+      this.syncHuman();
+      if (this.dist < 25) {
+        this.body.updateMatrixWorld(true);
+        this.handsOnGun();
+      }
+    }
+  }
+
+  /** World rotation of o this frame (cached; parents first). */
+  private wq(o: THREE.Object3D): THREE.Quaternion {
+    let e = this.qCache.get(o);
+    if (!e) this.qCache.set(o, (e = { q: new THREE.Quaternion(), s: -1 }));
+    if (e.s === this.stamp) return e.q;
+    e.s = this.stamp;
+    if (o === this.root || !o.parent) return e.q.copy(o.quaternion);
+    return e.q.copy(this.wq(o.parent)).multiply(o.quaternion);
+  }
+
+  /** Puts the soldier's hands on the gun: right on the grip, left on the forend (two-bone IK). */
+  private handsOnGun(): void {
+    const gun = this.gun;
+    if (!this.arms || !gun || !gun.visible || this.deadT >= 0) return;
+    gun.updateWorldMatrix(true, false);
+    const mz = (gun.userData.muzzle as THREE.Vector3).z;
+    const long = mz > 0.4;
+    // wrist targets in gun space: the palm wraps the grip, the wrist sits just behind it
+    ikSolve(this.arms.r, gun.localToWorld(_t.set(-0.01, -0.07, -0.03)), this.body.localToWorld(_pole.set(-0.6, -0.5, -0.3)));
+    if (this.slashT > 0 || this.throwT > 0 || this.reloading) return;
+    if (long) {
+      // the forend, or as far along it as the arm reaches (the stance holds the gun well forward)
+      const [u, f, h] = this.arms.l;
+      u.getWorldPosition(_a);
+      const reach = 0.97 * (_a.distanceTo(f.getWorldPosition(_b)) + _b.distanceTo(h.getWorldPosition(_c)));
+      let z = mz * 0.55 - 0.06;
+      while (z > 0.06 && gun.localToWorld(_t.set(0, -0.04, z)).distanceTo(_a) > reach) z -= 0.03;
+      gun.localToWorld(_t.set(0, -0.04, z));
+    } else gun.localToWorld(_t.set(0.035, -0.08, -0.01));
+    ikSolve(this.arms.l, _t, this.body.localToWorld(_pole.set(0.6, -0.6, -0.1)));
+  }
+
+  /** Copies the rig's pose onto the soldier skeleton (world-space rotations, hips height). */
+  private syncHuman(): void {
+    this.stamp++;
+    if (this.hips) {
+      const rig = this.bones[BoneId.Hips];
+      _p.set(rig.position.x, rig.position.y - BONES[BoneId.Hips].p[1], rig.position.z).applyMatrix3(this.hips.toLocal);
+      this.hips.bone.position.copy(this.hips.rest).add(_p);
+    }
+    // the rig and the soldier share the root, so root-relative rotations are enough
+    for (const d of this.drive) {
+      _q.copy(this.wq(d.rig)).multiply(d.off);
+      _q2.copy(this.wq(d.bone.parent!)).invert().multiply(_q);
+      d.bone.quaternion.copy(_q2);
+      const e = this.qCache.get(d.bone);
+      if (e) { e.q.copy(_q); e.s = this.stamp; }
+      else this.qCache.set(d.bone, { q: _q.clone(), s: this.stamp });
+    }
+  }
+
+  private animate(dt: number, a: AnimInput): void {
     const B = this.bones;
     // emissive: damage flash (white) + spawn shield (team tint)
     this.flash = Math.max(0, this.flash - dt * 6);
     // steady tint that fades over the last half second (a pulsing glow read as flicker)
     const sh = 0.16 * Math.min(1, Math.max(0, this.shield) / 0.5);
     const tint = this.team === 'blue' ? [0.2, 0.5, 1] : [1, 0.3, 0.2];
-    this.mat.emissive.setRGB(this.flash + sh * tint[0], this.flash * 0.9 + sh * tint[1], this.flash * 0.8 + sh * tint[2]);
+    for (const m of this.mats) m.emissive.setRGB(this.flash + sh * tint[0], this.flash * 0.9 + sh * tint[1], this.flash * 0.8 + sh * tint[2]);
 
     if (this.deadT >= 0) {
       this.deadT += dt;
       const k = Math.min(1, this.deadT / 0.55);
       const e = 1 - (1 - k) * (1 - k);
-      this.mesh.rotation.x = -e * Math.PI / 2;
-      this.mesh.position.y = 0.15 * e;
+      this.body.rotation.x = -e * Math.PI / 2;
+      this.body.position.y = 0.15 * e;
       B[BoneId.LUpper].rotation.set(-2.5 * e, 0, 0.3);
       B[BoneId.RUpper].rotation.set(-2.6 * e, 0, -0.3);
       B[BoneId.Head].rotation.x = -0.4 * e;
@@ -303,7 +571,7 @@ export class CharacterView {
     const moving = Math.min(1, a.speed / 4.5);
     this.phase += dt * (3 + a.speed * 1.55);
     const s = Math.sin(this.phase), c2 = Math.cos(this.phase);
-    const amp = 0.75 * moving * (a.fwd < -0.3 ? -1 : 1);
+    const amp = 0.5 * moving * (a.fwd < -0.3 ? -1 : 1); // a realistic stride, not a cartoon split
     if (a.airborne) {
       B[BoneId.LThigh].rotation.x = -0.6;
       B[BoneId.LShin].rotation.x = 0.9;
@@ -366,8 +634,8 @@ export class CharacterView {
     if (sk > 0.01) {
       B[BoneId.Spine].rotation.x += -0.28 * sk;
       B[BoneId.Chest].rotation.x = B[BoneId.Chest].rotation.x * (1 - sk) + 0.25 * sk;
-      B[BoneId.LThigh].rotation.x *= 1 + 0.45 * sk;
-      B[BoneId.RThigh].rotation.x *= 1 + 0.45 * sk;
+      B[BoneId.LThigh].rotation.x *= 1 + 0.2 * sk;
+      B[BoneId.RThigh].rotation.x *= 1 + 0.2 * sk;
       B[BoneId.RUpper].rotation.x += 0.55 * sk + s * 0.25 * sk;
       B[BoneId.LUpper].rotation.x += 0.4 * sk - s * 0.25 * sk;
     }

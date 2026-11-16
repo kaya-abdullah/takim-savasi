@@ -19,7 +19,7 @@ import { VehicleView } from './render/vehicleModel';
 import { FLOOR1_Y, ROOF_Y, TUNNEL } from './world/structures';
 import type { Combatant } from './game/combatant';
 import { PlayerController } from './game/player';
-import { CharacterView } from './render/character';
+import { CharacterView, loadHumans } from './render/character';
 import { Effects } from './render/effects';
 import { makeEnvMap, makeLights, makeSky, updateSun, type Lights } from './render/env';
 import { renderWeaponIcons } from './render/icons';
@@ -181,6 +181,8 @@ class Game {
     await step();
     this.ui.icons = renderWeaponIcons(this.renderer, this.envMap);
     this.minimap = new Minimap(this.ui.minimap, this.map);
+    this.ui.loading(0.82, 'Askerler hazırlanıyor...');
+    await loadHumans();
     this.ui.loading(0.9, 'Gölgeler derleniyor...');
     await step();
     // warm up shader compilation with characters present so the first match doesn't hitch

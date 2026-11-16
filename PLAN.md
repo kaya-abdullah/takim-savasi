@@ -241,3 +241,17 @@ kaldırıma taşınması, hataların düzeltilmesi.
   yürürken titreşti. Yer altındaki her parçanın üstü artık yolun 2 cm altında. Ölçüm (cadde ortası, yürürken):
   %3,92 → %0,003 titreşen piksel. Testler: v4.test.ts (yol seviyesinde üst yüz yok), visual.spec.ts (cadde ortası).
 - Patlama ışığı yumuşatıldı: tepe şiddeti 30 → en çok 6, mesafeyle azalır, 35 m ötede hiç yanmaz.
+
+## 12. Sürüm 4.4 (2026-11-16)
+
+İstek: insanlar gerçeğe çok yakın olsun.
+
+- Karakterler artık gerçekçi, kemikli ve dokulu bir asker modeli (Mixamo "Vanguard", three.js örneklerindeki
+  Soldier.glb; Adobe Mixamo içerikleri oyunlarda telifsiz kullanılabilir). 11 bin üçgen, renk + normal haritası.
+- Takım renkleri: zırh plakaları dokuda takım rengine boyanır (mavi / kırmızı), çizikler ve gölgeler korunur.
+- Animasyon: kendi 13 kemikli iskeletimiz (yürüme, koşu, eğilme, nişan, şarjör, bıçak, bomba, ölüm) aynen çalışır;
+  pozu her karede askerin iskeletine aktarılır (dünya uzayında dönüş + kalça yüksekliği). İki kemikli IK ile sağ el
+  kabzaya, sol el namlu altına oturur (tabancada iki el kabzada). Adım açıklığı gerçekçi hale getirildi.
+- Performans: dönüşler hiyerarşide biriktirilir (matris güncellemesi yok), IK yalnız 25 m içinde, 30 m ötede poz
+  iki karede bir. 20 asker: karakter güncellemesi 0,49 ms/kare. Model yüklenemezse eski figür kullanılır.
+- Test: e2e/human.spec.ts (model yüklü, eller silahta, boy, takım dokusu, eğilme, yedek figür).
