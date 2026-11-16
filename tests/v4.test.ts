@@ -123,7 +123,7 @@ describe('walk-in buildings and tunnel', () => {
     // standing in the tunnel: the street above does not count as ground
     expect(w.groundHeight(-26, 0, 0.4, TUNNEL_Y)).toBeCloseTo(TUNNEL_Y, 5);
     // a ray shot down a stairwell passes the street level
-    const h = w.raycast(-43, 3, 0, 0, -1, 0, 20)!;
+    const h = w.raycast(-38, 3, -11, 0, -1, 0, 20)!;
     expect(h.t).toBeGreaterThan(3.2);
     // a ray shot down elsewhere stops at the street
     expect(w.raycast(-20, 3, -13, 0, -1, 0, 20)!.t).toBeCloseTo(3, 4);
@@ -234,6 +234,14 @@ describe('vehicles', () => {
       m.update(1 / 30);
       for (const [x, z] of v.footprint().map((f) => [f[0], f[1]])) expect(m.world.blocked(x, z, 0.5, v.pos.y + 0.6, 0.6)).toBe(false);
     }
+  });
+  it('a car cannot drive down a metro stairwell (bollards at the open end)', () => {
+    const { m, v } = withVehicle('car', { x: -38, z: -24 }, 0);
+    v.pos.set(-38, 0, -22); // straight at the open top step
+    v.yaw = 0;
+    for (let i = 0; i < 120; i++) { m.driveInput.set(v, { forward: 1, side: 0, up: 0, yaw: 0 }); m.update(1 / 30); }
+    expect(v.pos.y).toBeCloseTo(0, 3);
+    expect(v.pos.z).toBeLessThan(-13.85);
   });
   it('running an enemy over kills them and credits the driver', () => {
     const { m, p, v } = withVehicle('car');

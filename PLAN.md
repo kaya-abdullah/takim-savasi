@@ -217,3 +217,19 @@ Teknik: zemin düzlemine açıklıklar (pit), kat başına nav ızgarası + merd
 - Satış: mağazada alınan silah ve araçlar %70'e satılır (iki dokunuşla onay). Başlangıç tabancası satılamaz.
 - Testler: e2e/visual.spec.ts (her mekânın ekran görüntüsü + parlaklık, yürürken titreşim, dururken kararlılık,
   ateşte yanıp sönme), satış testleri.
+
+## 10. Sürüm 4.2 (2026-11-16)
+
+İstekler: ekranın ortasındaki parlayan ışık, şelale (havuz) ve süs arabalarının kaldırılması, metro girişlerinin
+kaldırıma taşınması, hataların düzeltilmesi.
+
+- Parlama: meydan ortasındaki havuzun suyu ayna gibiydi (pürüzlülük 0.05) ve güneşi parlak bir leke olarak
+  yansıtıyordu. Havuz kaldırıldı; heykel yere bir kaide ile oturuyor. Doğuş kalkanı artık saniyede 3 kez nabız gibi
+  atmıyor: sabit renk, son yarım saniyede söner.
+- Süs arabaları (caddede 8 park arabası) kaldırıldı. Satın alınan araba ve helikopter aynen duruyor.
+- Metro: batı girişi ana caddenin ortasındaydı. Artık güney kaldırımında (x -38, ara sokak köşesi), merdiven inince
+  caddenin altından kısa bir geçitle koridora bağlanıyor; aynası doğuda kuzey kaldırımında. Meydan girişi yerinde.
+  Her girişin açık ucuna araba geçmesin diye bir baba konuldu (yaya iki yanından geçer).
+- Hatalar: araba açık merdiven ağzından metroya inebiliyordu (baba ile düzeldi). Yeni korkuluk ile cadde bariyeri
+  arasında araba sıkışıyordu (bariyer şeride alındı). Korkuluklar siyah dolu blok gibi görünüyordu; artık dikme,
+  küpeşte ve ara lama (çarpışma kutusu görünmez).

@@ -102,12 +102,13 @@ test('building: walk in through the door, climb the stairs to the roof', async (
 test('metro: walk down the stairs and fight underground', async ({ page }) => {
   const errors = await boot(page);
   await quietMatch(page);
-  await place(page, -48, 0, 0, Math.PI / 2, -0.25);
+  // the entrance is on the south sidewalk: walk down the stairs and through the passage under the avenue
+  await place(page, -38, 0, -16, 0, -0.25);
   await page.screenshot({ path: `${shots}/45-metro-entrance.png` });
-  await holdKey(page, 'KeyW', 2600);
+  await holdKey(page, 'KeyW', 3400);
   const p = await pos(page);
   expect(p[1]).toBeCloseTo(-4, 1);
-  expect(p[0]).toBeGreaterThan(-40);
+  expect(p[2]).toBeGreaterThan(-2.5);
   await page.waitForTimeout(150);
   expect(await page.locator('#hud .lvl').textContent()).toBe('METRO');
   await page.screenshot({ path: `${shots}/46-metro.png` });
@@ -118,8 +119,8 @@ test('metro: walk down the stairs and fight underground', async ({ page }) => {
   expect(await g(page, "g.match.combatants.find(c => c.team === 'red').hp")).toBeLessThan(await g(page, "g.match.combatants.find(c => c.team === 'red').maxHp"));
   await page.screenshot({ path: `${shots}/47-metro-fight.png` });
   // and back up the east stairs to the street
-  await place(page, 38.5, -4, 0, Math.PI / 2, 0);
-  await holdKey(page, 'KeyW', 2600);
+  await place(page, 38, -4, 0, 0, 0);
+  await holdKey(page, 'KeyW', 3400);
   expect((await pos(page))[1]).toBeCloseTo(0, 1);
   expect(await g(page, 'g.errors')).toEqual([]);
   expect(errors).toEqual([]);

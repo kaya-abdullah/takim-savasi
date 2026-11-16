@@ -10,7 +10,7 @@ export interface Building {
   enter?: boolean;
 }
 
-export type PropKind = 'car' | 'container' | 'barrier' | 'sandbag' | 'crate' | 'barrel' | 'tree' | 'lamp' | 'wall' | 'fountain' | 'statue';
+export type PropKind = 'container' | 'barrier' | 'sandbag' | 'crate' | 'barrel' | 'tree' | 'lamp' | 'wall' | 'statue';
 
 export interface Prop {
   kind: PropKind;
@@ -34,7 +34,6 @@ export interface MapData {
 
 /** Footprint (length along X when rot 0, width along Z) and height. */
 export const PROP_SIZE: Record<PropKind, [number, number, number]> = {
-  car: [4.4, 2.0, 1.5],
   container: [6.1, 2.45, 2.6],
   barrier: [3.0, 0.6, 1.1],
   sandbag: [3.0, 0.9, 1.1],
@@ -43,7 +42,6 @@ export const PROP_SIZE: Record<PropKind, [number, number, number]> = {
   tree: [0.5, 0.5, 3.0],
   lamp: [0.3, 0.3, 5.0],
   wall: [4.0, 0.5, 1.15],
-  fountain: [5.5, 5.5, 0.8],
   statue: [1.3, 1.3, 4.6],
 };
 
@@ -80,17 +78,12 @@ const HALF_BUILDINGS: Building[] = [
   B(60, 68, 30, 46, 9, 0x6f7f6a, 0),
 ];
 
-const CAR_COLORS = [0xc0392b, 0x2e86de, 0xf1c40f, 0xecf0f1, 0x27ae60, 0x34495e];
 const CONTAINER_COLORS = [0x2f6db5, 0xb5452f, 0x3f8f4a, 0xd08a2c];
 
 const HALF_PROPS: Prop[] = [
   // avenue
-  P('car', -46, 3, 0, CAR_COLORS[0]),
-  P('car', -18, 4, 0, CAR_COLORS[1]),
-  P('car', 22, 3.5, 0, CAR_COLORS[2]),
-  P('car', 48, 2.6, 0, CAR_COLORS[3]),
   P('barrier', -38, 1.5, 0),
-  P('barrier', 37, 4.2, 0),
+  P('barrier', 37, 1.5, 0), // clear of the east metro entrance's railing (no car trap)
   P('barrier', -8, 4.6, 0),
   // alleys / cross streets
   P('container', -50, 25.5, 0, CONTAINER_COLORS[0]),
@@ -108,7 +101,6 @@ const HALF_PROPS: Prop[] = [
   P('barrel', -36.9, 24.8),
   P('barrel', -26.5, 12),
   P('barrel', 25.8, 12.5),
-  P('barrel', 36, 8),
   P('barrel', 2.6, 28),
   // plaza
   P('wall', -8, 9, 0),
@@ -135,7 +127,7 @@ const HALF_PROPS: Prop[] = [
   P('barrel', 63, 24),
 ];
 
-const CENTER_PROPS: Prop[] = [P('fountain', 0, 0), P('statue', 0, 0)];
+const CENTER_PROPS: Prop[] = [P('statue', 0, 0)];
 
 function mirrorB(b: Building): Building {
   return { ...b, x0: -b.x1, x1: -b.x0, z0: -b.z1, z1: -b.z0 };

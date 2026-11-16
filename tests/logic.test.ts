@@ -134,7 +134,7 @@ describe('map', () => {
   });
   it('no building overlaps another building or a prop', () => {
     const bb = m.buildings.map(buildingBox);
-    const pb = m.props.filter((p) => p.kind !== 'statue' && p.kind !== 'fountain').map(propBox);
+    const pb = m.props.filter((p) => p.kind !== 'statue').map(propBox);
     for (let i = 0; i < bb.length; i++) {
       for (let j = i + 1; j < bb.length; j++) expect(overlap(bb[i], bb[j]), `b${i} b${j}`).toBe(false);
       for (const p of pb) expect(overlap(bb[i], p)).toBe(false);

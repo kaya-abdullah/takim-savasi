@@ -282,7 +282,8 @@ export class CharacterView {
     const B = this.bones;
     // emissive: damage flash (white) + spawn shield (team tint)
     this.flash = Math.max(0, this.flash - dt * 6);
-    const sh = this.shield > 0 ? 0.14 + 0.1 * Math.sin(performance.now() * 0.02) : 0;
+    // steady tint that fades over the last half second (a pulsing glow read as flicker)
+    const sh = 0.16 * Math.min(1, Math.max(0, this.shield) / 0.5);
     const tint = this.team === 'blue' ? [0.2, 0.5, 1] : [1, 0.3, 0.2];
     this.mat.emissive.setRGB(this.flash + sh * tint[0], this.flash * 0.9 + sh * tint[1], this.flash * 0.8 + sh * tint[2]);
 

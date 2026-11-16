@@ -4,19 +4,11 @@ import {
   FACADE_STYLES, FACADE_TILE_H, FACADE_TILE_W, makeConcrete, makeCorrugated, makeCrate, makeFacades, makeGround, rng,
 } from '../render/textures';
 import type { Building, MapData, Prop } from './map';
-import { rbox } from '../render/vehicleModel';
 import type { PieceMat, Structures } from './structures';
 import type { BakeFn } from '../render/geomBuilder';
 import { bakeLit, brickTex, concreteTex as concreteSet, fabricTex, graniteTex, metalTex, plasterTex, subwayTex, tileTex, woodTex, type TexSet } from '../render/materials';
 
 const tmpM = new THREE.Matrix4();
-// shared parked-car parts (merged into the static batches)
-const carBody = rbox(1.96, 0.6, 4.4, 0.16);
-const carHood = rbox(1.8, 0.16, 1.5, 0.06);
-const carCab = rbox(1.66, 0.52, 2.0, 0.14);
-const carRoof = rbox(1.5, 0.07, 1.55, 0.03);
-const carTyre = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 20).rotateX(Math.PI / 2);
-const carRim = new THREE.CylinderGeometry(0.24, 0.24, 0.32, 12).rotateX(Math.PI / 2);
 
 function shade(hex: number, k: number): THREE.Color {
   return new THREE.Color(hex).multiplyScalar(k);
@@ -33,7 +25,6 @@ interface Builders {
   crate: GeomBuilder;
   foliage: GeomBuilder;
   glow: GeomBuilder;
-  water: GeomBuilder;
 }
 
 export function buildWorld(m: MapData): THREE.Group {
@@ -50,7 +41,6 @@ export function buildWorld(m: MapData): THREE.Group {
     crate: new GeomBuilder(),
     foliage: new GeomBuilder(),
     glow: new GeomBuilder(),
-    water: new GeomBuilder(),
   };
   const r = rng(77);
 
@@ -79,7 +69,6 @@ export function buildWorld(m: MapData): THREE.Group {
     crate: new THREE.MeshStandardMaterial({ map: makeCrate(), roughness: 0.85, vertexColors: true }),
     foliage: new THREE.MeshStandardMaterial({ roughness: 0.85, vertexColors: true, flatShading: true }),
     glow: new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 3.2, 2.2), vertexColors: false, toneMapped: false }),
-    water: new THREE.MeshStandardMaterial({ color: 0x2b6f8f, roughness: 0.05, metalness: 0.2, envMapIntensity: 1.6 }),
   };
 
   const addMesh = (gb: GeomBuilder, mat: THREE.Material, cast: boolean, name: string) => {
@@ -108,7 +97,6 @@ export function buildWorld(m: MapData): THREE.Group {
   addMesh(B.crate, mats.crate, true, 'crate');
   addMesh(B.foliage, mats.foliage, true, 'foliage');
   addMesh(B.glow, mats.glow, false, 'glow');
-  addMesh(B.water, mats.water, false, 'water');
 
 
   // ---- ground (with openings over the metro stairs)
@@ -360,31 +348,6 @@ function addBuilding(B: Builders, b: Building, r: () => number, detailed: boolea
 function addProp(B: Builders, p: Prop, r: () => number): void {
   const m = rotY(p.rot === 1 ? Math.PI / 2 : 0, p.x, p.z);
   switch (p.kind) {
-    case 'car': {
-      // rounded body, glasshouse, bumpers, chrome-rimmed wheels (length along local x)
-      const c = p.color;
-      const rot = new THREE.Matrix4().makeRotationY(Math.PI / 2);
-      const at = (x: number, y: number, z: number) => tmpM.copy(m).multiply(new THREE.Matrix4().makeTranslation(x, y, z)).multiply(rot);
-      B.glossy.add(carBody, c, at(0, 0.62, 0));
-      B.glossy.add(carHood, c, at(1.25, 0.94, 0));
-      B.glossy.add(carCab, 0x18222b, at(-0.3, 1.15, 0));
-      B.glossy.add(carRoof, c, at(-0.4, 1.43, 0));
-      B.painted.box(2.22, 0.42, 0, 0.18, 0.22, 1.9, 0x18191b, m);
-      B.painted.box(-2.22, 0.42, 0, 0.18, 0.22, 1.9, 0x18191b, m);
-      B.painted.box(0, 0.33, 0, 3.0, 0.1, 2.0, 0x18191b, m);
-      B.metal.box(2.235, 0.66, 0, 0.04, 0.14, 0.7, 0xd8dde3, m);
-      for (const s of [-0.95, 0.95]) B.glossy.box(0.55, 1.08, s, 0.12, 0.1, 0.16, c, m);
-      for (const [wx, wz] of [[1.35, 0.86], [1.35, -0.86], [-1.38, 0.86], [-1.38, -0.86]]) {
-        tmpM.copy(m).multiply(new THREE.Matrix4().makeTranslation(wx, 0.38, wz));
-        B.painted.add(carTyre, 0x141416, tmpM);
-        B.metal.add(carRim, 0xd8dde3, tmpM);
-      }
-      B.glow.box(2.21, 0.78, 0.66, 0.05, 0.12, 0.42, 0xffffff, m);
-      B.glow.box(2.21, 0.78, -0.66, 0.05, 0.12, 0.42, 0xffffff, m);
-      B.painted.box(-2.21, 0.8, 0.66, 0.05, 0.1, 0.42, 0xb01010, m);
-      B.painted.box(-2.21, 0.8, -0.66, 0.05, 0.1, 0.42, 0xb01010, m);
-      break;
-    }
     case 'container': {
       B.container.box(0, 1.3, 0, 6.1, 2.6, 2.45, p.color, m, { uv: 'world', uvScale: 6.1, uvScaleY: 2.6 });
       // corner posts
@@ -456,16 +419,8 @@ function addProp(B: Builders, p: Prop, r: () => number): void {
       B.concrete.box(0, 1.13, 0, 4.1, 0.08, 0.6, 0x948c7e, m);
       break;
     }
-    case 'fountain': {
-      const basin = new THREE.CylinderGeometry(2.75, 2.9, 0.8, 8);
-      tmpM.copy(m).multiply(new THREE.Matrix4().makeTranslation(0, 0.4, 0));
-      B.concrete.add(basin, 0xd8d0c0, tmpM);
-      const water = new THREE.CylinderGeometry(2.45, 2.45, 0.05, 24);
-      tmpM.copy(m).multiply(new THREE.Matrix4().makeTranslation(0, 0.78, 0));
-      B.water.add(water, 0xffffff, tmpM);
-      break;
-    }
     case 'statue': {
+      B.concrete.box(0, 0.1, 0, 1.7, 0.2, 1.7, 0xc9c1b0, m);
       B.concrete.box(0, 1.0, 0, 1.3, 1.6, 1.3, 0xe2dccd, m, { uv: 'world', uvScale: 2 });
       B.concrete.box(0, 1.85, 0, 1.5, 0.12, 1.5, 0xc9c1b0, m);
       const col = new THREE.CylinderGeometry(0.25, 0.4, 2.0, 10);

@@ -37,7 +37,8 @@ const PLACES: [string, number, number, number, number, number][] = [
   ['86-house-roof', -54, 7, 15.5, 1.2, -0.15],
   ['87-metro-corridor', -38, -4, 0.8, Math.PI / 2, -0.03],
   ['88-metro-hall', -12, -4, 1.5, Math.PI / 2 + 0.3, 0.02],
-  ['89-metro-stairs', -36, -4, 0, -Math.PI / 2, 0.15],
+  ['89-metro-stairs', -38, -4, -4, Math.PI, 0.15],
+  ['91-metro-entrance', -37, 0, -19, -0.15, -0.3],
   ['90-street', -60, 0, -12, Math.PI / 2, 0],
 ];
 
