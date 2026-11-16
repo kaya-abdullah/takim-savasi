@@ -4,6 +4,7 @@ import {
   FACADE_STYLES, FACADE_TILE_H, FACADE_TILE_W, makeConcrete, makeCorrugated, makeCrate, makeFacades, makeGround, rng,
 } from '../render/textures';
 import type { Building, MapData, Prop } from './map';
+import type { Piece } from './structures';
 
 const tmpM = new THREE.Matrix4();
 
@@ -23,6 +24,8 @@ interface Builders {
   foliage: GeomBuilder;
   glow: GeomBuilder;
   water: GeomBuilder;
+  plaster: GeomBuilder;
+  sign: GeomBuilder;
 }
 
 export function buildWorld(m: MapData): THREE.Group {
@@ -40,10 +43,13 @@ export function buildWorld(m: MapData): THREE.Group {
     foliage: new GeomBuilder(),
     glow: new GeomBuilder(),
     water: new GeomBuilder(),
+    plaster: new GeomBuilder(),
+    sign: new GeomBuilder(),
   };
   const r = rng(77);
 
-  for (const b of m.buildings) addBuilding(B, b, r, true);
+  for (const b of m.buildings) if (!b.enter) addBuilding(B, b, r, true);
+  for (const p of m.structures.pieces) addPiece(B, p);
   for (const p of m.props) addProp(B, p, r);
   addPerimeter(B, m);
   addBackground(B, m, r);
@@ -67,6 +73,8 @@ export function buildWorld(m: MapData): THREE.Group {
     foliage: new THREE.MeshStandardMaterial({ roughness: 0.85, vertexColors: true, flatShading: true }),
     glow: new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 3.2, 2.2), vertexColors: false, toneMapped: false }),
     water: new THREE.MeshStandardMaterial({ color: 0x2b6f8f, roughness: 0.05, metalness: 0.2, envMapIntensity: 1.6 }),
+    plaster: new THREE.MeshStandardMaterial({ map: makeConcrete(11, '#f1ede6'), roughness: 0.88, vertexColors: true }),
+    sign: new THREE.MeshBasicMaterial({ map: makeMetroSign(), toneMapped: false }),
   };
 
   const addMesh = (gb: GeomBuilder, mat: THREE.Material, cast: boolean, name: string) => {
@@ -96,24 +104,78 @@ export function buildWorld(m: MapData): THREE.Group {
   addMesh(B.foliage, mats.foliage, true, 'foliage');
   addMesh(B.glow, mats.glow, false, 'glow');
   addMesh(B.water, mats.water, false, 'water');
+  addMesh(B.plaster, mats.plaster, true, 'plaster');
+  addMesh(B.sign, mats.sign, false, 'sign');
 
-  // ---- ground
+  // ---- ground (with openings over the metro stairs)
   const gw = m.maxX - m.minX, gd = m.maxZ - m.minZ;
-  const groundGeo = new THREE.PlaneGeometry(gw, gd);
-  groundGeo.rotateX(-Math.PI / 2);
+  const groundGeo = rectWithHoles(m.minX, m.maxX, m.minZ, m.maxZ, m.structures.pits);
+  // match PlaneGeometry's UV layout so the painted road texture lines up
+  const P = groundGeo.getAttribute('position'), U = groundGeo.getAttribute('uv');
+  for (let i = 0; i < P.count; i++) U.setXY(i, (P.getX(i) - m.minX) / gw, (m.maxZ - P.getZ(i)) / gd);
   const ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({ map: makeGround(m), roughness: 0.95 }));
   ground.receiveShadow = true;
   ground.name = 'ground';
   root.add(ground);
   const outerTex = makeConcrete(13, '#55534f');
-  outerTex.repeat.set(120, 120);
-  const outerGeo = new THREE.PlaneGeometry(900, 900);
-  outerGeo.rotateX(-Math.PI / 2);
+  outerTex.repeat.set(1 / 7.5, 1 / 7.5);
+  // a ring around the city, so it never covers the stairwells
+  const outerGeo = rectWithHoles(-450, 450, -450, 450, [{ x0: m.minX, x1: m.maxX, z0: m.minZ, z1: m.maxZ }]);
   const outer = new THREE.Mesh(outerGeo, new THREE.MeshStandardMaterial({ map: outerTex, roughness: 1 }));
   outer.position.y = -0.02;
   outer.name = 'outerGround';
   root.add(outer);
   return root;
+}
+
+/** Horizontal y = 0 rectangle with rectangular holes (ShapeGeometry laid flat). */
+function rectWithHoles(x0: number, x1: number, z0: number, z1: number, holes: { x0: number; x1: number; z0: number; z1: number }[]): THREE.BufferGeometry {
+  // shape space (x, y) maps to world (x, -y) after the rotation below
+  const sh = new THREE.Shape([new THREE.Vector2(x0, -z1), new THREE.Vector2(x1, -z1), new THREE.Vector2(x1, -z0), new THREE.Vector2(x0, -z0)]);
+  for (const h of holes)
+    sh.holes.push(new THREE.Path([new THREE.Vector2(h.x0, -h.z1), new THREE.Vector2(h.x0, -h.z0), new THREE.Vector2(h.x1, -h.z0), new THREE.Vector2(h.x1, -h.z1)]));
+  const g = new THREE.ShapeGeometry(sh);
+  g.rotateX(-Math.PI / 2);
+  return g;
+}
+
+function makeMetroSign(): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const x = c.getContext('2d')!;
+  x.fillStyle = '#1f5fbf';
+  x.fillRect(0, 0, 128, 128);
+  x.strokeStyle = '#ffffff';
+  x.lineWidth = 8;
+  x.strokeRect(10, 10, 108, 108);
+  x.fillStyle = '#ffffff';
+  x.font = 'bold 84px Arial, sans-serif';
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.fillText('M', 64, 70);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** One box of a walk-in building or the metro, routed to the matching material. */
+function addPiece(B: Builders, p: Piece): void {
+  const b = p.box;
+  const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2, cz = (b.minZ + b.maxZ) / 2;
+  const sx = b.maxX - b.minX, sy = b.maxY - b.minY, sz = b.maxZ - b.minZ;
+  switch (p.mat) {
+    case 'hidden': return;
+    case 'wall': B.plaster.box(cx, cy, cz, sx, sy, sz, p.color, undefined, { uv: 'world', uvScale: 1.4 }); return;
+    case 'floor': B.plaster.box(cx, cy, cz, sx, sy, sz, p.color, undefined, { uv: 'world', uvScale: 1.6 }); return;
+    case 'stair': case 'tunnelFloor': case 'ceiling':
+      B.concrete.box(cx, cy, cz, sx, sy, sz, p.color, undefined, { uv: 'world', uvScale: 3 }); return;
+    case 'tile': B.glossy.box(cx, cy, cz, sx, sy, sz, p.color); return;
+    case 'rail': B.metal.box(cx, cy, cz, sx, sy, sz, p.color); return;
+    case 'crate': B.crate.box(cx, cy, cz, sx, sy, sz, p.color, undefined, { uv: 'unit' }); return;
+    case 'glow': B.glow.box(cx, cy, cz, sx, sy, sz, p.color); return;
+    case 'sign': B.sign.box(cx, cy, cz, sx, sy, sz, p.color, undefined, { uv: 'unit' }); return;
+    case 'trim': B.painted.box(cx, cy, cz, sx, sy, sz, p.color); return;
+  }
 }
 
 function addBuilding(B: Builders, b: Building, r: () => number, detailed: boolean): void {

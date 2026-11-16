@@ -1,5 +1,16 @@
-import type { AABB } from './collision';
+import type { AABB, Rect } from './collision';
 import type { V2 } from './map';
+
+export interface NavOpts {
+  /** Floor height of this level: only boxes in the body band above it block. */
+  baseY?: number;
+  /** Cells are walkable only inside these rects (default: everywhere). */
+  allow?: Rect[];
+  /** Cells inside these rects are never walkable (stairwells, pits). */
+  block?: Rect[];
+}
+
+const inside = (r: Rect, x: number, z: number) => x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1;
 
 /** Walkability grid + A* for bots. One cell = CELL metres. */
 export class NavGrid {
@@ -13,7 +24,8 @@ export class NavGrid {
   private open: Uint32Array;
   private searchId = 1;
 
-  constructor(readonly minX: number, readonly minZ: number, maxX: number, maxZ: number, boxes: AABB[], readonly cell = 1, agentR = 0.5) {
+  constructor(readonly minX: number, readonly minZ: number, maxX: number, maxZ: number, boxes: AABB[], readonly cell = 1, agentR = 0.5, opts: NavOpts = {}) {
+    const baseY = opts.baseY ?? 0;
     this.w = Math.ceil((maxX - minX) / cell);
     this.h = Math.ceil((maxZ - minZ) / cell);
     const n = this.w * this.h;
@@ -27,8 +39,16 @@ export class NavGrid {
       for (let ix = 0; ix < this.w; ix++) {
         if (ix === 0 || iz === 0 || ix === this.w - 1 || iz === this.h - 1) { this.walk[iz * this.w + ix] = 0; continue; }
       }
+    if (opts.allow?.length || opts.block?.length)
+      for (let iz = 0; iz < this.h; iz++)
+        for (let ix = 0; ix < this.w; ix++) {
+          const cx = minX + (ix + 0.5) * cell, cz = minZ + (iz + 0.5) * cell;
+          if (opts.allow?.length && !opts.allow.some((r) => inside(r, cx, cz))) this.walk[iz * this.w + ix] = 0;
+          if (opts.block?.some((r) => inside(r, cx, cz))) this.walk[iz * this.w + ix] = 0;
+        }
     for (const b of boxes) {
-      if (b.minY > 1.6) continue;
+      // only obstacles in the body band of this floor block it
+      if (b.minY > baseY + 1.6 || b.maxY <= baseY + 0.35) continue;
       const x0 = Math.floor((b.minX - agentR - minX) / cell), x1 = Math.floor((b.maxX + agentR - minX) / cell);
       const z0 = Math.floor((b.minZ - agentR - minZ) / cell), z1 = Math.floor((b.maxZ + agentR - minZ) / cell);
       for (let iz = Math.max(0, z0); iz <= Math.min(this.h - 1, z1); iz++)
@@ -73,9 +93,13 @@ export class NavGrid {
     const dx = bx - ax, dz = bz - az;
     const len = Math.hypot(dx, dz);
     const steps = Math.ceil(len / (this.cell * 0.35));
+    // also test both shoulders so smoothed lines don't clip door jambs and corners
+    const w = 0.4;
+    const nx = len > 1e-6 ? (-dz / len) * w : 0, nz = len > 1e-6 ? (dx / len) * w : 0;
     for (let i = 0; i <= steps; i++) {
       const t = steps === 0 ? 0 : i / steps;
-      if (!this.walkableAt(ax + dx * t, az + dz * t)) return false;
+      const x = ax + dx * t, z = az + dz * t;
+      if (!this.walkableAt(x, z) || !this.walkableAt(x + nx, z + nz) || !this.walkableAt(x - nx, z - nz)) return false;
     }
     return true;
   }

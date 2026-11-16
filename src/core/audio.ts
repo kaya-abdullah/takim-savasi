@@ -231,6 +231,82 @@ export class Audio {
     const d = this.out(0.5, 0);
     [523, 659, 784, 1047, 1319].forEach((f, i) => this.tone(d, f, f, 0.3, 0.35, 'triangle', i * 0.12));
   }
+  /** Continuous engine sound while driving; kind null fades it out. level 0..1 is speed/throttle. */
+  engine(kind: 'car' | 'heli' | null, level: number): void {
+    if (!this.ctx || !this.master) return;
+    const ctx = this.ctx, now = ctx.currentTime;
+    if (!this.eng && kind) {
+      // car: two detuned saws through a lowpass; heli: noise chopped by a low LFO (blade slap)
+      const out = ctx.createGain();
+      out.gain.value = 0;
+      out.connect(this.master);
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 600;
+      lp.connect(out);
+      const o1 = ctx.createOscillator(), o2 = ctx.createOscillator();
+      o1.type = o2.type = 'sawtooth';
+      const og = ctx.createGain();
+      og.gain.value = 0.25;
+      o1.connect(og);
+      o2.connect(og);
+      og.connect(lp);
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      const ng = ctx.createGain();
+      ng.gain.value = 0;
+      const chop = ctx.createGain();
+      chop.gain.value = 0.5;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 9;
+      const lfoAmp = ctx.createGain();
+      lfoAmp.gain.value = 0.5;
+      lfo.connect(lfoAmp).connect(chop.gain);
+      src.connect(ng).connect(chop).connect(lp);
+      [o1, o2, src, lfo].forEach((n) => n.start());
+      this.eng = { out, lp, o1, o2, og, ng, lfo, kind };
+    }
+    const e = this.eng;
+    if (!e) return;
+    const on = !!kind && this.enabled;
+    if (kind) e.kind = kind;
+    const k = Math.max(0, Math.min(1, level));
+    if (e.kind === 'car') {
+      e.o1.frequency.setTargetAtTime(45 + k * 110, now, 0.08);
+      e.o2.frequency.setTargetAtTime(46.5 + k * 113, now, 0.08);
+      e.og.gain.setTargetAtTime(0.25, now, 0.1);
+      e.ng.gain.setTargetAtTime(0.05, now, 0.1);
+      e.lp.frequency.setTargetAtTime(400 + k * 1400, now, 0.1);
+    } else {
+      e.o1.frequency.setTargetAtTime(32 + k * 10, now, 0.2);
+      e.o2.frequency.setTargetAtTime(64 + k * 20, now, 0.2);
+      e.og.gain.setTargetAtTime(0.08, now, 0.2);
+      e.ng.gain.setTargetAtTime(0.9, now, 0.2);
+      e.lfo.frequency.setTargetAtTime(7 + k * 5, now, 0.3);
+      e.lp.frequency.setTargetAtTime(700 + k * 500, now, 0.2);
+    }
+    e.out.gain.setTargetAtTime(on ? (e.kind === 'heli' ? 0.32 : 0.22) : 0, now, on ? 0.15 : 0.25);
+  }
+  private eng: {
+    out: GainNode; lp: BiquadFilterNode; o1: OscillatorNode; o2: OscillatorNode; og: GainNode; ng: GainNode; lfo: OscillatorNode;
+    kind: 'car' | 'heli';
+  } | null = null;
+
+  crash(strength: number): void {
+    if (!this.ok()) return;
+    const d = this.out(Math.min(0.9, 0.3 + strength * 0.04), 0);
+    this.noiseBurst(d, 1200, 0.35, 0.9);
+    this.tone(d, 120, 40, 0.3, 0.6, 'square');
+  }
+
+  horn(): void {
+    if (!this.ok()) return;
+    const d = this.out(0.35, 0);
+    this.tone(d, 392, 392, 0.35, 0.4, 'square');
+    this.tone(d, 494, 494, 0.35, 0.3, 'square');
+  }
+
   lose(): void {
     if (!this.ok()) return;
     const d = this.out(0.5, 0);

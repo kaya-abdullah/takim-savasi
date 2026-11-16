@@ -33,6 +33,10 @@ export class PlayerController {
   grenadeAiming = false;
   threw = false;
   slashed = false;
+  /** Heli rocket fired this frame. */
+  rocket = false;
+  /** Seconds since the player last dragged the view (cars swing the camera back behind). */
+  private lookIdle = 0;
 
   constructor(readonly camera: THREE.PerspectiveCamera) {}
 
@@ -75,7 +79,7 @@ export class PlayerController {
   }
 
   update(dt: number, c: Combatant, input: Input, m: Match, settings: Settings): void {
-    this.jumped = this.reloaded = this.threw = this.slashed = false;
+    this.jumped = this.reloaded = this.threw = this.slashed = this.rocket = false;
     const def = c.weapon.def;
     // ---- look
     const look = input.takeLook();
@@ -85,6 +89,7 @@ export class PlayerController {
       c.yaw -= look.dx * sens;
       c.pitch -= look.dy * sens;
     }
+    this.lookIdle = look.dx || look.dy ? 0 : this.lookIdle + dt;
     // recoil recovers smoothly
     const rec = Math.min(this.recoilP, this.recoilP * dt * 14 + 0.0005);
     c.pitch += rec * 0.9;
@@ -95,6 +100,11 @@ export class PlayerController {
       c.trigger = false;
       this.grenadeAiming = false;
       this.updateCamera(dt, c, m);
+      return;
+    }
+
+    if (c.vehicle) {
+      this.drive(dt, c, input, m);
       return;
     }
 
@@ -110,22 +120,28 @@ export class PlayerController {
     input.poll();
     _f.set(Math.sin(c.yaw), 0, Math.cos(c.yaw));
     _r.set(-Math.cos(c.yaw), 0, Math.sin(c.yaw));
+    if (input.consume('crouch')) c.crouch = !c.crouch;
     // sprint: Shift, or the joystick pushed all the way forward; firing/aiming cancel it
-    const wantSprint = (input.sprintHeld() || input.moveY > 0.92) && input.moveY > 0.5 && !c.aiming && !c.trigger && !this.grenadeAiming;
+    const wantSprint = (input.sprintHeld() || (input.moveY > 0.92 && !c.crouch)) && input.moveY > 0.5 && !c.aiming && !c.trigger && !this.grenadeAiming;
+    if (wantSprint) c.crouch = false;
     if (wantSprint && c.stamina > (c.sprinting ? 0.02 : 0.25)) c.sprinting = true;
     else c.sprinting = false;
     if (c.sprinting) { c.stamina = Math.max(0, c.stamina - dt / 6); this.restT = 0; }
     else { this.restT += dt; if (this.restT > 0.8) c.stamina = Math.min(1, c.stamina + dt / 4); }
-    const sp = PLAYER_SPEED * def.moveMul * (c.aiming ? 0.65 : 1) * (c.speedBuffT > 0 ? 1.4 : 1) * (c.sprinting ? 1.6 : 1);
+    const sp = PLAYER_SPEED * def.moveMul * (c.aiming ? 0.65 : 1) * (c.speedBuffT > 0 ? 1.4 : 1) * (c.sprinting ? 1.6 : 1) * (1 - 0.5 * c.crouchK);
     const tx = (_f.x * input.moveY + _r.x * input.moveX) * sp;
     const tz = (_f.z * input.moveY + _r.z * input.moveX) * sp;
     const acc = Math.min(1, dt * (c.onGround ? 12 : 3));
     c.vx += (tx - c.vx) * acc;
     c.vz += (tz - c.vz) * acc;
     if (input.consume('jump') && c.onGround) {
-      c.velY = JUMP_V;
-      c.onGround = false;
-      this.jumped = true;
+      // jumping out of a crouch just stands up
+      if (c.crouch) c.crouch = false;
+      else {
+        c.velY = JUMP_V;
+        c.onGround = false;
+        this.jumped = true;
+      }
     }
     m.move(c, c.vx * dt, c.vz * dt, dt);
     const hs = Math.hypot(c.vx, c.vz);
@@ -139,7 +155,7 @@ export class PlayerController {
     // shots go down the camera ray, starting level with the player
     const cam = this.camera;
     cam.getWorldDirection(_dir);
-    _head.set(c.pos.x, c.pos.y + 1.5, c.pos.z);
+    _head.set(c.pos.x, c.pos.y + 1.5 - 0.5 * c.crouchK, c.pos.z);
     const ahead = Math.max(0, _head.clone().sub(cam.position).dot(_dir));
     c.aimOrigin.copy(cam.position).addScaledVector(_dir, ahead + 0.3);
     c.aimDir.copy(_dir);
@@ -162,6 +178,48 @@ export class PlayerController {
       if (m.throwGrenade(c, GRENADE_SPEED)) this.threw = true;
       c.aimDir.copy(keep);
     }
+  }
+
+  /** Driving or flying: joystick steers, the view stays free; fire uses the hand gun (car) or cannon (heli). */
+  private drive(dt: number, c: Combatant, input: Input, m: Match): void {
+    const v = c.vehicle!;
+    input.poll();
+    c.aiming = false;
+    c.sprinting = false;
+    this.grenadeAiming = false;
+    c.trigger = input.isHeld('fire');
+    if (v.kind === 'car') {
+      m.driveInput.set(v, { forward: input.moveY, side: input.moveX, up: 0, yaw: c.yaw });
+      // the camera swings back behind the car when the player isn't looking around
+      if (this.lookIdle > 0.8 && Math.abs(v.speed) > 2) {
+        let d = v.yaw - c.yaw;
+        while (d > Math.PI) d -= Math.PI * 2;
+        while (d < -Math.PI) d += Math.PI * 2;
+        c.yaw += d * Math.min(1, dt * 2.5);
+        c.pitch += (-0.12 - c.pitch) * Math.min(1, dt * 2);
+      }
+      if (input.consume('reload') && c.weapon.startReload()) this.reloaded = true;
+    } else {
+      const up = (input.isHeld('jump') ? 1 : 0) - (input.isHeld('crouch') ? 1 : 0);
+      m.driveInput.set(v, { forward: input.moveY, side: input.moveX, up, yaw: c.yaw });
+      if (input.consume('grenade') && m.heliRocket(c)) this.rocket = true;
+      if (input.consume('reload') && v.gun?.startReload()) this.reloaded = true;
+    }
+    // presses that mean nothing in a vehicle must not fire later
+    input.consume('jump');
+    input.consume('crouch');
+    input.consume('grenade');
+    input.consume('knife');
+    this.updateCamera(dt, c, m);
+    // shots go down the camera ray, starting level with the vehicle's gun
+    const cam = this.camera;
+    cam.getWorldDirection(_dir);
+    const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw);
+    if (v.kind === 'heli') _head.set(v.pos.x + fx * 2.6, v.pos.y + 0.7, v.pos.z + fz * 2.6);
+    else _head.set(v.pos.x, v.pos.y + 1.35, v.pos.z);
+    const ahead = Math.max(0, _want.copy(_head).sub(cam.position).dot(_dir));
+    c.aimOrigin.copy(cam.position).addScaledVector(_dir, ahead + 0.3);
+    c.aimDir.copy(_dir);
   }
 
   /** Throw direction: camera direction lifted a little so grenades arc. */
@@ -226,16 +284,23 @@ export class PlayerController {
       cam.updateProjectionMatrix();
     }
     const speed = Math.hypot(c.vx, c.vz);
+    const v = c.alive ? c.vehicle : null;
     this.bob += dt * speed * 2.2;
-    const bobY = c.onGround ? Math.sin(this.bob) * 0.025 * Math.min(1, speed / 4) : 0;
+    const bobY = c.onGround && !v ? Math.sin(this.bob) * 0.025 * Math.min(1, speed / 4) : 0;
     const yaw = c.yaw, pitch = c.alive ? c.pitch : Math.max(c.pitch, -0.6);
     const cp = Math.cos(pitch);
     _dir.set(Math.sin(yaw) * cp, Math.sin(pitch), Math.cos(yaw) * cp);
     _r.set(-Math.cos(yaw), 0, Math.sin(yaw));
-    // pivot above the right shoulder
-    const dist = aiming ? 1.7 : c.alive ? 3.3 : 5.5;
-    const shoulder = aiming ? 0.62 : 0.95;
-    _head.set(c.pos.x, c.pos.y + 1.62 + bobY, c.pos.z).addScaledVector(_r, shoulder);
+    // pivot above the right shoulder (or above the vehicle, further back)
+    let dist = aiming ? 1.7 : c.alive ? 3.3 : 5.5;
+    let shoulder = aiming ? 0.62 : 0.95;
+    let pivotY = 1.62 - 0.5 * c.crouchK;
+    if (v) {
+      dist = v.kind === 'heli' ? 12 : 7;
+      shoulder = 0;
+      pivotY = v.kind === 'heli' ? 3.2 : 2.3;
+    }
+    _head.set(c.pos.x, c.pos.y + pivotY + bobY, c.pos.z).addScaledVector(_r, shoulder);
     _want.copy(_head).addScaledVector(_dir, -dist);
     // keep the camera out of walls
     const dx = _want.x - _head.x, dy = _want.y - _head.y, dz = _want.z - _head.z;
@@ -244,7 +309,8 @@ export class PlayerController {
     // shrink fast, grow back slowly
     this.camDist = allowed < this.camDist ? allowed : this.camDist + (allowed - this.camDist) * Math.min(1, dt * 4);
     cam.position.copy(_head).addScaledVector(_dir, -this.camDist);
-    if (cam.position.y < 0.3) cam.position.y = 0.3;
+    // never dip below the floor the player stands on (street, roof or tunnel)
+    if (cam.position.y < c.pos.y + 0.3) cam.position.y = c.pos.y + 0.3;
     _want.copy(_head).addScaledVector(_dir, 30);
     cam.lookAt(_want);
   }

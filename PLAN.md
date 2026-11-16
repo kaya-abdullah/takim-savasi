@@ -182,3 +182,20 @@ fiyatlar özelliklere göre kademeli ve daha ulaşılabilir, el bombası ve bı�
 - Can yenilenmesi: 4 sn hasar almazsan saniyede 15 can.
 - Grafik: yuvarlak, detaylı karakter modeli; takım renginde kenar ışığı;
   4x MSAA; telefonlarda 2x çözünürlük; daha keskin gölgeler.
+
+## 8. Sürüm 4 (2026-11-16)
+
+Kullanıcı istekleri ve uygulanan karşılıkları:
+
+| İstek | Uygulama |
+|---|---|
+| Yapay zekayı öldürmek çok zor olsun | Botlar Zor'da 170, Çok Zor'da 250 can (iki takımda da, denge korunur). Vurulunca yana kaçar, uzakta eğilerek ateş eder, canı azalınca geri çekilir. Ayarlar → Zorluk (varsayılan Zor). Son vurulan düşmanın can çubuğu ekranda. |
+| Eğilme tuşu | C / Ctrl veya dokunmatik EĞİL. Daha küçük hedef, %35 daha isabetli atış, yarı hız. Zıplama tuşu ayağa kaldırır. |
+| Araba 30.000 TL, helikopter 50.000 TL | Mağaza → ARAÇLAR. Maçta T/Y veya 🚗/🚁 butonu ile çağır ve bin, X / BİN-İN ile in. Araba: düşman ezer, camdan ateş. Helikopter: makineli top + roket (G), ▲/▼ ile yüksel/alçal, çatılara iner. Araç vurulursa patlar, sürücü fırlar; 30/40 sn sonra yeniden çağrılır. |
+| Kazanınca 1.400 TL | Galibiyet bonusu 1.400 TL. |
+| Kaybedince 400 TL kaybetsin | Yenilgi cezası 400 TL (bakiye sıfırın altına inmez). Rakip öndeyken maçtan çıkmak da yenilgi sayılır. |
+| Binaların içi, çatıya çıkma | Her yarıda 3, toplam 6 girilebilir bina: 2 kat, pencereler, merdiven, çatı. Botlar da kullanır. |
+| Yer altı | Ana caddenin altında metro: 4 merdivenli giriş, iki koridor, sütunlu istasyon salonu. |
+
+Teknik: zemin düzlemine açıklıklar (pit), kat başına nav ızgarası + merdiven bağlantıları
+(NavWorld), araçlar Match simülasyonunda (birim testli), yeni e2e: v4.spec, v4phone.spec, play.spec.

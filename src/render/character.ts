@@ -165,6 +165,8 @@ export interface AnimInput {
   kick: number; // 0..1 recoil pulse
   reloading: boolean;
   sprint: boolean;
+  /** 0 standing .. 1 fully crouched. */
+  crouch?: number;
 }
 
 export class CharacterView {
@@ -319,6 +321,14 @@ export class CharacterView {
     B[BoneId.Hips].rotation.y = s * 0.12 * moving;
     B[BoneId.Spine].rotation.y = -s * 0.1 * moving;
     B[BoneId.Spine].rotation.x = -0.08 * moving;
+    // crouch: hips drop, knees fold, torso leans in a little (small steps while moving)
+    const ck = a.airborne ? 0 : a.crouch ?? 0;
+    if (ck > 0.01) {
+      for (const t of [BoneId.LThigh, BoneId.RThigh]) B[t].rotation.x = B[t].rotation.x * (1 - 0.55 * ck) - 1.3 * ck;
+      for (const t of [BoneId.LShin, BoneId.RShin]) B[t].rotation.x = B[t].rotation.x * (1 - 0.55 * ck) + 2.0 * ck;
+      B[BoneId.Hips].position.y -= 0.44 * ck;
+      B[BoneId.Spine].rotation.x -= 0.2 * ck;
+    }
     // aim: chest pitches with view, head follows a bit more
     const pitch = THREE.MathUtils.clamp(a.pitch, -0.9, 0.9);
     // bladed rifle stance: torso turned right, head and gun counter-turned to the target

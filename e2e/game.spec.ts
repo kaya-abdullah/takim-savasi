@@ -68,7 +68,8 @@ test('headshot kill gives 200 + 50 TL and shows popup', async ({ page }) => {
 test('shop: tiered prices, buy rifle for 3500 TL, equip in match', async ({ page }) => {
   const errors = await boot(page);
   await page.click('#menu .shop-btn');
-  await expect(page.locator('#shop .card:not(.gear)')).toHaveCount(11);
+  await expect(page.locator('#shop .card:not(.gear):not(.veh)')).toHaveCount(11);
+  await expect(page.locator('#shop .card.veh')).toHaveCount(2);
   await expect(page.locator('#shop .card').nth(1)).toContainText('1.500 TL eksik');
   await expect(page.locator('#shop .card').nth(10)).toContainText('10.000 TL eksik');
   await page.screenshot({ path: `${shots}/04-shop-empty.png` });
@@ -106,7 +107,7 @@ test('match end: win screen and bonus', async ({ page }) => {
   await g(page, "(() => { const m = g.match; m.score.blue = m.killLimit - 1; const e = m.combatants.find(c => c.team === 'red'); e.shieldT = 0; m.damage(e, m.player, 999, false, m.player.weapon.def); m.update(0.016); })()");
   await expect(page.locator('#end')).toHaveClass(/on/, { timeout: 5000 });
   await expect(page.locator('.end-title')).toHaveText('KAZANDIN!');
-  expect(await g(page, 'g.save.money')).toBe(1200);
+  expect(await g(page, 'g.save.money')).toBe(200 + 1400);
   expect(await g(page, 'g.save.wins')).toBe(1);
   await page.screenshot({ path: `${shots}/06-end.png` });
   await page.click('[data-a="again"]');
@@ -213,7 +214,7 @@ test('kill streak shows banner and pays bonus; equipment upgrade gives more gren
   await page.click('#shop [data-a="up"][data-id="armor"]');
   expect(await g(page, 'g.save.upgrades')).toEqual({ bag: 1, armor: 1 });
   expect(await g(page, 'g.save.money')).toBe(5000 - 1500 - 2500);
-  await page.locator('#shop .sec').scrollIntoViewIfNeeded();
+  await page.locator('#shop .sec').last().scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${shots}/12-equipment.png` });
   await page.click('#shop .close');
   await page.click('.big-play');

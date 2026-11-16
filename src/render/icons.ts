@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ALL_WEAPONS } from '../data/weapons';
 import { makeWeaponMesh } from './weaponModel';
+import { VehicleView } from './vehicleModel';
 
 /** Renders a side view of every weapon into PNG data URLs for the shop. */
 export function renderWeaponIcons(renderer: THREE.WebGLRenderer, envMap: THREE.Texture | null): Record<string, string> {
@@ -26,11 +27,23 @@ export function renderWeaponIcons(renderer: THREE.WebGLRenderer, envMap: THREE.T
   const prevClear = renderer.getClearAlpha();
   const prevColor = renderer.getClearColor(new THREE.Color());
   renderer.setClearColor(0x000000, 0);
-  for (const w of ALL_WEAPONS) {
+  const items: { id: string; obj: THREE.Object3D; done?: () => void }[] = ALL_WEAPONS.map((w) => {
     const g = makeWeaponMesh(w);
     // side view: gun points right
     g.rotation.y = Math.PI / 2;
-    g.rotation.z = 0.0;
+    return { id: w.id, obj: g };
+  });
+  // vehicles: three-quarter view
+  for (const kind of ['car', 'heli'] as const) {
+    const v = new VehicleView(kind, 'blue', true);
+    const g = new THREE.Group();
+    g.add(v.root);
+    v.root.rotation.y = kind === 'car' ? 2.2 : 2.0;
+    v.root.rotation.x = 0.12;
+    items.push({ id: 'veh-' + kind, obj: g, done: () => v.dispose() });
+  }
+  for (const it of items) {
+    const g = it.obj;
     const box = new THREE.Box3().setFromObject(g);
     const c = box.getCenter(new THREE.Vector3());
     g.position.sub(c);
@@ -49,8 +62,9 @@ export function renderWeaponIcons(renderer: THREE.WebGLRenderer, envMap: THREE.T
     for (let y = 0; y < H; y++) img.data.set(pixels.subarray((H - 1 - y) * W * 4, (H - y) * W * 4), y * W * 4);
     ctx.clearRect(0, 0, W, H);
     ctx.putImageData(img, 0, 0);
-    out[w.id] = cnv.toDataURL('image/png');
+    out[it.id] = cnv.toDataURL('image/png');
     scene.remove(g);
+    it.done?.();
   }
   renderer.setRenderTarget(prevTarget);
   renderer.setClearColor(prevColor, prevClear);

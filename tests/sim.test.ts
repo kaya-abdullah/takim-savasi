@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createMap, mapColliders } from '../src/world/map';
-import { CollisionWorld } from '../src/world/collision';
-import { NavGrid } from '../src/world/navgrid';
+import { buildPhysics, createMap } from '../src/world/map';
 import * as THREE from 'three';
 import { Match, stepGrenade } from '../src/game/match';
 import { WeaponState } from '../src/game/combatant';
@@ -9,9 +7,7 @@ import { getWeapon, GRENADE_SPEED } from '../src/data/weapons';
 
 function setup(seed: number) {
   const map = createMap();
-  const boxes = mapColliders(map);
-  const world = new CollisionWorld(boxes, map.minX, map.minZ, map.maxX, map.maxZ);
-  const nav = new NavGrid(map.minX, map.minZ, map.maxX, map.maxZ, boxes);
+  const { world, nav } = buildPhysics(map);
   return { map, world, nav, seed };
 }
 
@@ -78,7 +74,7 @@ describe('bot-only match simulation', () => {
 describe('grenades, knife, regen, streaks', () => {
   function quiet(seed = 3) {
     const s = setup(seed);
-    const m = new Match(s.map, s.world, s.nav, 'pistol', {}, { seed });
+    const m = new Match(s.map, s.world, s.nav, 'pistol', {}, { seed, difficulty: 'normal' });
     m.brains.clear(); // freeze bots so the scenario is deterministic
     for (const c of m.combatants) c.shieldT = 0;
     return { s, m };
@@ -157,7 +153,7 @@ describe('grenades, knife, regen, streaks', () => {
 describe('power-ups and supply drops', () => {
   function quiet(seed = 4) {
     const s = setup(seed);
-    const m = new Match(s.map, s.world, s.nav, 'pistol', {}, { seed });
+    const m = new Match(s.map, s.world, s.nav, 'pistol', {}, { seed, difficulty: 'normal' });
     m.brains.clear();
     for (const c of m.combatants) c.shieldT = 0;
     return m;
@@ -205,7 +201,7 @@ describe('power-ups and supply drops', () => {
 describe('weapon drops', () => {
   function quiet(seed = 5) {
     const s = setup(seed);
-    const m = new Match(s.map, s.world, s.nav, 'pistol', {}, { seed });
+    const m = new Match(s.map, s.world, s.nav, 'pistol', {}, { seed, difficulty: 'normal' });
     m.brains.clear();
     for (const c of m.combatants) c.shieldT = 0;
     return m;

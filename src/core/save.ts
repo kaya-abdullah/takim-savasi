@@ -1,12 +1,16 @@
 import { ALL_WEAPONS, STARTER } from '../data/weapons';
+import type { VehicleKind } from '../data/vehicles';
 
 export type Quality = 'low' | 'medium' | 'high';
+export type Difficulty = 'normal' | 'hard' | 'extreme';
 
 export interface Settings {
   quality: Quality;
   sensitivity: number; // 0.3 .. 2
   sound: boolean;
   aimAssist: boolean;
+  /** Bot toughness and skill. */
+  difficulty: Difficulty;
 }
 
 export interface SaveData {
@@ -20,6 +24,8 @@ export interface SaveData {
   settings: Settings;
   /** Equipment upgrade levels bought in the shop. */
   upgrades: { bag: number; armor: number };
+  /** Vehicles bought in the shop. */
+  vehicles: VehicleKind[];
   /** Local date (YYYY-MM-DD) of the last daily wheel spin. */
   lastSpin: string;
   /** Settings schema version; older saves get the new quality default once. */
@@ -43,8 +49,9 @@ export function defaultSave(): SaveData {
     totalKills: 0,
     matches: 0,
     wins: 0,
-    settings: { quality: defaultQuality(), sensitivity: 1, sound: true, aimAssist: true },
+    settings: { quality: defaultQuality(), sensitivity: 1, sound: true, aimAssist: true, difficulty: 'hard' },
     upgrades: { bag: 0, armor: 0 },
+    vehicles: [],
     lastSpin: '',
     sv: 3,
   };
@@ -72,6 +79,7 @@ export function sanitize(raw: unknown): SaveData {
     if (typeof s.sensitivity === 'number' && s.sensitivity >= 0.3 && s.sensitivity <= 2) d.settings.sensitivity = s.sensitivity;
     if (typeof s.sound === 'boolean') d.settings.sound = s.sound;
     if (typeof s.aimAssist === 'boolean') d.settings.aimAssist = s.aimAssist;
+    if (s.difficulty === 'normal' || s.difficulty === 'hard' || s.difficulty === 'extreme') d.settings.difficulty = s.difficulty;
   }
   // Quality defaults changed in v2 and v3: re-pick the device default once.
   if (r.sv !== 3) d.settings.quality = defaultQuality();
@@ -81,6 +89,7 @@ export function sanitize(raw: unknown): SaveData {
     d.upgrades.bag = Math.min(2, num(u.bag, 0));
     d.upgrades.armor = Math.min(2, num(u.armor, 0));
   }
+  if (Array.isArray(r.vehicles)) d.vehicles = Array.from(new Set(r.vehicles.filter((v): v is VehicleKind => v === 'car' || v === 'heli')));
   return d;
 }
 

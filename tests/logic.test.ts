@@ -40,8 +40,9 @@ describe('economy', () => {
     expect(equipWeapon(s, 'sniper')).toBe(false);
     expect(equipWeapon(s, 'pistol')).toBe(true);
   });
-  it('a typical match (10 kills + win) earns 3000 TL', () => {
-    expect(10 * KILL_REWARD + matchBonus('win')).toBe(3000);
+  it('a typical match (10 kills + win) earns 3400 TL; a loss costs 400 TL', () => {
+    expect(10 * KILL_REWARD + matchBonus('win')).toBe(3400);
+    expect(matchBonus('lose')).toBe(-400);
   });
   it('kill rewards: headshot and knife bonuses, streak bonuses', () => {
     expect(killReward(false, false)).toBe(200);

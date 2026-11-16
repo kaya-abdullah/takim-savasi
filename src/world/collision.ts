@@ -10,6 +10,12 @@ export interface RayHit {
 
 const CELL = 8;
 
+/** Rectangle on the XZ plane. */
+export interface Rect { x0: number; x1: number; z0: number; z1: number }
+
+/** Lowest y anything can reach; below this a fall is treated as out of the world. */
+export const WORLD_FLOOR = -30;
+
 /**
  * Static world collision. Boxes are bucketed in a uniform XZ grid so raycasts
  * and overlap queries only test nearby boxes.
@@ -20,8 +26,15 @@ export class CollisionWorld {
   private stamp: Uint32Array;
   private stampId = 1;
 
-  constructor(boxes: AABB[], readonly minX: number, readonly minZ: number, readonly maxX: number, readonly maxZ: number) {
+  /**
+   * Openings in the y = 0 ground plane (stairwells down to the tunnel). Inside
+   * them only boxes count as ground.
+   */
+  readonly pits: Rect[];
+
+  constructor(boxes: AABB[], readonly minX: number, readonly minZ: number, readonly maxX: number, readonly maxZ: number, pits: Rect[] = []) {
     this.boxes = boxes;
+    this.pits = pits;
     this.stamp = new Uint32Array(boxes.length);
     boxes.forEach((b, i) => {
       const cx0 = Math.floor(b.minX / CELL), cx1 = Math.floor(b.maxX / CELL);
@@ -72,7 +85,7 @@ export class CollisionWorld {
     let bestT = maxT;
     if (dy < 0 && oy > 0) {
       const t = -oy / dy;
-      if (t < bestT) { bestT = t; best = { t, nx: 0, ny: 1, nz: 0 }; }
+      if (t < bestT && !this.inPit(ox + dx * t, oz + dz * t)) { bestT = t; best = { t, nx: 0, ny: 1, nz: 0 }; }
     }
     // Walk the grid cells the ray crosses (2D DDA in XZ).
     const id = this.nextStamp();
@@ -142,9 +155,19 @@ export class CollisionWorld {
     return { x, z };
   }
 
-  /** Highest walkable surface under the circle, no higher than y + stepUp. */
+  /** True when (x, z) lies in an opening of the ground plane. */
+  inPit(x: number, z: number): boolean {
+    for (const p of this.pits) if (x > p.x0 && x < p.x1 && z > p.z0 && z < p.z1) return true;
+    return false;
+  }
+
+  /**
+   * Highest walkable surface under the circle, no higher than y + stepUp.
+   * The ground plane only counts for feet at or above it and outside pits, so
+   * people in the tunnel are not snapped up to the street.
+   */
   groundHeight(x: number, z: number, r: number, y: number, stepUp = 0.35): number {
-    let g = 0;
+    let g = y + stepUp >= 0 && !this.inPit(x, z) ? 0 : WORLD_FLOOR - 10;
     this.query(x - r, z - r, x + r, z + r, (b) => {
       if (b.maxY > y + stepUp) return;
       if (x + r * 0.6 < b.minX || x - r * 0.6 > b.maxX || z + r * 0.6 < b.minZ || z - r * 0.6 > b.maxZ) return;

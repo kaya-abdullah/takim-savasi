@@ -1,7 +1,9 @@
 import * as THREE from 'three';
-import type { V2 } from '../world/map';
+import type { Difficulty } from '../core/save';
 import { GRENADE_SPEED } from '../data/weapons';
-import { EYE_Y, type Combatant } from './combatant';
+import type { WayPoint } from '../world/navworld';
+import type { P3 } from '../world/structures';
+import type { Combatant } from './combatant';
 import { GRAVITY } from './match';
 import type { Match } from './match';
 
@@ -11,11 +13,33 @@ const BOT_SPEED = 4.6;
 const VIEW_DIST = 70;
 const FOV_COS = Math.cos((62 * Math.PI) / 180);
 
+/** How tough and sharp bots are. All bots (both teams) use the same level. */
+export interface DiffSpec {
+  hp: number;
+  /** Added to each bot's base skill (0.55..0.95). */
+  skill: number;
+  /** Multiplies the reaction delay before the first shot. */
+  react: number;
+  /** Multiplies aim error. */
+  aimErr: number;
+  /** 0..1 chance to sidestep when hit, and how often they crouch to shoot. */
+  dodge: number;
+  /** Back off to recover when badly hurt. */
+  retreat: boolean;
+}
+
+export const DIFFICULTY: Record<Difficulty, DiffSpec> = {
+  normal: { hp: 100, skill: 0, react: 1, aimErr: 1, dodge: 0.15, retreat: false },
+  hard: { hp: 170, skill: 0.08, react: 0.8, aimErr: 0.85, dodge: 0.6, retreat: true },
+  extreme: { hp: 250, skill: 0.15, react: 0.65, aimErr: 0.72, dodge: 0.9, retreat: true },
+};
+
 const PREF_DIST: Record<string, number> = {
   pistol: 14, smg: 10, rifle: 22, shotgun: 6, sniper: 38, lmg: 20, burst: 24, revolver: 16, minigun: 14, rocket: 24, plasma: 18,
 };
 
 const _sep = { x: 0, z: 0 };
+const _c = new THREE.Vector3();
 
 function angleDiff(a: number, b: number): number {
   let d = a - b;
@@ -28,10 +52,10 @@ export class BotBrain {
   state: State = 'roam';
   target: Combatant | null = null;
   private lastSeenT = -99;
-  private lastKnown: V2 | null = null;
-  private path: V2[] = [];
-  private pathIdx = 0;
-  private goal: V2 | null = null;
+  private lastKnown: P3 | null = null;
+  path: WayPoint[] = [];
+  pathIdx = 0;
+  goal: P3 | null = null;
   private repathT = 0;
   private thinkT = Math.random() * 0.2;
   private reactT = 0;
@@ -43,8 +67,12 @@ export class BotBrain {
   private lastPos = { x: 0, z: 0 };
   private desiredYaw = 0;
   private grenadeCd = 4 + Math.random() * 8;
+  private crouchT = 0;
+  private dodgeT = 0;
+  private retreatT = 0;
+  private lastHurtSeen = -99;
 
-  constructor(readonly skill: number) {}
+  constructor(readonly skill: number, readonly diff: DiffSpec = DIFFICULTY.normal) {}
 
   reset(): void {
     this.state = 'roam';
@@ -52,6 +80,7 @@ export class BotBrain {
     this.path = [];
     this.goal = null;
     this.lastKnown = null;
+    this.retreatT = this.dodgeT = this.crouchT = 0;
   }
 
   update(dt: number, c: Combatant, m: Match): void {
@@ -63,10 +92,14 @@ export class BotBrain {
     this.reactT -= dt;
     this.repathT -= dt;
     this.grenadeCd -= dt;
+    this.crouchT -= dt;
+    this.dodgeT -= dt;
+    this.retreatT -= dt;
     let mvx = 0, mvz = 0; // desired move direction (world, unnormalised)
     let speedMul = 1;
     c.trigger = false;
     c.aiming = false;
+    const D = this.diff;
 
     const t = this.target;
     if (this.state === 'fight' && t && t.alive) {
@@ -74,10 +107,11 @@ export class BotBrain {
       const dist = Math.hypot(dx, dz);
       // aim error settles over time, faster for skilled bots
       const settle = Math.exp(-dt * (1.5 + this.skill * 2.5));
-      const minErr = 0.012 + (1 - this.skill) * 0.03;
+      const minErr = (0.012 + (1 - this.skill) * 0.03) * D.aimErr;
       this.errYaw = this.errYaw * settle + (Math.random() - 0.5) * minErr * (1 - settle) * 6;
       this.errPitch = this.errPitch * settle + (Math.random() - 0.5) * minErr * (1 - settle) * 4;
-      const chestY = t.pos.y + 1.25 - c.pos.y - EYE_Y;
+      const aimY = t.vehicle ? t.vehicle.center(_c).y : t.pos.y + 1.25 - 0.45 * t.crouchK;
+      const chestY = aimY - c.pos.y - c.eyeY();
       this.desiredYaw = Math.atan2(dx, dz) + this.errYaw;
       const desiredPitch = Math.atan2(chestY, dist) + this.errPitch;
       const turn = 7 * dt;
@@ -88,21 +122,37 @@ export class BotBrain {
       const pref = PREF_DIST[def.id] ?? 18;
       const visible = m.time - this.lastSeenT < 0.3;
       const aligned = Math.abs(dy) < 0.15;
-      const inRange = dist < def.range * 1.7;
+      const inRange = Math.hypot(dist, aimY - c.pos.y) < def.range * 1.7;
       if (visible && aligned && inRange && this.reactT <= 0) {
         c.trigger = true;
         c.aiming = def.zoom < 0.6 && dist > 20;
       }
+      const flying = t.vehicle?.kind === 'heli';
       // knife at point-blank range, grenades at mid range
-      if (visible && dist < 2.0) m.melee(c);
-      else if (visible && this.reactT <= 0 && this.grenadeCd <= 0 && c.grenades > 0 && dist > 9 && dist < 24) {
+      if (visible && dist < 2.0 && !t.vehicle) m.melee(c);
+      else if (visible && !flying && this.reactT <= 0 && this.grenadeCd <= 0 && c.grenades > 0 && dist > 9 && dist < 24) {
         this.grenadeCd = 6 + Math.random() * 9;
         if (Math.random() < 0.35) this.throwAt(c, m, t.pos.x, t.pos.z, dist);
       }
       if (c.weapon.ammo === 0 || (!visible && c.weapon.ammo < c.weapon.def.mag * 0.4)) c.weapon.startReload();
-      // movement: close distance via path, otherwise strafe
-      if (dist > pref + 8 || !visible) {
-        this.followPathTo(c, m, t.pos.x, t.pos.z);
+      // ---- tactics: sidestep when hit, back off when nearly dead, crouch to shoot
+      if (c.lastHurtT > this.lastHurtSeen) {
+        this.lastHurtSeen = c.lastHurtT;
+        if (Math.random() < D.dodge) {
+          this.dodgeT = 0.6 + Math.random() * 0.5;
+          this.strafe = -this.strafe;
+          this.crouchT = 0;
+        }
+        if (D.retreat && c.hp < c.maxHp * 0.35 && this.retreatT < -4) this.retreatT = 2.2 + Math.random();
+      }
+      const nx = dx / (dist || 1), nz = dz / (dist || 1);
+      c.crouch = false;
+      if (this.retreatT > 0) {
+        // fall back while still shooting; regeneration starts once out of fire
+        mvx = -nx * 0.9 - nz * this.strafe * 0.6;
+        mvz = -nz * 0.9 + nx * this.strafe * 0.6;
+      } else if (dist > pref + 8 || !visible) {
+        this.followPathTo(c, m, t.pos.x, t.pos.y, t.pos.z);
         const wp = this.path[this.pathIdx];
         if (wp) { mvx = wp.x - c.pos.x; mvz = wp.z - c.pos.z; }
       } else {
@@ -110,20 +160,27 @@ export class BotBrain {
         if (this.strafeT <= 0) {
           this.strafe = Math.random() < 0.5 ? -1 : 1;
           this.strafeT = 0.5 + Math.random() * 1.1;
+          // sometimes settle into a crouch for a steadier, smaller stance
+          if (dist > 7 && this.dodgeT <= 0 && Math.random() < D.dodge * 0.45) this.crouchT = 1.2 + Math.random() * 1.4;
         }
-        const nx = dx / (dist || 1), nz = dz / (dist || 1);
         mvx = -nz * this.strafe;
         mvz = nx * this.strafe;
         const approach = dist > pref ? 0.6 : dist < pref * 0.5 ? -0.6 : 0;
         mvx += nx * approach;
         mvz += nz * approach;
-        speedMul = 0.75;
+        speedMul = this.dodgeT > 0 ? 1.1 : 0.75;
+        if (this.crouchT > 0 && visible) {
+          c.crouch = true;
+          speedMul = 0.3;
+        }
       }
     } else if (this.state === 'chase' && this.lastKnown) {
-      this.followPathTo(c, m, this.lastKnown.x, this.lastKnown.z);
+      c.crouch = false;
+      const lk = this.lastKnown;
+      this.followPathTo(c, m, lk.x, lk.y, lk.z);
       const wp = this.path[this.pathIdx];
       if (wp) { mvx = wp.x - c.pos.x; mvz = wp.z - c.pos.z; }
-      if (Math.hypot(this.lastKnown.x - c.pos.x, this.lastKnown.z - c.pos.z) < 2 || !wp) {
+      if ((Math.hypot(lk.x - c.pos.x, lk.z - c.pos.z) < 2 && Math.abs(lk.y - c.pos.y) < 2) || !wp) {
         this.state = 'roam';
         this.lastKnown = null;
       }
@@ -132,9 +189,11 @@ export class BotBrain {
       if (c.weapon.ammo < c.weapon.def.mag * 0.5) c.weapon.startReload();
     } else {
       this.state = 'roam';
-      if (!this.goal || Math.hypot(this.goal.x - c.pos.x, this.goal.z - c.pos.z) < 2.5) this.pickGoal(c, m);
+      c.crouch = false;
+      const g = this.goal;
+      if (!g || (Math.hypot(g.x - c.pos.x, g.z - c.pos.z) < 2.5 && Math.abs(g.y - c.pos.y) < 2)) this.pickGoal(c, m);
       if (this.goal) {
-        this.followPathTo(c, m, this.goal.x, this.goal.z);
+        this.followPathTo(c, m, this.goal.x, this.goal.y, this.goal.z);
         const wp = this.path[this.pathIdx];
         if (wp) { mvx = wp.x - c.pos.x; mvz = wp.z - c.pos.z; }
         else this.goal = null;
@@ -155,7 +214,7 @@ export class BotBrain {
     const tl = Math.hypot(tx, tz);
     if (tl > 1) { tx /= tl; tz /= tl; }
     // bots jog between objectives and slow down to fight
-    c.sprinting = this.state !== 'fight' && l > 0.01;
+    c.sprinting = (this.state !== 'fight' || this.retreatT > 0) && l > 0.01 && !c.crouch;
     const sp = BOT_SPEED * c.weapon.def.moveMul * speedMul * (c.speedBuffT > 0 ? 1.4 : 1) * (c.sprinting ? 1.3 : 1);
     const acc = Math.min(1, dt * 10);
     c.vx += (tx * sp - c.vx) * acc;
@@ -164,13 +223,13 @@ export class BotBrain {
     m.move(c, c.vx * dt, c.vz * dt, dt);
     // blocked while strafing -> flip direction
     const moved = Math.hypot(c.pos.x - bx, c.pos.z - bz);
-    if (this.state === 'fight' && l > 0.01 && moved < sp * dt * 0.3) this.strafe *= -1;
+    if (this.state === 'fight' && l > 0.01 && sp > 1 && moved < sp * dt * 0.3) this.strafe *= -1;
 
     // shots originate from the eyes along the view direction
     const cp = Math.cos(c.pitch);
-    c.aimOrigin.set(c.pos.x + Math.sin(c.yaw) * 0.5, c.pos.y + 1.45, c.pos.z + Math.cos(c.yaw) * 0.5);
+    c.aimOrigin.set(c.pos.x + Math.sin(c.yaw) * 0.5, c.pos.y + 1.45 - 0.5 * c.crouchK, c.pos.z + Math.cos(c.yaw) * 0.5);
     c.aimDir.set(Math.sin(c.yaw) * cp, Math.sin(c.pitch), Math.cos(c.yaw) * cp);
-    c.inaccuracy = 0.05 + (1 - this.skill) * 0.04;
+    c.inaccuracy = (0.05 + (1 - this.skill) * 0.04) * D.aimErr;
 
     // stuck detection
     this.stuckT += dt;
@@ -208,10 +267,12 @@ export class BotBrain {
     for (const e of m.combatants) {
       if (e.team === c.team || !e.alive) continue;
       const dx = e.pos.x - c.pos.x, dz = e.pos.z - c.pos.z;
-      const d = Math.hypot(dx, dz);
+      const d = Math.hypot(dx, dz, (e.pos.y - c.pos.y) * 0.5);
       if (d > VIEW_DIST) continue;
-      const inFov = (dx * fx + dz * fz) / (d || 1) > FOV_COS;
-      const noticed = inFov || d < 10 || (c.lastAttacker === e && m.time - c.lastHurtT < 2) || (m.time - e.lastShotT < 0.5 && d < 35);
+      const inFov = (dx * fx + dz * fz) / (Math.hypot(dx, dz) || 1) > FOV_COS;
+      // a helicopter is loud: everyone nearby notices it
+      const loud = !!e.vehicle && d < 45;
+      const noticed = inFov || loud || d < 10 || (c.lastAttacker === e && m.time - c.lastHurtT < 2) || (m.time - e.lastShotT < 0.5 && d < 35);
       if (!noticed) continue;
       // prefer the current target a little to avoid flip-flopping
       const score = d - (e === this.target ? 6 : 0);
@@ -222,15 +283,15 @@ export class BotBrain {
     }
     if (best) {
       if (best !== this.target || this.state !== 'fight') {
-        this.reactT = 0.4 + (1 - this.skill) * 0.5 + Math.random() * 0.25;
-        this.errYaw = (Math.random() - 0.5) * 0.35;
-        this.errPitch = (Math.random() - 0.5) * 0.15;
+        this.reactT = (0.4 + (1 - this.skill) * 0.5 + Math.random() * 0.25) * this.diff.react;
+        this.errYaw = (Math.random() - 0.5) * 0.35 * this.diff.aimErr;
+        this.errPitch = (Math.random() - 0.5) * 0.15 * this.diff.aimErr;
         this.path = [];
       }
       this.target = best;
       this.state = 'fight';
       this.lastSeenT = m.time;
-      this.lastKnown = { x: best.pos.x, z: best.pos.z };
+      this.lastKnown = { x: best.pos.x, y: best.pos.y, z: best.pos.z };
       return;
     }
     if (this.state === 'fight') {
@@ -244,24 +305,33 @@ export class BotBrain {
       }
     }
     // hurt by someone we can't see: go look for them
-    if (this.state === 'roam' && c.lastAttacker && c.lastAttacker.alive && m.time - c.lastHurtT < 1) {
+    const la = c.lastAttacker;
+    if (this.state === 'roam' && la && la.alive && m.time - c.lastHurtT < 1) {
       this.state = 'chase';
-      this.lastKnown = { x: c.lastAttacker.pos.x, z: c.lastAttacker.pos.z };
-      this.desiredYaw = Math.atan2(c.lastAttacker.pos.x - c.pos.x, c.lastAttacker.pos.z - c.pos.z);
+      this.lastKnown = { x: la.pos.x, y: la.pos.y, z: la.pos.z };
+      this.desiredYaw = Math.atan2(la.pos.x - c.pos.x, la.pos.z - c.pos.z);
       this.path = [];
     }
   }
 
   private pickGoal(c: Combatant, m: Match): void {
     // power-ups and supply drops nearby are worth a detour
-    let near = null as { x: number; z: number } | null, nd = 40;
+    let near = null as P3 | null, nd = 40;
     for (const p of m.pickups) {
       if (!p.alive) continue;
       const d = Math.hypot(p.pos.x - c.pos.x, p.pos.z - c.pos.z) * (p.kind === 'airdrop' ? 0.5 : 1);
-      if (d < nd) { nd = d; near = { x: p.pos.x, z: p.pos.z }; }
+      if (d < nd) { nd = d; near = { x: p.pos.x, y: p.falling ? 0 : p.pos.y, z: p.pos.z }; }
     }
     if (near && Math.random() < 0.6) {
       this.goal = near;
+      this.path = [];
+      return;
+    }
+    // rooftops, upper floors and the metro make good fighting spots
+    const spots = m.map.structures.spots;
+    if (spots.length && Math.random() < 0.3) {
+      const s = spots[Math.floor(Math.random() * spots.length)];
+      this.goal = { x: s.p.x + (Math.random() - 0.5) * 2, y: s.p.y, z: s.p.z + (Math.random() - 0.5) * 2 };
       this.path = [];
       return;
     }
@@ -278,25 +348,30 @@ export class BotBrain {
       const sp = m.spawnList(c.team === 'blue' ? 'red' : 'blue');
       best = sp[Math.floor(Math.random() * sp.length)];
     }
-    this.goal = { x: best.x + (Math.random() - 0.5) * 4, z: best.z + (Math.random() - 0.5) * 4 };
+    this.goal = { x: best.x + (Math.random() - 0.5) * 4, y: 0, z: best.z + (Math.random() - 0.5) * 4 };
     this.path = [];
   }
 
-  private followPathTo(c: Combatant, m: Match, x: number, z: number): void {
+  /** True while walking a stair run: replanning mid-flight would send the bot back down. */
+  private onStairs(): boolean {
+    const cur = this.path[this.pathIdx], prev = this.path[this.pathIdx - 1];
+    return !!(cur?.link && prev?.link);
+  }
+
+  private followPathTo(c: Combatant, m: Match, x: number, y: number, z: number): void {
     const end = this.path[this.path.length - 1];
-    const stale = !end || Math.hypot(end.x - x, end.z - z) > 4;
-    if ((stale && this.repathT <= 0) || this.path.length === 0) {
-      if (this.repathT <= 0) {
-        this.repathT = 0.8 + Math.random() * 0.4;
-        const p = m.nav.findPath(c.pos.x, c.pos.z, x, z);
-        this.path = p ?? [];
-        this.pathIdx = this.path.length > 1 ? 1 : 0;
-      }
+    const stale = !end || Math.hypot(end.x - x, end.z - z) > 4 || Math.abs(end.y - y) > 2.5;
+    if ((stale || this.path.length === 0) && this.repathT <= 0 && !this.onStairs()) {
+      this.repathT = 0.8 + Math.random() * 0.4;
+      const p = m.nav.findPath(c.pos.x, c.pos.y, c.pos.z, x, y, z);
+      this.path = p ?? [];
+      this.pathIdx = 0;
     }
-    // advance waypoints
+    // advance waypoints (same floor only: a roof point directly above doesn't count)
     while (this.pathIdx < this.path.length) {
       const wp = this.path[this.pathIdx];
-      if (Math.hypot(wp.x - c.pos.x, wp.z - c.pos.z) < 1.0) this.pathIdx++;
+      const reach = wp.link ? 0.7 : 1.0;
+      if (Math.hypot(wp.x - c.pos.x, wp.z - c.pos.z) < reach && Math.abs(wp.y - c.pos.y) < 2.2) this.pathIdx++;
       else break;
     }
     if (this.pathIdx >= this.path.length) this.path = [];

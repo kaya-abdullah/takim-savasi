@@ -62,10 +62,13 @@ test('phone: every menu, shop, wheel and settings control', async ({ page }) => 
   await page.tap('#settings [data-k="quality"] [data-v="low"]');
   await page.tap('#settings [data-k="sound"] [data-v="0"]');
   await page.tap('#settings [data-k="aimAssist"] [data-v="0"]');
+  await page.locator('#settings [data-k="difficulty"] [data-v="extreme"]').scrollIntoViewIfNeeded();
+  await page.tap('#settings [data-k="difficulty"] [data-v="extreme"]');
   await page.locator('#settings input[type=range]').fill('1.5');
+  await page.locator('#settings [data-a="close"]').scrollIntoViewIfNeeded();
   await inViewport(page, '#settings [data-a="close"]');
   await page.tap('#settings [data-a="close"]');
-  expect(await g(page, 'JSON.stringify(g.save.settings)')).toBe(JSON.stringify({ quality: 'low', sensitivity: 1.5, sound: false, aimAssist: false }));
+  expect(await g(page, 'JSON.stringify(g.save.settings)')).toBe(JSON.stringify({ quality: 'low', sensitivity: 1.5, sound: false, aimAssist: false, difficulty: 'extreme' }));
   await page.tap('#menu .settings-btn');
   await page.tap('#settings [data-k="quality"] [data-v="medium"]');
   await page.tap('#settings [data-k="sound"] [data-v="1"]');

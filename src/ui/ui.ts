@@ -1,7 +1,8 @@
 import type { Btn, Input } from '../core/input';
 import type { SaveData, Settings } from '../core/save';
 import { SHOP_WEAPONS, STARTER, getWeapon, weaponStats, type WeaponDef } from '../data/weapons';
-import { formatTL, UPGRADES, WHEEL, type UpgradeId } from '../game/economy';
+import { formatTL, LOSE_PENALTY, UPGRADES, WHEEL, WIN_BONUS, type UpgradeId } from '../game/economy';
+import { VEHICLE_LIST, type VehicleKind } from '../data/vehicles';
 import { START_GRENADES } from '../data/weapons';
 import type { Combatant } from '../game/combatant';
 import type { KillEntry } from '../game/match';
@@ -18,6 +19,10 @@ const ICON = {
   grenade: '<svg viewBox="0 0 24 24"><path d="M10 2h4v2h2.5l1.5 2-1.6 1.2A7.5 7.5 0 1 1 7.6 7.2L6 6l1.5-2H10zm2 7a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zm-1 2h2v3h3v2h-3v3h-2v-3H8v-2h3z"/></svg>',
   knife: '<svg viewBox="0 0 24 24"><path d="M20.5 2.5c.6 3.8-1.4 8-5.3 11.9l-2.1-2.1zM11.7 13.7l2.1 2.1-1.4 1.4 1.1 1.1-2.8 2.8a1.5 1.5 0 0 1-2.1 0l-1.6-1.6a1.5 1.5 0 0 1 0-2.1l2.8-2.8 1.1 1.1z"/></svg>',
   shield: '<svg viewBox="0 0 24 24"><path d="M12 2l8 3v6c0 5.2-3.4 9.6-8 11-4.6-1.4-8-5.8-8-11V5z"/></svg>',
+  car: '<svg viewBox="0 0 24 24"><path d="M5 11l1.6-4.4A2 2 0 0 1 8.5 5h7a2 2 0 0 1 1.9 1.6L19 11h1a1 1 0 0 1 1 1v5h-2v1.5a1.5 1.5 0 0 1-3 0V17H8v1.5a1.5 1.5 0 0 1-3 0V17H3v-5a1 1 0 0 1 1-1zm2.2 0h9.6l-1.2-3.4a1 1 0 0 0-.9-.6H9.3a1 1 0 0 0-.9.6zM6.5 12.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm11 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/></svg>',
+  heli: '<svg viewBox="0 0 24 24"><path d="M2 4h20v1.6h-9.2V8H14c3.3 0 6 1.9 6 4.6 0 1.6-1.2 2.9-3 3.4V18h3v1.6H6V18h3v-1.7H7.5L3 12H1V9h1.6l2.6 2.6A9 9 0 0 1 11.2 8V5.6H2zm8.6 12.3V18h4.8v-1.7zm3-6.7v4.2h3.6a3.2 3.2 0 0 0-3.6-4.2z"/></svg>',
+  crouch: '<svg viewBox="0 0 24 24"><path d="M13 2.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM9.6 9h5.2l2.6 4.2-1.7 1-1.8-2.9-1.6 2.6 3.1 2.6V22h-2v-4.6l-3.2-2.7-1.6 2.5H4v-2h3.6z"/></svg>',
+  rocket: '<svg viewBox="0 0 24 24"><path d="M20.5 3.5c-3.9-.4-7.6 1.2-10.2 4.3L7 8 4 11l3.2.9-1 1.6 4.3 4.3 1.6-1 .9 3.2 3-3 .2-3.3c3.1-2.6 4.7-6.3 4.3-10.2zM15 7.2a1.8 1.8 0 1 1 0 3.6 1.8 1.8 0 0 1 0-3.6zM5.4 15.5l3.1 3.1-3.9 1.4z"/></svg>',
   phone: '<svg viewBox="0 0 24 24"><path d="M7 1h10a2 2 0 0 1 2 2v18a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2zm0 4v14h10V5z"/></svg>',
 };
 
@@ -37,6 +42,17 @@ export interface UICallbacks {
   spin(): number;
   openLink(url: string): void;
   selectWeapon(id: string): void;
+  buyVehicle(kind: VehicleKind): void;
+}
+
+/** Vehicle state for the HUD (null fields = not owned / not driving). */
+export interface VehicleHud {
+  driving: { kind: VehicleKind; hp: number; max: number; rocket: number; speed: number } | null;
+  /** Seconds until each owned vehicle can be called (0 = ready); undefined = not owned. */
+  car?: number;
+  heli?: number;
+  /** Own vehicle within reach to get in. */
+  near: boolean;
 }
 
 export interface InvSlot { id: string; name: string; temp: boolean; current: boolean; }
@@ -55,6 +71,7 @@ export interface EndData {
   kills: number;
   deaths: number;
   killMoney: number;
+  /** Money change from the result: positive (win/draw) or negative (loss). */
   bonus: number;
   rank: number;
   combatants: Combatant[];
@@ -84,6 +101,8 @@ export class UI {
     reload: HTMLElement; reloadI: HTMLElement; aimBtn: HTMLElement; switchBtn: HTMLElement; touch: HTMLElement[];
     keys: HTMLElement; gCount: HTMLElement; banner: HTMLElement; warn: HTMLElement; buffs: HTMLElement; nums: HTMLElement;
     inv: HTMLElement; stam: HTMLElement;
+    crouchBtn: HTMLElement; carBtn: HTMLElement; heliBtn: HTMLElement; venter: HTMLElement; vhp: HTMLElement;
+    level: HTMLElement; target: HTMLElement; jumpBtn: HTMLElement;
   };
   private numPool: HTMLElement[] = [];
   private numIdx = 0;
@@ -154,7 +173,7 @@ export class UI {
           <div class="stat">Toplam leş<b>${save.totalKills}</b></div>
           <div class="stat">Silahlar<b>${save.owned.length - 1}/10</b></div>
         </div>
-        <div class="hint">10'a 10 takım savaşı. Her leş <b style="color:var(--gold)">200 TL</b>, kazanırsan <b style="color:var(--gold)">+1000 TL</b>. Mağazada her silah 7.000 TL.</div>
+        <div class="hint">10'a 10 takım savaşı. Her leş <b style="color:var(--gold)">200 TL</b>, kazanırsan <b style="color:var(--gold)">+${formatTL(WIN_BONUS)}</b>, kaybedersen <b style="color:#ff7a6a">−${formatTL(LOSE_PENALTY)}</b>. Binalara gir, çatıya çık, metroya in!</div>
       </div>
       <button class="shop-btn" data-a="shop">${ICON.cart}MAĞAZA</button>
       <button class="wheel-btn ${x.canSpin ? 'ready' : ''}" data-a="wheel"><span class="wico"></span>ŞANS ÇARKI${x.canSpin ? '<b>!</b>' : ''}</button>
@@ -201,13 +220,20 @@ export class UI {
       <button class="tc switch" data-b="switch" aria-label="Silah değiştir">${ICON.swap}</button>
       <button class="tc grenade" data-b="grenade" data-look="1" aria-label="El bombası">${ICON.grenade}<b class="badge" id="gc">3</b></button>
       <button class="tc knife" data-b="knife" aria-label="Bıçak">${ICON.knife}</button>
+      <button class="tc crouch" data-b="crouch" aria-label="Eğil">${ICON.crouch}</button>
+      <button class="tc vcall car" data-b="car" aria-label="Araba çağır">${ICON.car}<b class="cd"></b></button>
+      <button class="tc vcall heli" data-b="heli" aria-label="Helikopter çağır">${ICON.heli}<b class="cd"></b></button>
+      <button class="venter" data-b="vehicle"></button>
+      <div class="vhp"><span class="vn"></span><div class="bar"><i></i></div><div class="rk"><i></i></div></div>
+      <div class="lvl"></div>
+      <div class="tgt"><span></span><div class="bar"><i></i></div></div>
       <div class="banner"></div>
       <div class="buffs"></div>
       <div class="inv"></div>
       <div class="nums"></div>
       <div class="gwarn">${ICON.grenade}<span>BOMBA!</span></div>
       <button class="shop-btn" data-a="shop">${ICON.cart}MAĞAZA</button>
-      <div class="keys">WASD yürü · Fare nişan · Sol tık ateş · Sağ tık/E dürbün · R şarjör · G bomba (basılı tut) · V bıçak · Space zıpla · Shift koş · 1-9/Q silah · B mağaza · Esc</div>
+      <div class="keys">WASD yürü · Fare nişan · Sol tık ateş · Sağ tık/E dürbün · R şarjör · G bomba (basılı tut) · V bıçak · Space zıpla · Shift koş · C eğil · 1-9/Q silah · T araba · Y helikopter · X bin/in · B mağaza · Esc</div>
       <div class="death"><h2>ÖLDÜN!</h2><p id="dby"></p><div class="cd" id="dcd">3</div></div>`;
     s.prepend(this.minimap);
     const q = <T extends HTMLElement>(sel: string) => s.querySelector(sel) as T;
@@ -221,6 +247,8 @@ export class UI {
       touch: Array.from(s.querySelectorAll('.tc, .joy-hint')) as HTMLElement[], keys: q('.keys'),
       gCount: q('#gc'), banner: q('.banner'), warn: q('.gwarn'), buffs: q('.buffs'), nums: q('.nums'),
       inv: q('.inv'), stam: q('.stam i'),
+      crouchBtn: q('.tc.crouch'), carBtn: q('.vcall.car'), heliBtn: q('.vcall.heli'), venter: q('.venter'), vhp: q('.vhp'),
+      level: q('.lvl'), target: q('.tgt'), jumpBtn: q('.tc.jump'),
     };
     this.hud.inv.addEventListener('pointerdown', (e) => {
       const b = (e.target as HTMLElement).closest('[data-w]') as HTMLElement | null;
@@ -265,6 +293,7 @@ export class UI {
 
   showHud(isTouch: boolean, killLimit: number): void {
     for (const t of this.hud.touch) t.style.display = isTouch ? '' : 'none';
+    this.screens.hud.classList.toggle('touch', isTouch);
     this.hud.keys.style.display = isTouch ? 'none' : '';
     (this.screens.hud.querySelector('#lim') as HTMLElement).textContent = `${killLimit} LEŞ`;
     this.hud.feed.innerHTML = '';
@@ -285,8 +314,53 @@ export class UI {
     blue: number; red: number; limit: number; timeLeft: number; hp: number; maxHp: number; ammo: number; mag: number; weapon: string;
     reloadFrac: number; money: number; aiming: boolean; scope: boolean; enemyUnderCross: boolean; owned: number; dt: number;
     grenades: number; grenadeWarn: boolean; dmgBuff: number; speedBuff: number; stamina: number;
+    crouch: boolean; veh: VehicleHud; level: string; target: { name: string; hp: number; max: number } | null;
   }): void {
     const h = this.hud;
+    this.set('crouch', d.crouch, () => h.crouchBtn.classList.toggle('active', d.crouch));
+    this.set('lvl', d.level, () => { h.level.textContent = d.level; h.level.style.display = d.level ? '' : 'none'; });
+    const tk = d.target ? `${d.target.name}|${Math.ceil(d.target.hp)}|${d.target.max}` : '';
+    this.set('tgt', tk, () => {
+      h.target.classList.toggle('on', !!d.target);
+      if (!d.target) return;
+      (h.target.firstElementChild as HTMLElement).textContent = d.target.name;
+      const pct = Math.max(0, Math.min(100, (100 * d.target.hp) / d.target.max));
+      (h.target.querySelector('i') as HTMLElement).style.width = `${pct}%`;
+    });
+    // vehicles
+    const v = d.veh, dr = v.driving;
+    const mode = dr ? 'in-' + dr.kind : '';
+    this.set('vmode', mode, () => {
+      this.screens.hud.classList.toggle('in-car', mode === 'in-car');
+      this.screens.hud.classList.toggle('in-heli', mode === 'in-heli');
+      h.jumpBtn.setAttribute('aria-label', mode === 'in-heli' ? 'Yüksel' : 'Zıpla');
+      h.crouchBtn.setAttribute('aria-label', mode === 'in-heli' ? 'Alçal' : 'Eğil');
+      h.gCount.parentElement!.innerHTML = (mode === 'in-heli' ? ICON.rocket : ICON.grenade) + `<b class="badge" id="gc">${d.grenades}</b>`;
+      h.gCount = this.screens.hud.querySelector('#gc') as HTMLElement;
+      this.last.gc = -1;
+    });
+    const callKey = (x?: number) => (x === undefined ? 'x' : x > 0 ? String(Math.ceil(x)) : 'r');
+    this.set('vcall', `${callKey(v.car)}|${callKey(v.heli)}|${!!dr}`, () => {
+      for (const [btn, cd] of [[h.carBtn, v.car], [h.heliBtn, v.heli]] as [HTMLElement, number | undefined][]) {
+        btn.classList.toggle('owned', cd !== undefined);
+        btn.classList.toggle('wait', !!cd && cd > 0);
+        (btn.querySelector('.cd') as HTMLElement).textContent = cd && cd > 0 ? String(Math.ceil(cd)) : '';
+      }
+    });
+    const vtxt = dr ? (this.input.isTouch ? 'İN' : 'İN (X)') : v.near ? (this.input.isTouch ? 'BİN' : 'BİN (X)') : '';
+    this.set('venter', vtxt, () => { h.venter.textContent = vtxt; h.venter.classList.toggle('show', !!vtxt); h.venter.classList.toggle('out', !!dr); });
+    const vk = dr ? `${dr.kind}|${Math.ceil(dr.hp)}|${Math.round(dr.rocket * 20)}|${Math.round(dr.speed)}` : '';
+    this.set('vhp', vk, () => {
+      h.vhp.classList.toggle('on', !!dr);
+      if (!dr) return;
+      (h.vhp.querySelector('.vn') as HTMLElement).textContent = `${dr.kind === 'car' ? 'ARABA' : 'HELİKOPTER'}  ${Math.ceil(dr.hp)}/${dr.max}  ·  ${Math.round(dr.speed * 3.6)} km/s`;
+      const bar = h.vhp.querySelector('.bar i') as HTMLElement;
+      bar.style.width = `${Math.max(0, (100 * dr.hp) / dr.max)}%`;
+      bar.classList.toggle('low', dr.hp / dr.max < 0.3);
+      const rk = h.vhp.querySelector('.rk') as HTMLElement;
+      rk.style.display = dr.kind === 'heli' ? '' : 'none';
+      (rk.firstElementChild as HTMLElement).style.width = `${Math.round((1 - dr.rocket) * 100)}%`;
+    });
     const st = Math.round(d.stamina * 50);
     this.set('stam', st, () => {
       h.stam.style.width = `${st * 2}%`;
@@ -425,6 +499,7 @@ export class UI {
       else if (a === 'buy') this.cb.buy(id);
       else if (a === 'up') this.cb.buyUpgrade(id as UpgradeId);
       else if (a === 'equip') this.cb.equip(id);
+      else if (a === 'veh') this.cb.buyVehicle(id as VehicleKind);
     };
     this.renderShop(save);
     this.show('shop');
@@ -454,7 +529,27 @@ export class UI {
         <h3>${esc(w.name)}</h3><p>${esc(w.desc)}</p>
         <div class="bars"><b>Hasar</b>${bar(st.damage)}<b>Hız</b>${bar(st.rate)}<b>Menzil</b>${bar(st.range)}<b>Şarjör</b>${bar(st.mag)}</div>
         ${act}</div>`;
-    }).join('') + this.equipmentHtml(save);
+    }).join('') + this.vehiclesHtml(save) + this.equipmentHtml(save);
+  }
+
+  private vehiclesHtml(save: SaveData): string {
+    const cards = VEHICLE_LIST.map((v) => {
+      const owned = save.vehicles.includes(v.kind);
+      const poor = !owned && save.money < v.price;
+      const bar = (n: number) => `<span><i style="width:${Math.round(n * 100)}%"></i></span>`;
+      const act = owned
+        ? `<button class="act on" disabled>SENİN · ${v.kind === 'car' ? 'T' : 'Y'} / ${v.kind === 'car' ? '🚗' : '🚁'} TUŞU</button>`
+        : poor
+          ? `<button class="act buy" disabled>${formatTL(v.price - save.money)} eksik</button>`
+          : `<button class="act buy" data-a="veh" data-id="${v.kind}">SATIN AL · ${formatTL(v.price)}</button>`;
+      const img = this.icons['veh-' + v.kind];
+      return `<div class="card veh ${owned ? 'owned' : ''} ${poor ? 'poor' : ''}"><span class="num">ARAÇ</span>${owned ? '<span class="tag">SENİN</span>' : ''}
+        <div class="pic">${img ? `<img src="${img}" alt="">` : ICON[v.kind]}</div>
+        <h3>${esc(v.name)}</h3><p>${esc(v.desc)}</p>
+        <div class="bars"><b>Hız</b>${bar(v.stats.speed)}<b>Zırh</b>${bar(v.stats.armor)}<b>Silah</b>${bar(v.stats.weapon)}<b>Fiyat</b>${bar(v.price / 50000)}</div>
+        ${act}</div>`;
+    }).join('');
+    return `<div class="sec">ARAÇLAR</div>${cards}`;
   }
 
   private equipmentHtml(save: SaveData): string {
@@ -490,6 +585,7 @@ export class UI {
       <div class="row">Hassasiyet <input type="range" min="0.3" max="2" step="0.1" value="${st.sensitivity}"></div>
       <div class="row">Ses ${seg('sound', [['1', 'Açık'], ['0', 'Kapalı']], st.sound ? '1' : '0')}</div>
       <div class="row">Nişan yardımı ${seg('aimAssist', [['1', 'Açık'], ['0', 'Kapalı']], st.aimAssist ? '1' : '0')}</div>
+      <div class="row">Zorluk ${seg('difficulty', [['normal', 'Normal'], ['hard', 'Zor'], ['extreme', 'Çok Zor']], st.difficulty)}</div>
       <div class="btns"><button class="btn primary" data-a="close">TAMAM</button></div>
       <div class="diag">${esc(this.diagText())}</div></div></div>`;
     s.onclick = (e) => {
@@ -503,6 +599,7 @@ export class UI {
       if (k === 'quality') this.cb.settings({ quality: v as Settings['quality'] });
       else if (k === 'sound') this.cb.settings({ sound: v === '1' });
       else if (k === 'aimAssist') this.cb.settings({ aimAssist: v === '1' });
+      else if (k === 'difficulty') this.cb.settings({ difficulty: v as Settings['difficulty'] });
     };
     const range = s.querySelector('input') as HTMLInputElement;
     range.oninput = () => this.cb.settings({ sensitivity: parseFloat(range.value) });
@@ -517,14 +614,14 @@ export class UI {
   }
 
   // ------------------------------------------------------------------ pause
-  openPause(st: Settings): void {
+  openPause(st: Settings, quitPenalty = false): void {
     const s = this.screens.pause;
     s.innerHTML = `<div class="overlay"><div class="panel"><h2>DURAKLATILDI</h2>
       <div class="btns" style="flex-direction:column">
         <button class="btn primary" data-a="resume">DEVAM ET</button>
         <button class="btn green" data-a="shop">MAĞAZA</button>
         <button class="btn" data-a="settings">AYARLAR</button>
-        <button class="btn" data-a="quit">ANA MENÜ</button></div></div></div>`;
+        <button class="btn" data-a="quit">ANA MENÜ${quitPenalty ? ` <small style="color:#ff8a7a">(yenik sayılırsın: −${formatTL(LOSE_PENALTY)})</small>` : ''}</button></div></div></div>`;
     s.onclick = (e) => {
       const a = (e.target as HTMLElement).closest('[data-a]')?.getAttribute('data-a');
       if (a === 'resume') this.cb.resume();
@@ -592,7 +689,7 @@ export class UI {
       <h1 class="end-title ${won ? 'win' : d.winner === 'draw' ? '' : 'lose'}">${title}</h1>
       <div class="end-score"><span class="b">${d.score.blue}</span><span>-</span><span class="r">${d.score.red}</span></div>
       <div class="earn"><span>Leşler (${d.kills} × 200 TL)</span><b>+${formatTL(d.killMoney)}</b>
-        <span>${won ? 'Galibiyet bonusu' : d.winner === 'draw' ? 'Beraberlik bonusu' : 'Katılım bonusu'}</span><b>+${formatTL(d.bonus)}</b>
+        <span>${won ? 'Galibiyet bonusu' : d.winner === 'draw' ? 'Beraberlik bonusu' : 'Yenilgi cezası'}</span><b class="${d.bonus < 0 ? 'neg' : ''}">${d.bonus < 0 ? '−' + formatTL(-d.bonus) : '+' + formatTL(d.bonus)}</b>
         <span class="tot">Toplam param</span><b class="tot">${formatTL(money)}</b></div>
       <div class="teams">${table('blue')}${table('red')}</div>
       <div class="btns"><button class="btn primary" data-a="again">TEKRAR OYNA</button>

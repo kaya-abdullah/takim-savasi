@@ -10,8 +10,13 @@ import { Input } from './core/input';
 import { loadSave, writeSave, type SaveData, type Settings } from './core/save';
 import { ALL_WEAPONS, getWeapon } from './data/weapons';
 import { makeWeaponMesh } from './render/weaponModel';
-import { canSpin, spinWheel, buyUpgrade, buyWeapon, equipWeapon, formatTL, grenadeCount, killReward, matchBonus, maxHp, streakReward, UPGRADES, type UpgradeId } from './game/economy';
+import { canSpin, spinWheel, applyMatchResult, buyUpgrade, buyVehicle, buyWeapon, equipWeapon, formatTL, grenadeCount, killReward, maxHp, streakReward, UPGRADES, type UpgradeId } from './game/economy';
 import { Match, type Drop, type Grenade, type HitInfo, type Projectile } from './game/match';
+import { VEHICLE_DEFS, type VehicleKind } from './data/vehicles';
+import type { WeaponDef } from './data/weapons';
+import type { Vehicle } from './game/vehicle';
+import { VehicleView } from './render/vehicleModel';
+import { FLOOR1_Y, ROOF_Y, TUNNEL } from './world/structures';
 import type { Combatant } from './game/combatant';
 import { PlayerController } from './game/player';
 import { CharacterView } from './render/character';
@@ -24,9 +29,9 @@ import { APK_URL, SITE_URL, VERSION, VERSION_CODE } from './version';
 import { Capacitor } from '@capacitor/core';
 import { Minimap } from './ui/minimap';
 import { buildWorld } from './world/build3d';
-import { CollisionWorld } from './world/collision';
-import { createMap, mapColliders, type MapData } from './world/map';
-import { NavGrid } from './world/navgrid';
+import type { CollisionWorld } from './world/collision';
+import { buildPhysics, createMap, type MapData } from './world/map';
+import type { NavWorld } from './world/navworld';
 
 type State = 'loading' | 'menu' | 'playing' | 'paused' | 'end';
 
@@ -50,7 +55,7 @@ class Game {
   ui: UI;
   map!: MapData;
   world!: CollisionWorld;
-  nav!: NavGrid;
+  nav!: NavWorld;
   match: Match | null = null;
   ctrl: PlayerController;
   minimap!: Minimap;
@@ -67,6 +72,9 @@ class Game {
   private arcRing!: THREE.Mesh;
   private pickupViews = new PickupViews();
   private dropViews = new Map<Drop, THREE.Group>();
+  private vehicleViews = new Map<Vehicle, VehicleView>();
+  /** Last enemy the player hurt, for the target health bar. */
+  private target: { c: Combatant; t: number } | null = null;
   /** Weapons picked up during the current match (lost when it ends). */
   private matchInv: string[] = [];
   private update: MenuExtras['update'];
@@ -108,7 +116,7 @@ class Game {
       settings: (s) => this.changeSettings(s),
       pause: () => this.pause(),
       resume: () => this.resume(),
-      quit: () => this.toMenu(),
+      quit: () => this.quit(),
       switchWeapon: () => this.switchWeapon(),
       spin: () => {
         const i = spinWheel(this.save);
@@ -117,6 +125,7 @@ class Game {
       },
       openLink: (url) => { window.location.href = url; },
       selectWeapon: (id) => this.selectWeapon(id),
+      buyVehicle: (kind) => this.buyVehicle(kind),
     }, this.input);
     audio.enabled = this.save.settings.sound;
   }
@@ -126,9 +135,9 @@ class Game {
     this.ui.loading(0.1, 'Harita hazırlanıyor...');
     await step();
     this.map = createMap();
-    const boxes = mapColliders(this.map);
-    this.world = new CollisionWorld(boxes, this.map.minX, this.map.minZ, this.map.maxX, this.map.maxZ);
-    this.nav = new NavGrid(this.map.minX, this.map.minZ, this.map.maxX, this.map.maxZ, boxes);
+    const phys = buildPhysics(this.map);
+    this.world = phys.world;
+    this.nav = phys.nav;
     this.ui.loading(0.3, 'Şehir inşa ediliyor...');
     await step();
     this.scene.add(makeSky());
@@ -352,6 +361,10 @@ class Game {
     this.pickupViews.clear();
     for (const g of this.dropViews.values()) this.scene.remove(g);
     this.dropViews.clear();
+    for (const v of this.vehicleViews.values()) { this.scene.remove(v.root); v.dispose(); }
+    this.vehicleViews.clear();
+    audio.engine(null, 0);
+    this.target = null;
     this.effects.clear();
     this.match = null;
   }
@@ -379,7 +392,7 @@ class Game {
       grenadeThrown: (g) => { g.owner.view?.throwAnim(); const s = this.listenerPan(g.pos); if (s.dist < 25) audio.whoosh(); },
       grenadeBounce: (g) => { const s = this.listenerPan(g.pos); audio.clink(s.dist, s.pan); },
       melee: (c, v, back) => this.onMelee(c, v, back),
-      shot: (c, hit, def) => this.onShot(c, hit, def.projectile ? null : def.tracer, def.id, !!def.projectile),
+      shot: (c, hit, def) => this.onShot(c, hit, def),
       projectileFired: (p) => this.onProjectile(p),
       explosion: (pos, r) => this.onExplosion(pos, r),
       damage: (v, a, amt, head) => this.onDamage(v, a, amt, head),
@@ -390,7 +403,33 @@ class Game {
         this.ctrl.refillAll();
       },
       end: (w) => this.onEnd(w),
-    }, { playerGrenades: grenadeCount(this.save), playerHp: maxHp(this.save) });
+      vehicleSpawned: (v) => { if (v.owner.isPlayer) audio.horn(); },
+      vehicleDamaged: (v, a, amt) => {
+        if (v.driver?.isPlayer) {
+          const ang = Math.atan2(a.pos.x - v.pos.x, a.pos.z - v.pos.z);
+          let rel = v.driver.yaw - ang;
+          while (rel > Math.PI) rel -= Math.PI * 2;
+          while (rel < -Math.PI) rel += Math.PI * 2;
+          this.ui.damageFrom(rel);
+          if (amt >= 20) this.effects.shake = Math.min(1, this.effects.shake + 0.15);
+        }
+      },
+      vehicleDestroyed: (v, a) => {
+        const at = v.center(new THREE.Vector3());
+        this.effects.explosion(at, 6);
+        for (let i = 0; i < 6; i++) this.effects.puff(_v.set(at.x + (Math.random() - 0.5) * 3, at.y + Math.random() * 2, at.z + (Math.random() - 0.5) * 3), 1.6, 0x2a2622, 2.5, 3);
+        if (v.owner.isPlayer) {
+          this.ui.banner(v.kind === 'car' ? 'ARABAN PATLADI!' : 'HELİKOPTER DÜŞTÜ!', `${a.name} vurdu · ${VEHICLE_DEFS[v.kind].respawn} sn sonra yeniden çağır`);
+          audio.lose();
+        }
+      },
+      vehicleCrash: (v, imp) => {
+        if (!v.driver?.isPlayer) return;
+        audio.crash(imp);
+        this.effects.shake = Math.min(1.2, this.effects.shake + Math.min(0.8, imp * 0.05));
+      },
+      runOver: (v) => { if (v.driver?.isPlayer) this.ui.popup('EZDİN!', 'kill'); },
+    }, { playerGrenades: grenadeCount(this.save), playerHp: maxHp(this.save), difficulty: this.save.settings.difficulty });
     this.match = m;
     for (const c of m.combatants) {
       c.view = new CharacterView(c.team, !c.isPlayer);
@@ -418,7 +457,71 @@ class Game {
     this.input.reset();
     this.hadLock = false;
     this.input.exitPointerLock();
-    this.ui.openPause(this.save.settings);
+    audio.engine(null, 0);
+    this.ui.openPause(this.save.settings, this.quitCountsAsLoss());
+  }
+
+  /** Leaving while the enemy leads counts as a defeat (no dodging the penalty). */
+  private quitCountsAsLoss(): boolean {
+    const m = this.match;
+    return !!m && !m.over && m.score.red > m.score.blue;
+  }
+
+  /** Pause-menu "main menu": applies the defeat penalty if the enemy was ahead. */
+  quit(): void {
+    if (this.quitCountsAsLoss()) {
+      const d = applyMatchResult(this.save, 'lose');
+      this.save.matches++;
+      writeSave(this.save);
+      this.ui.toast(`Maçtan çıktın: yenik sayıldın (${d < 0 ? '−' + formatTL(-d) : '0 TL'})`);
+    }
+    this.toMenu();
+  }
+
+  buyVehicle(kind: VehicleKind): void {
+    const r = buyVehicle(this.save, kind);
+    if (r === 'ok') {
+      writeSave(this.save);
+      audio.buy();
+      this.ui.toast(`${VEHICLE_DEFS[kind].name} senin! Maçta ${kind === 'car' ? 'araba' : 'helikopter'} tuşuyla çağır.`);
+    } else if (r === 'no-money') this.ui.toast('Yeterli paran yok!');
+    this.ui.renderShop(this.save);
+  }
+
+  /** Call a vehicle (and jump in), or get in/out of the nearest one. */
+  vehicleAction(kind: VehicleKind | 'toggle'): void {
+    const m = this.match;
+    if (!m || this.state !== 'playing') return;
+    const p = m.player;
+    if (!p.alive) return;
+    if (kind === 'toggle') {
+      if (p.vehicle) { m.exitVehicle(p); audio.click(); return; }
+      const v = m.nearbyVehicle(p);
+      if (v && m.enterVehicle(p, v)) { audio.click(); return; }
+      this.ui.popup('Yakında aracın yok', 'kill');
+      return;
+    }
+    if (!this.save.vehicles.includes(kind)) {
+      this.ui.popup(`${VEHICLE_DEFS[kind].name}: mağazadan al`, 'kill');
+      return;
+    }
+    if (p.vehicle) {
+      const was = p.vehicle.kind;
+      m.exitVehicle(p);
+      if (was === kind) return;
+    }
+    const near = m.vehicleOf(kind, p);
+    if (near && !near.driver && Math.hypot(near.pos.x - p.pos.x, near.pos.z - p.pos.z) < 6 && Math.abs(near.pos.y - p.pos.y) < 2.5) {
+      m.enterVehicle(p, near);
+      return;
+    }
+    const r = m.spawnVehicle(kind, p);
+    if (r === 'ok') {
+      m.enterVehicle(p, m.vehicleOf(kind, p)!);
+      this.ui.popup(kind === 'car' ? 'ARABAYA BİNDİN' : 'HELİKOPTERE BİNDİN', 'kill');
+    } else if (r === 'cooldown') this.ui.popup(`${Math.ceil(m.vehicleCd[kind])} sn sonra hazır`, 'kill');
+    else if (r === 'blocked') this.ui.popup('Burada çağrılamaz: açık alana çık', 'kill');
+    else if (r === 'busy') this.ui.popup('Önce araçtan in', 'kill');
   }
 
   resume(): void {
@@ -540,30 +643,47 @@ class Game {
     return { dist, pan: dist > 0.01 ? _v.dot(_v2) / dist : 0 };
   }
 
-  private onShot(c: Combatant, hit: HitInfo, tracer: number | null, wid: string, isProjectile: boolean): void {
+  /** Where a fighter's shots visibly come from (gun muzzle, or the vehicle's gun/window). */
+  private muzzleOf(c: Combatant, out: THREE.Vector3): THREE.Vector3 {
+    const v = c.vehicle;
+    if (v) {
+      const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw);
+      if (v.kind === 'heli') return out.set(v.pos.x + fx * 2.2, v.pos.y + 0.5, v.pos.z + fz * 2.2);
+      return out.set(v.pos.x - fz * 0.95, v.pos.y + 1.2, v.pos.z + fx * 0.95);
+    }
+    return c.view ? c.view.muzzle(out) : out.copy(c.aimOrigin);
+  }
+
+  private onShot(c: Combatant, hit: HitInfo, def: WeaponDef): void {
+    const isProjectile = !!def.projectile;
+    const tracer = isProjectile ? null : def.tracer;
+    const wid = def.id;
     if (!isProjectile) {
-      const from = c.view ? c.view.muzzle(_v.clone()) : c.aimOrigin.clone();
+      const from = this.muzzleOf(c, new THREE.Vector3());
       // the player's tracer is drawn from the muzzle to the crosshair point
       this.effects.tracer(from, hit.point, tracer ?? 0xffd27a, c.isPlayer ? 0.03 : 0.022, c.isPlayer ? 0.06 : 0.08);
       this.effects.muzzleFlash(from, wid === 'shotgun' || wid === 'sniper' ? 0.7 : 0.45);
       const dir = _v2.copy(hit.point).sub(from).normalize();
       this.effects.muzzleStar(from, dir, wid === 'shotgun' || wid === 'sniper' || wid === 'lmg' ? 0.55 : 0.38);
       const s = this.listenerPan(from);
-      if (s.dist < 30 && Math.random() < 1 / c.weapon.def.pellets && wid !== 'revolver') {
+      if (s.dist < 30 && Math.random() < 1 / def.pellets && wid !== 'revolver' && !c.vehicle) {
         // brass flies out of the ejection port to the shooter's right
         const port = _v3.copy(from).addScaledVector(dir, -0.3);
         this.effects.casing(port, _v4.set(-Math.cos(c.yaw), 0, Math.sin(c.yaw)));
       }
-      audio.shot(c.weapon.def.sound, c.isPlayer ? 0 : s.dist, c.isPlayer ? 0 : s.pan);
+      audio.shot(def.sound, c.isPlayer ? 0 : s.dist, c.isPlayer ? 0 : s.pan);
       if (c.isPlayer) {
-        this.ctrl.onShot(c);
-        this.effects.shake = Math.min(1, this.effects.shake + c.weapon.def.recoil * 2);
+        if (!c.vehicle) this.ctrl.onShot(c);
+        this.effects.shake = Math.min(1, this.effects.shake + def.recoil * 2);
         // keep the light a little in front of the barrel so it never sits inside a surface
         this.lights.flash.position.copy(from).addScaledVector(dir, 0.35);
         this.flashT = 0.05;
       }
     }
-    if (hit.victim) {
+    if (hit.vehicle) {
+      this.effects.sparkBurst(hit.point, null, 0xffd27a, 8, 5);
+      if (c.isPlayer) this.ui.hitmark('hit');
+    } else if (hit.victim) {
       this.effects.sparkBurst(hit.point, null, hit.victim.team === 'blue' ? 0x6fb0ff : 0xff6a4a, 7, 4);
     } else if (hit.normal) {
       this.effects.sparkBurst(hit.point, hit.normal, isProjectile ? (tracer ?? 0x6bfffa) : 0xffd27a, isProjectile ? 14 : 5, 6);
@@ -583,12 +703,12 @@ class Game {
     mesh.position.copy(p.pos);
     this.scene.add(mesh);
     this.projMeshes.set(p, mesh);
-    const from = p.owner.view ? p.owner.view.muzzle(_v.clone()) : p.pos.clone();
+    const from = this.muzzleOf(p.owner, new THREE.Vector3());
     this.effects.muzzleFlash(from, 0.6);
     const s = this.listenerPan(from);
     audio.shot(p.def.sound, p.owner.isPlayer ? 0 : s.dist, p.owner.isPlayer ? 0 : s.pan);
     if (p.owner.isPlayer) {
-      this.ctrl.onShot(p.owner);
+      if (!p.owner.vehicle) this.ctrl.onShot(p.owner);
       this.effects.shake = Math.min(1, this.effects.shake + p.def.recoil * 2);
     }
   }
@@ -618,6 +738,7 @@ class Game {
       _v.set(v.pos.x, v.pos.y + 2.0, v.pos.z).project(this.camera);
       if (_v.z < 1) this.ui.damageNumber((_v.x * 0.5 + 0.5) * innerWidth, (-_v.y * 0.5 + 0.5) * innerHeight, _amt, v.alive ? (head ? 'head' : 'hit') : 'kill');
     }
+    if (a.isPlayer && v.team !== a.team) this.target = { c: v, t: performance.now() };
     if (a.isPlayer && v.alive) {
       this.ui.hitmark(head ? 'head' : 'hit');
       if (head) audio.headshot();
@@ -659,7 +780,7 @@ class Game {
     // celebratory burst where the fighter fell
     const at = _v.set(e.victim.pos.x, e.victim.pos.y + 1.1, e.victim.pos.z);
     for (const col of [0xffd84a, 0xff5a5a, 0x5ad1ff, 0x7dff6a, 0xff7ac8]) this.effects.sparkBurst(at, _v2.set(0, 1, 0), col, e.killer.isPlayer ? 10 : 4, 7);
-    if (e.killer.isPlayer) {
+    if (e.killer.isPlayer && e.killer.team !== e.victim.team) {
       const knife = e.weapon.id === 'knife';
       const reward = killReward(e.head, knife);
       const st = streakReward(e.killer.streak);
@@ -670,7 +791,7 @@ class Game {
       writeSave(this.save);
       this.ui.hitmark('kill');
       this.ui.popup(`+${formatTL(reward)}`);
-      this.ui.popup(knife ? `BIÇAKLADIN! ${e.victim.name}` : e.head ? `KAFADAN! ${e.victim.name}` : `LEŞ: ${e.victim.name}`, 'kill');
+      this.ui.popup(knife ? `BIÇAKLADIN! ${e.victim.name}` : e.weapon.id === 'car' ? `EZDİN! ${e.victim.name}` : e.head ? `KAFADAN! ${e.victim.name}` : `LEŞ: ${e.victim.name}`, 'kill');
       audio.kill();
       setTimeout(() => audio.coin(), 120);
       if (st) {
@@ -683,8 +804,7 @@ class Game {
   private onEnd(w: 'blue' | 'red' | 'draw'): void {
     const m = this.match!;
     const res = w === 'blue' ? 'win' : w === 'red' ? 'lose' : 'draw';
-    const bonus = matchBonus(res);
-    this.save.money += bonus;
+    const bonus = applyMatchResult(this.save, res);
     this.save.matches++;
     if (res === 'win') this.save.wins++;
     writeSave(this.save);
@@ -728,8 +848,13 @@ class Game {
     this.frames++;
     const m = this.match;
     if (m && this.state === 'playing') {
+      if (this.input.consume('car')) this.vehicleAction('car');
+      if (this.input.consume('heli')) this.vehicleAction('heli');
+      if (this.input.consume('vehicle')) this.vehicleAction('toggle');
       // after the match ends (end screen pending) this still drives the camera
       this.ctrl.update(dt, m.player, this.input, m, this.save.settings);
+      const pv = m.player.vehicle;
+      audio.engine(pv && !m.over ? pv.kind : null, pv ? (pv.kind === 'car' ? Math.abs(pv.speed) / 19 : 0.3 + pv.vel.length() / 25) : 0);
       if (this.ctrl.reloaded) audio.reload();
       if (this.ctrl.jumped) audio.jump();
       if (this.ctrl.stepped) audio.step(m.player.sprinting);
@@ -772,6 +897,7 @@ class Game {
       if (!v) continue;
       v.root.position.copy(c.pos);
       v.root.rotation.y = c.yaw;
+      if (c.vehicle) { v.root.visible = false; continue; }
       const speed = Math.hypot(c.vx, c.vz);
       f.set(Math.sin(c.yaw), 0, Math.cos(c.yaw));
       r.set(-Math.cos(c.yaw), 0, Math.sin(c.yaw));
@@ -786,12 +912,29 @@ class Game {
         kick: c.kick,
         reloading: c.weapon.reloading,
         sprint: c.sprinting,
+        crouch: c.crouchK,
       });
       // hide own body when the scope is up or the camera is squeezed against a wall
       if (c.isPlayer && c.alive) {
         const scoped = c.aiming && c.weapon.def.zoom < 0.5;
         v.root.visible = !scoped && this.camera.position.distanceTo(_v.set(c.pos.x, c.pos.y + 1.5, c.pos.z)) > 0.9;
       }
+    }
+    // vehicles
+    for (const veh of m.vehicles) {
+      let vv = this.vehicleViews.get(veh);
+      if (!vv) {
+        vv = new VehicleView(veh.kind, veh.owner.team);
+        this.scene.add(vv.root);
+        this.vehicleViews.set(veh, vv);
+      }
+      vv.sync(veh, dt);
+    }
+    for (const [veh, vv] of this.vehicleViews) {
+      if (veh.alive && m.vehicles.includes(veh)) continue;
+      this.scene.remove(vv.root);
+      vv.dispose();
+      this.vehicleViews.delete(veh);
     }
     // projectiles
     this.trailT -= dt;
@@ -828,10 +971,10 @@ class Game {
         this.scene.add(g);
         this.dropViews.set(d, g);
       }
-      g.position.set(d.pos.x, 0, d.pos.z);
+      g.position.set(d.pos.x, d.pos.y, d.pos.z);
       g.rotation.y += dt * 1.5;
       // drop in from waist height, then blink before vanishing
-      g.position.y = Math.max(0, 0.9 - d.age * 3);
+      g.position.y = d.pos.y + Math.max(0, 0.9 - d.age * 3);
       g.visible = d.age < 20 || Math.sin(d.age * 14) > 0;
     }
     for (const [d, g] of this.dropViews) {
@@ -895,7 +1038,8 @@ class Game {
       const h = m.hitscan(p, p.aimOrigin, p.aimDir, p.weapon.def.range * 2);
       this.enemyUnderCross = !!h.victim;
     }
-    const w = p.weapon;
+    // the helicopter's cannon replaces the hand gun on the ammo counter
+    const w = p.vehicle?.gun ?? p.weapon;
     this.ui.updateHud({
       blue: m.score.blue, red: m.score.red, limit: m.killLimit, timeLeft: m.duration - m.time,
       hp: p.hp, maxHp: p.maxHp, ammo: w.ammo, mag: w.def.mag, weapon: w.def.name,
@@ -905,11 +1049,40 @@ class Game {
       grenades: p.grenades,
       dmgBuff: p.dmgBuffT, speedBuff: p.speedBuffT, stamina: p.stamina,
       grenadeWarn: p.alive && m.grenades.some((g) => g.owner.team !== p.team && g.pos.distanceTo(p.pos) < 7),
+      crouch: p.crouch,
+      veh: {
+        driving: p.vehicle ? {
+          kind: p.vehicle.kind, hp: p.vehicle.hp, max: p.vehicle.maxHp, speed: p.vehicle.groundSpeed,
+          rocket: p.vehicle.kind === 'heli' ? p.vehicle.rocketCd / 2.2 : 0,
+        } : null,
+        car: this.save.vehicles.includes('car') ? m.vehicleCd.car : undefined,
+        heli: this.save.vehicles.includes('heli') ? m.vehicleCd.heli : undefined,
+        near: p.alive && !p.vehicle && !!m.nearbyVehicle(p),
+      },
+      level: p.alive ? this.levelLabel(m, p) : '',
+      target: this.targetInfo(),
     });
     this.ui.inventory(this.ctrl.owned.map((id) => ({ id, name: getWeapon(id).name, temp: !this.save.owned.includes(id), current: p.weapon.def.id === id })));
     if (!p.alive) this.ui.death(true, p.lastAttacker?.name ?? '', p.respawnT);
     else this.ui.death(false);
     this.minimap.draw(m, dt);
+  }
+
+  /** Short label of where the player is: METRO, ÇATI, 1. KAT, BİNA. */
+  private levelLabel(m: Match, p: Combatant): string {
+    if (p.vehicle) return p.vehicle.kind === 'heli' ? `İRTİFA ${Math.round(p.pos.y)} m` : '';
+    const name = m.nav.levelName(p.pos.x, p.pos.y, p.pos.z);
+    if (name === TUNNEL) return 'METRO';
+    if (p.pos.y >= ROOF_Y - 0.5 && name.endsWith('-roof')) return 'ÇATI';
+    if (p.pos.y >= FLOOR1_Y - 0.5 && name.endsWith('-1')) return '1. KAT';
+    if (this.map.structures.houses.some((h) => p.pos.x > h.x0 && p.pos.x < h.x1 && p.pos.z > h.z0 && p.pos.z < h.z1)) return 'ZEMİN KAT';
+    return '';
+  }
+
+  private targetInfo(): { name: string; hp: number; max: number } | null {
+    const t = this.target;
+    if (!t || performance.now() - t.t > 2500) return null;
+    return { name: t.c.name, hp: t.c.alive ? t.c.hp : 0, max: t.c.maxHp };
   }
 
   private render(): void {

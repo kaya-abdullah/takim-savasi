@@ -1,11 +1,13 @@
 import type { SaveData } from '../core/save';
 import { START_GRENADES, getWeapon, SHOP_WEAPONS } from '../data/weapons';
+import { VEHICLE_DEFS, type VehicleKind } from '../data/vehicles';
 
 export const KILL_REWARD = 200;
 export const HEADSHOT_BONUS = 50;
 export const KNIFE_BONUS = 100;
-export const WIN_BONUS = 1000;
-export const LOSE_BONUS = 300;
+export const WIN_BONUS = 1400;
+/** Losing costs money (never below zero). */
+export const LOSE_PENALTY = 400;
 export const DRAW_BONUS = 600;
 
 export type BuyResult = 'ok' | 'owned' | 'no-money' | 'unknown' | 'max';
@@ -88,8 +90,27 @@ export function streakReward(n: number): { text: string; bonus: number } | null 
   }
 }
 
+/** Money change for a match result: positive for win/draw, negative for a loss. */
 export function matchBonus(result: 'win' | 'lose' | 'draw'): number {
-  return result === 'win' ? WIN_BONUS : result === 'lose' ? LOSE_BONUS : DRAW_BONUS;
+  return result === 'win' ? WIN_BONUS : result === 'lose' ? -LOSE_PENALTY : DRAW_BONUS;
+}
+
+/** Applies the result to the wallet; a loss never takes the balance below zero. Returns the real change. */
+export function applyMatchResult(save: SaveData, result: 'win' | 'lose' | 'draw'): number {
+  const delta = Math.max(-save.money, matchBonus(result));
+  save.money += delta;
+  return delta;
+}
+
+// ---------------------------------------------------------------- vehicles
+export function buyVehicle(save: SaveData, kind: VehicleKind): BuyResult {
+  const v = VEHICLE_DEFS[kind];
+  if (!v) return 'unknown';
+  if (save.vehicles.includes(kind)) return 'owned';
+  if (save.money < v.price) return 'no-money';
+  save.money -= v.price;
+  save.vehicles.push(kind);
+  return 'ok';
 }
 
 export function formatTL(n: number): string {

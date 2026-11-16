@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { WeaponDef } from '../data/weapons';
 import type { CharacterView, Team } from '../render/character';
+import type { Vehicle } from './vehicle';
 
 export const MAX_HP = 100;
 export const BODY_R = 0.4;
@@ -8,6 +9,10 @@ export const BODY_H = 1.45;
 export const HEAD_Y = 1.67;
 export const HEAD_R = 0.22;
 export const EYE_Y = 1.6;
+/** How much a full crouch lowers the head and eyes, and shortens the body. */
+export const CROUCH_DROP = 0.5;
+export const CROUCH_BODY = 0.45;
+export const STAND_HEIGHT = 1.8;
 
 /** Per-weapon runtime state (ammo, cooldowns, reload). */
 export class WeaponState {
@@ -133,10 +138,22 @@ export class Combatant {
   /** Sprinting (player: stamina-limited; bots: when roaming). */
   sprinting = false;
   stamina = 1;
+  /** Wants to crouch; crouchK eases toward it (0 standing .. 1 crouched). */
+  crouch = false;
+  crouchK = 0;
+  /** Vehicle this fighter is driving, if any. */
+  vehicle: Vehicle | null = null;
 
   constructor(readonly id: number, readonly name: string, readonly team: Team, readonly isPlayer: boolean, weapon: WeaponDef) {
     this.weapon = new WeaponState(weapon);
   }
+
+  /** Body cylinder height for hit tests. */
+  bodyH(): number { return BODY_H - CROUCH_BODY * this.crouchK; }
+  headY(): number { return HEAD_Y - CROUCH_DROP * this.crouchK; }
+  eyeY(): number { return EYE_Y - CROUCH_DROP * this.crouchK; }
+  /** Collision height (lower when crouched). */
+  height(): number { return STAND_HEIGHT - 0.6 * this.crouchK; }
 
   forward(out: THREE.Vector3): THREE.Vector3 {
     return out.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));

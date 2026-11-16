@@ -1,9 +1,13 @@
-import type { AABB } from './collision';
+import { CollisionWorld, type AABB, type Rect } from './collision';
+import { NavWorld } from './navworld';
+import { buildStructures, type Structures } from './structures';
 
 export interface Building {
   x0: number; x1: number; z0: number; z1: number; h: number;
   color: number;
   style: number; // facade variant
+  /** Walk-in building: built from walls, floors and stairs by structures.ts. */
+  enter?: boolean;
 }
 
 export type PropKind = 'car' | 'container' | 'barrier' | 'sandbag' | 'crate' | 'barrel' | 'tree' | 'lamp' | 'wall' | 'fountain' | 'statue';
@@ -25,6 +29,7 @@ export interface MapData {
   pois: V2[];
   roads: { x0: number; x1: number; z0: number; z1: number }[];
   plaza: { x0: number; x1: number; z0: number; z1: number };
+  structures: Structures;
 }
 
 /** Footprint (length along X when rot 0, width along Z) and height. */
@@ -52,8 +57,8 @@ export function buildingBox(b: Building): AABB {
   return { minX: b.x0, maxX: b.x1, minY: 0, maxY: b.h, minZ: b.z0, maxZ: b.z1 };
 }
 
-const B = (x0: number, x1: number, z0: number, z1: number, h: number, color: number, style: number): Building =>
-  ({ x0, x1, z0, z1, h, color, style });
+const B = (x0: number, x1: number, z0: number, z1: number, h: number, color: number, style: number, enter = false): Building =>
+  ({ x0, x1, z0, z1, h, color, style, enter });
 const P = (kind: PropKind, x: number, z: number, rot: 0 | 1 = 0, color = 0xffffff): Prop => ({ kind, x, z, rot, color });
 
 /**
@@ -63,15 +68,15 @@ const P = (kind: PropKind, x: number, z: number, rot: 0 | 1 = 0, color = 0xfffff
  */
 const HALF_BUILDINGS: Building[] = [
   B(-58, -41, 30, 47, 22, 0xd9cbb3, 0),
-  B(-58, -46, 9, 21, 10, 0xb86b4b, 1),
+  B(-58, -46, 9, 21, 7, 0xb86b4b, 1, true),
   B(-43, -37, 9, 17, 6, 0x7fa6b8, 2),
   B(-25, -8, 30, 47, 14, 0xe0dccf, 1),
-  B(-25, -14, 14, 24, 8, 0x9c8f7a, 0),
+  B(-25, -14, 14, 24, 7, 0xc9b48f, 0, true),
   B(-10, -5, 16, 23, 4.5, 0xe8b04a, 2),
   B(8, 24, 15, 27, 12, 0x8a9bb0, 0),
   B(8, 24, 33, 47, 26, 0xc4c9cf, 3),
   B(38, 57, 31, 47, 16, 0xa65d57, 1),
-  B(40, 53, 10, 21, 7, 0xd1c29a, 2),
+  B(40, 53, 10, 21, 7, 0x8fa9b8, 2, true),
   B(60, 68, 30, 46, 9, 0x6f7f6a, 0),
 ];
 
@@ -146,10 +151,10 @@ export function createMap(): MapData {
   for (const x of [-66, -63]) for (const z of [-16, -8, 0, 8, 16]) blue.push({ x, z });
   const red = blue.map((p) => ({ x: -p.x, z: -p.z }));
   const halfPois: V2[] = [
-    { x: -31, z: 30 }, { x: 0, z: 30 }, { x: -45, z: 0 }, { x: -18, z: 11 },
+    { x: -31, z: 30 }, { x: 0, z: 30 }, { x: -51.5, z: 0 }, { x: -18, z: 11 },
     { x: -42, z: 25 }, { x: 31, z: 30 }, { x: 0, z: 42 }, { x: 52, z: 26 }, { x: -12, z: 0 },
   ];
-  const pois = [{ x: 0, z: 9 }, ...halfPois, ...halfPois.map((p) => ({ x: -p.x, z: -p.z }))];
+  const pois = [{ x: 6, z: 3 }, ...halfPois, ...halfPois.map((p) => ({ x: -p.x, z: -p.z }))];
   return {
     minX: -70, maxX: 70, minZ: -50, maxZ: 50,
     buildings,
@@ -163,9 +168,25 @@ export function createMap(): MapData {
       { x0: -4, x1: 4, z0: -50, z1: 50 },
     ],
     plaza: { x0: -12, x1: 12, z0: -12, z1: 12 },
+    structures: buildStructures(HALF_BUILDINGS.filter((b) => b.enter)),
   };
 }
 
 export function mapColliders(m: MapData): AABB[] {
-  return [...m.buildings.map(buildingBox), ...m.props.map(propBox)];
+  return [
+    ...m.buildings.filter((b) => !b.enter).map(buildingBox),
+    ...m.props.map(propBox),
+    ...m.structures.pieces.filter((p) => p.solid).map((p) => p.box),
+  ];
+}
+
+export function mapPits(m: MapData): Rect[] {
+  return m.structures.pits;
+}
+
+/** Collision world and multi-level navigation for a map. */
+export function buildPhysics(m: MapData): { boxes: AABB[]; world: CollisionWorld; nav: NavWorld } {
+  const boxes = mapColliders(m);
+  const world = new CollisionWorld(boxes, m.minX, m.minZ, m.maxX, m.maxZ, mapPits(m));
+  return { boxes, world, nav: new NavWorld(m, boxes) };
 }
