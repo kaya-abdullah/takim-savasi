@@ -255,3 +255,10 @@ kaldırıma taşınması, hataların düzeltilmesi.
 - Performans: dönüşler hiyerarşide biriktirilir (matris güncellemesi yok), IK yalnız 25 m içinde, 30 m ötede poz
   iki karede bir. 20 asker: karakter güncellemesi 0,49 ms/kare. Model yüklenemezse eski figür kullanılır.
 - Test: e2e/human.spec.ts (model yüklü, eller silahta, boy, takım dokusu, eğilme, yedek figür).
+
+## 13. Sürüm 4.5 (2026-11-16)
+
+- Nişangâh kendi kendine kayıyordu: nişan yardımı (varsayılan açık) fare kullanılırken de çalışıyor ve nişangâhın
+  6° yakınındaki düşmana görüşü kendiliğinden çekiyordu (ölçüm: fareye dokunmadan 2 saniyede 10,3°). Artık fareyle
+  nişan yardımı yok; dokunmatikte yalnız ateş ederken veya parmakla nişan alınırken çalışır, boşta görüş hiç kaymaz.
+  Ayar adı: "Nişan yardımı (dokunmatik)". Test: e2e/aim.spec.ts (fare 0°, dokunmatik boşta 0°, ateşte çekim var).

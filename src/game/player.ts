@@ -108,8 +108,10 @@ export class PlayerController {
       return;
     }
 
-    // ---- aim assist: gently pull toward an enemy close to the crosshair
-    if (settings.aimAssist) this.assist(dt, c, m, input.isTouch ? 1 : 0.4);
+    // ---- aim assist (touch only): gently pull toward an enemy close to the crosshair, but
+    // only while the player is shooting or steering the aim. Pulling an idle view made the
+    // crosshair drift on its own; with a mouse the player aims precisely without help.
+    if (settings.aimAssist && input.isTouch && (c.trigger || (look.dx || look.dy))) this.assist(dt, c, m, 1);
 
     // ---- buttons
     c.aiming = input.aimToggle;

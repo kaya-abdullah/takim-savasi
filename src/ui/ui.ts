@@ -604,7 +604,7 @@ export class UI {
       <div class="row">Grafik ${seg('quality', [['low', 'Düşük'], ['medium', 'Orta'], ['high', 'Yüksek']], st.quality)}</div>
       <div class="row">Hassasiyet <input type="range" min="0.3" max="2" step="0.1" value="${st.sensitivity}"></div>
       <div class="row">Ses ${seg('sound', [['1', 'Açık'], ['0', 'Kapalı']], st.sound ? '1' : '0')}</div>
-      <div class="row">Nişan yardımı ${seg('aimAssist', [['1', 'Açık'], ['0', 'Kapalı']], st.aimAssist ? '1' : '0')}</div>
+      <div class="row">Nişan yardımı (dokunmatik) ${seg('aimAssist', [['1', 'Açık'], ['0', 'Kapalı']], st.aimAssist ? '1' : '0')}</div>
       <div class="row">Zorluk ${seg('difficulty', [['normal', 'Normal'], ['hard', 'Zor'], ['extreme', 'Çok Zor']], st.difficulty)}</div>
       <div class="btns"><button class="btn primary" data-a="close">TAMAM</button></div>
       <div class="diag">${esc(this.diagText())}</div></div></div>`;
