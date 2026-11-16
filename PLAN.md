@@ -233,3 +233,11 @@ kaldırıma taşınması, hataların düzeltilmesi.
 - Hatalar: araba açık merdiven ağzından metroya inebiliyordu (baba ile düzeldi). Yeni korkuluk ile cadde bariyeri
   arasında araba sıkışıyordu (bariyer şeride alındı). Korkuluklar siyah dolu blok gibi görünüyordu; artık dikme,
   küpeşte ve ara lama (çarpışma kutusu görünmez).
+
+## 11. Sürüm 4.3 (2026-11-16)
+
+- Yolun ortasındaki yanıp sönme (v4'ten beri vardı): metro salonu ve koridorlarının tavanı caddenin hemen altında,
+  üst yüzü tam yol seviyesindeydi (y = 0). İki yüzey aynı pikseller için yarıştı (z-fighting), uzaktaki yolun ortası
+  yürürken titreşti. Yer altındaki her parçanın üstü artık yolun 2 cm altında. Ölçüm (cadde ortası, yürürken):
+  %3,92 → %0,003 titreşen piksel. Testler: v4.test.ts (yol seviyesinde üst yüz yok), visual.spec.ts (cadde ortası).
+- Patlama ışığı yumuşatıldı: tepe şiddeti 30 → en çok 6, mesafeyle azalır, 35 m ötede hiç yanmaz.

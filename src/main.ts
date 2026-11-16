@@ -767,9 +767,14 @@ class Game {
     const s = this.listenerPan(pos);
     audio.explosion(s.dist, s.pan);
     if (s.dist < 25) this.effects.shake = Math.min(1.2, this.effects.shake + (1 - s.dist / 25) * 0.8);
-    this.lights.flash.position.copy(pos);
-    this.lights.flash.position.y += 1;
-    this.flash(0.35, 30);
+    // A soft, short glow that fades with distance: at full strength (30) every
+    // grenade on the avenue lit the road up white and read as a flashing light.
+    const k = Math.max(0, 1 - s.dist / 35);
+    if (k > 0 && k * 6 >= this.flashPeak * (this.flashT / Math.max(1e-3, this.flashDur)) ** 2) {
+      this.lights.flash.position.copy(pos);
+      this.lights.flash.position.y += 1;
+      this.flash(0.3, 6 * k);
+    }
   }
 
   private onDamage(v: Combatant, a: Combatant, _amt: number, head: boolean): void {

@@ -686,5 +686,9 @@ export function buildStructures(half: HouseSpec[]): Structures {
   const hall: Rect = { x0: -10, x1: 10, z0: -6, z1: 6 };
   res.tunnel = [corridorW, hall, mirrorRect(corridorW), WEST_PASSAGE, mirrorRect(WEST_PASSAGE), ...pits];
   res.levels.push({ name: TUNNEL, y: TY, rect: { x0: -46, x1: 46, z0: -12, z1: 12 }, allow: [corridorW, hall, mirrorRect(corridorW), WEST_PASSAGE, mirrorRect(WEST_PASSAGE)], block: [] });
+  // Underground pieces that reach the street (ceilings, stairwell and tunnel
+  // walls) stop 2 cm below it: a top face at y = 0 z-fights with the road and
+  // the middle of the avenue flickers. The street plane itself is the floor.
+  for (const pc of o.pieces) if (pc.box.maxY === 0 && pc.box.minY < 0) pc.box = { ...pc.box, maxY: -0.02 };
   return { pieces: o.pieces, pits, ...res };
 }

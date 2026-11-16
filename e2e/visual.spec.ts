@@ -77,6 +77,29 @@ for (const q of ['high', 'medium']) {
     expect(errors).toEqual([]);
   });
 
+  test(`the middle of the avenue does not flicker while walking (${q})`, async ({ page }) => {
+    const errors = await boot(page, q);
+    // the metro ceilings under the avenue once sat exactly at road level and
+    // z-fought with it: a flickering band across the far road
+    const pct = await g(page, `(() => {
+      const p = g.match.player; p.view.root.scale.set(0, 0, 0);
+      p.pos.set(-55, 0, 2); p.yaw = Math.PI / 2; p.pitch = -0.05;
+      const gl = g.renderer.getContext(); const W = gl.drawingBufferWidth, H = gl.drawingBufferHeight;
+      const x0 = Math.floor(W * 0.38), x1 = Math.floor(W * 0.62), y0 = Math.floor(H * 0.44), y1 = Math.floor(H * 0.5);
+      for (let i = 0; i < 20; i++) g.tick(1/60);
+      const N = 30, frames = [];
+      for (let i = 0; i < N; i++) { p.pos.x += 0.05; g.tick(1/60); const px = new Uint8Array(W*H*4); gl.readPixels(0,0,W,H,gl.RGBA,gl.UNSIGNED_BYTE,px); frames.push(px); }
+      let flick = 0, total = 0;
+      for (let i = 2; i < N; i++) { const a = frames[i-2], b = frames[i-1], c = frames[i];
+        for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const k = (y * W + x) * 4; total++;
+          const d1 = b[k]+b[k+1]-a[k]-a[k+1], d2 = c[k]+c[k+1]-b[k]-b[k+1]; if (Math.abs(d1) > 40 && Math.abs(d2) > 40 && Math.sign(d1) !== Math.sign(d2)) flick++; } }
+      p.view.root.scale.set(1, 1, 1);
+      return 100 * flick / total; })()`) as number;
+    console.log('avenue flicker', q, pct.toFixed(3) + '%');
+    expect(pct).toBeLessThan(1);
+    expect(errors).toEqual([]);
+  });
+
   test(`standing still: the picture is perfectly stable (${q})`, async ({ page }) => {
     const errors = await boot(page, q);
     for (const [x, y, z] of [[-55, 0, 18], [-38, -4, 0.8], [-50, 3.5, 16], [-60, 0, -12]]) {

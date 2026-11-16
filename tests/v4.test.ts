@@ -104,6 +104,10 @@ describe('walk-in buildings and tunnel', () => {
     expect(s.pits).toHaveLength(4);
     expect(s.links.filter((l) => l.b === TUNNEL)).toHaveLength(4);
   });
+  it('nothing underground has a top face at street level (z-fighting with the road)', () => {
+    const bad = s.pieces.filter((p) => p.mat !== 'hidden' && p.box.minY < 0 && Math.abs(p.box.maxY) < 0.01);
+    expect(bad.map((p) => JSON.stringify(p.box))).toEqual([]);
+  });
   it('every stair end lies on a walkable cell of its floor', () => {
     for (const l of phys.nav.links) {
       const a = l.pts[0];
