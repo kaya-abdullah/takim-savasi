@@ -69,20 +69,29 @@ export function makeLights(scene: THREE.Scene): Lights {
   scene.add(sun.target);
   // Single shared muzzle-flash light. Kept in the scene permanently so the
   // light count never changes (that would recompile every shader).
-  const flash = new THREE.PointLight(0xffb060, 0, 9, 2);
+  const flash = new THREE.PointLight(0xffb060, 0, 7, 2);
   scene.add(flash);
   scene.fog = new THREE.Fog(HORIZON.clone().multiplyScalar(0.92), 60, 260);
   return { sun, hemi, flash };
 }
 
-/** Moves the shadow frustum with the camera focus, snapped to texels to avoid shimmer. */
+const _right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), SUN_DIR).normalize();
+const _up = new THREE.Vector3().crossVectors(SUN_DIR, _right).normalize();
+const _c = new THREE.Vector3();
+
+/**
+ * Moves the shadow frustum with the camera focus. The centre is snapped to
+ * whole shadow-map texels in the light's own plane, so shadow edges don't
+ * crawl or shimmer while the player walks.
+ */
 export function updateSun(l: Lights, focus: THREE.Vector3): void {
   const size = l.sun.shadow.camera.right - l.sun.shadow.camera.left;
   const texel = size / Math.max(1, l.sun.shadow.mapSize.x);
-  const fx = Math.round(focus.x / texel) * texel;
-  const fz = Math.round(focus.z / texel) * texel;
-  l.sun.target.position.set(fx, 0, fz);
-  l.sun.position.set(fx + SUN_DIR.x * 120, SUN_DIR.y * 120, fz + SUN_DIR.z * 120);
+  const a = Math.round(focus.dot(_right) / texel) * texel;
+  const b = Math.round(focus.dot(_up) / texel) * texel;
+  _c.copy(_right).multiplyScalar(a).addScaledVector(_up, b).addScaledVector(SUN_DIR, focus.dot(SUN_DIR));
+  l.sun.target.position.copy(_c);
+  l.sun.position.copy(_c).addScaledVector(SUN_DIR, 120);
   l.sun.target.updateMatrixWorld();
 }
 

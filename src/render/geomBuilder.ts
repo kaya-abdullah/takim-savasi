@@ -13,7 +13,12 @@ export interface BoxOpts {
   skipTop?: boolean;
   skipBottom?: boolean;
   onlyTop?: boolean;
+  /** Split faces into cells no bigger than this (metres) so baked light varies smoothly. */
+  subdiv?: number;
 }
+
+/** Baked lighting for a vertex: [ambient occlusion 0..1, lamp light 0..~2]. */
+export type BakeFn = (x: number, y: number, z: number, nx: number, ny: number, nz: number) => [number, number];
 
 /**
  * Accumulates many small pieces into one non-indexed geometry with vertex
@@ -25,9 +30,11 @@ export class GeomBuilder {
   uv: number[] = [];
   col: number[] = [];
   skin?: { idx: number[]; w: number[] };
+  bake?: number[];
 
-  constructor(skinned = false) {
+  constructor(skinned = false, readonly bakeFn?: BakeFn) {
     if (skinned) this.skin = { idx: [], w: [] };
+    if (bakeFn) this.bake = [];
   }
 
   get vertexCount(): number {
@@ -59,6 +66,7 @@ export class GeomBuilder {
         this.pos.push(_p.x, _p.y, _p.z);
         _n.fromBufferAttribute(N, j).applyMatrix3(_nm).normalize();
         this.nor.push(_n.x, _n.y, _n.z);
+        if (this.bake) this.bake.push(...this.bakeFn!(_p.x, _p.y, _p.z, _n.x, _n.y, _n.z));
         if (U) this.uv.push(U.getX(j), U.getY(j));
         else this.uv.push(0, 0);
         this.col.push(_c.r, _c.g, _c.b);
@@ -72,7 +80,9 @@ export class GeomBuilder {
   }
 
   box(cx: number, cy: number, cz: number, sx: number, sy: number, sz: number, color: THREE.ColorRepresentation, m: THREE.Matrix4 = IDENT, o: BoxOpts = {}): void {
-    const g = new THREE.BoxGeometry(sx, sy, sz);
+    const d = o.subdiv;
+    const seg = (v: number) => (d ? Math.max(1, Math.min(40, Math.ceil(v / d))) : 1);
+    const g = new THREE.BoxGeometry(sx, sy, sz, seg(sx), seg(sy), seg(sz));
     g.translate(cx, cy, cz);
     if (o.uv === 'world') worldUV(g, o.uvScale ?? 4, o.uvScaleY ?? o.uvScale ?? 4);
     const filter = o.onlyTop
@@ -90,6 +100,7 @@ export class GeomBuilder {
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
+    if (this.bake) g.setAttribute('bake', new THREE.Float32BufferAttribute(this.bake, 2));
     if (this.skin) {
       g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(this.skin.idx, 4));
       g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(this.skin.w, 4));

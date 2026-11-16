@@ -10,7 +10,7 @@ import { Input } from './core/input';
 import { loadSave, writeSave, type SaveData, type Settings } from './core/save';
 import { ALL_WEAPONS, getWeapon } from './data/weapons';
 import { makeWeaponMesh } from './render/weaponModel';
-import { canSpin, spinWheel, applyMatchResult, buyUpgrade, buyVehicle, buyWeapon, equipWeapon, formatTL, grenadeCount, killReward, maxHp, streakReward, UPGRADES, type UpgradeId } from './game/economy';
+import { canSpin, spinWheel, applyMatchResult, buyUpgrade, buyVehicle, buyWeapon, sellVehicle, sellWeapon, equipWeapon, formatTL, grenadeCount, killReward, maxHp, streakReward, UPGRADES, type UpgradeId } from './game/economy';
 import { Match, type Drop, type Grenade, type HitInfo, type Projectile } from './game/match';
 import { VEHICLE_DEFS, type VehicleKind } from './data/vehicles';
 import type { WeaponDef } from './data/weapons';
@@ -80,7 +80,21 @@ class Game {
   private update: MenuExtras['update'];
   private readonly native = Capacitor.isNativePlatform();
   private killMoney = 0;
+  /** Explosion flash: time left and its peak. */
   private flashT = 0;
+  private flashDur = 0.1;
+  private flashPeak = 0;
+  /** Gunfire glow: a held trigger keeps a steady, softly rising light instead of a per-shot strobe. */
+  private fireGlowT = 0;
+  private fireGlow = 0;
+
+  /** Explosion light; a stronger flash is never cut short by a weaker one. */
+  private flash(dur: number, peak: number): void {
+    const now = this.flashPeak * (this.flashT / this.flashDur) ** 2;
+    if (now > peak) return;
+    this.flashT = this.flashDur = dur;
+    this.flashPeak = peak;
+  }
   private crossT = 0;
   private enemyUnderCross = false;
   private fpsAcc = 0;
@@ -126,6 +140,8 @@ class Game {
       openLink: (url) => { window.location.href = url; },
       selectWeapon: (id) => this.selectWeapon(id),
       buyVehicle: (kind) => this.buyVehicle(kind),
+      sell: (id) => this.sell(id),
+      sellVehicle: (kind) => this.sellVehicle(kind),
     }, this.input);
     audio.enabled = this.save.settings.sound;
   }
@@ -478,6 +494,39 @@ class Game {
     this.toMenu();
   }
 
+  /** Sells a bought weapon; in a match the player switches to another gun if holding it. */
+  sell(id: string): void {
+    const got = sellWeapon(this.save, id);
+    if (got > 0) {
+      writeSave(this.save);
+      audio.coin();
+      this.ui.toast(`${getWeapon(id).name} satıldı: +${formatTL(got)}`);
+      if (this.match) {
+        const p = this.match.player;
+        this.ctrl.owned = this.inventoryIds();
+        if (p.weapon.def.id === id && !this.ctrl.owned.includes(id)) this.ctrl.equip(p, this.save.equipped);
+      }
+    }
+    this.ui.renderShop(this.save);
+  }
+
+  sellVehicle(kind: VehicleKind): void {
+    const m = this.match;
+    if (m?.player.vehicle?.kind === kind) m.exitVehicle(m.player);
+    const got = sellVehicle(this.save, kind);
+    if (got > 0) {
+      writeSave(this.save);
+      audio.coin();
+      this.ui.toast(`${VEHICLE_DEFS[kind].name} satıldı: +${formatTL(got)}`);
+      // a parked one disappears from the match too
+      if (m) {
+        const v = m.vehicleOf(kind, m.player);
+        if (v) m.vehicles.splice(m.vehicles.indexOf(v), 1);
+      }
+    }
+    this.ui.renderShop(this.save);
+  }
+
   buyVehicle(kind: VehicleKind): void {
     const r = buyVehicle(this.save, kind);
     if (r === 'ok') {
@@ -677,7 +726,7 @@ class Game {
         this.effects.shake = Math.min(1, this.effects.shake + def.recoil * 2);
         // keep the light a little in front of the barrel so it never sits inside a surface
         this.lights.flash.position.copy(from).addScaledVector(dir, 0.35);
-        this.flashT = 0.05;
+        this.fireGlowT = 0.12;
       }
     }
     if (hit.vehicle) {
@@ -720,7 +769,7 @@ class Game {
     if (s.dist < 25) this.effects.shake = Math.min(1.2, this.effects.shake + (1 - s.dist / 25) * 0.8);
     this.lights.flash.position.copy(pos);
     this.lights.flash.position.y += 1;
-    this.flashT = 0.15;
+    this.flash(0.35, 30);
   }
 
   private onDamage(v: Combatant, a: Combatant, _amt: number, head: boolean): void {
@@ -881,11 +930,18 @@ class Game {
       this.camera.rotation.z += (Math.random() - 0.5) * s * 0.3;
     }
     this.effects.update(dt);
-    this.flashT -= dt;
-    this.lights.flash.intensity = this.flashT > 0 ? 40 : 0;
+    // the flash fades instead of switching on/off (a hard strobe looks like flickering lights)
+    this.flashT = Math.max(0, this.flashT - dt);
+    this.fireGlowT = Math.max(0, this.fireGlowT - dt);
+    this.fireGlow += ((this.fireGlowT > 0 ? 3 : 0) - this.fireGlow) * Math.min(1, dt * (this.fireGlowT > 0 ? 10 : 8));
+    this.lights.flash.intensity = Math.max(this.fireGlow, this.flashPeak * (this.flashT / this.flashDur) ** 2);
     const focus = m && this.state !== 'menu' ? m.player.pos : _v.set(0, 0, 0);
-    updateSun(this.lights, focus);
-    if (this.shadowEvery > 1 && this.frames % this.shadowEvery === 0) this.lights.sun.shadow.needsUpdate = true;
+    // With a shadow map refreshed every other frame, the sun may only move on
+    // refresh frames: moving it in between makes indoor shadows jump each frame.
+    if (this.shadowEvery === 1 || this.frames % this.shadowEvery === 0) {
+      updateSun(this.lights, focus);
+      if (this.shadowEvery > 1) this.lights.sun.shadow.needsUpdate = true;
+    }
     this.render();
     this.measureFps();
   }

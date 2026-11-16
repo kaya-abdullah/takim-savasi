@@ -1,5 +1,5 @@
 /** Bump both values (and public/version.json + android versionCode) on every release. */
-export const VERSION = '4.0';
-export const VERSION_CODE = 6;
+export const VERSION = '4.1';
+export const VERSION_CODE = 7;
 export const SITE_URL = 'https://kaya-abdullah.github.io/takim-savasi/';
 export const APK_URL = 'https://github.com/kaya-abdullah/takim-savasi/releases/latest/download/TakimSavasi3D.apk';

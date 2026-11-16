@@ -1,7 +1,7 @@
 import type { Btn, Input } from '../core/input';
 import type { SaveData, Settings } from '../core/save';
 import { SHOP_WEAPONS, STARTER, getWeapon, weaponStats, type WeaponDef } from '../data/weapons';
-import { formatTL, LOSE_PENALTY, UPGRADES, WHEEL, WIN_BONUS, type UpgradeId } from '../game/economy';
+import { formatTL, LOSE_PENALTY, sellPrice, UPGRADES, WHEEL, WIN_BONUS, type UpgradeId } from '../game/economy';
 import { VEHICLE_LIST, type VehicleKind } from '../data/vehicles';
 import { START_GRENADES } from '../data/weapons';
 import type { Combatant } from '../game/combatant';
@@ -43,6 +43,8 @@ export interface UICallbacks {
   openLink(url: string): void;
   selectWeapon(id: string): void;
   buyVehicle(kind: VehicleKind): void;
+  sell(id: string): void;
+  sellVehicle(kind: VehicleKind): void;
 }
 
 /** Vehicle state for the HUD (null fields = not owned / not driving). */
@@ -110,6 +112,8 @@ export class UI {
   private last: Record<string, string | number | boolean> = {};
   private hitTimer = 0;
   private dmgIdx = 0;
+  /** Item waiting for the second tap that confirms a sale. */
+  private sellArm = '';
 
   constructor(root: HTMLElement, private cb: UICallbacks, private input: Input) {
     this.root = root;
@@ -500,13 +504,29 @@ export class UI {
       else if (a === 'up') this.cb.buyUpgrade(id as UpgradeId);
       else if (a === 'equip') this.cb.equip(id);
       else if (a === 'veh') this.cb.buyVehicle(id as VehicleKind);
+      else if (a === 'sell' || a === 'vsell') {
+        // first tap arms, second tap sells (no accidental sales)
+        if (this.sellArm !== a + id) { this.sellArm = a + id; this.renderShop(this.lastSave!); return; }
+        this.sellArm = '';
+        if (a === 'sell') this.cb.sell(id);
+        else this.cb.sellVehicle(id as VehicleKind);
+      }
     };
     this.renderShop(save);
     this.show('shop');
     if (!inMatch) this.show('menu', false);
   }
 
+  private lastSave: SaveData | null = null;
+
+  /** Small sell button under an owned item (second tap confirms). */
+  private sellBtn(kind: 'sell' | 'vsell', id: string, price: number): string {
+    const armed = this.sellArm === kind + id;
+    return `<button class="sell ${armed ? 'armed' : ''}" data-a="${kind}" data-id="${id}">${armed ? `EMİN MİSİN? +${formatTL(sellPrice(price))}` : `SAT · ${formatTL(sellPrice(price))}`}</button>`;
+  }
+
   renderShop(save: SaveData): void {
+    this.lastSave = save;
     const grid = this.screens.shop.querySelector('.grid');
     if (!grid) return;
     (this.screens.shop.querySelector('#smn') as HTMLElement).textContent = formatTL(save.money);
@@ -528,7 +548,7 @@ export class UI {
         <div class="pic">${this.icons[w.id] ? `<img src="${this.icons[w.id]}" alt="">` : ''}</div>
         <h3>${esc(w.name)}</h3><p>${esc(w.desc)}</p>
         <div class="bars"><b>Hasar</b>${bar(st.damage)}<b>Hız</b>${bar(st.rate)}<b>Menzil</b>${bar(st.range)}<b>Şarjör</b>${bar(st.mag)}</div>
-        ${act}</div>`;
+        ${act}${owned && i > 0 ? this.sellBtn('sell', w.id, w.price) : ''}</div>`;
     }).join('') + this.vehiclesHtml(save) + this.equipmentHtml(save);
   }
 
@@ -547,7 +567,7 @@ export class UI {
         <div class="pic">${img ? `<img src="${img}" alt="">` : ICON[v.kind]}</div>
         <h3>${esc(v.name)}</h3><p>${esc(v.desc)}</p>
         <div class="bars"><b>Hız</b>${bar(v.stats.speed)}<b>Zırh</b>${bar(v.stats.armor)}<b>Silah</b>${bar(v.stats.weapon)}<b>Fiyat</b>${bar(v.price / 50000)}</div>
-        ${act}</div>`;
+        ${act}${owned ? this.sellBtn('vsell', v.kind, v.price) : ''}</div>`;
     }).join('');
     return `<div class="sec">ARAÇLAR</div>${cards}`;
   }

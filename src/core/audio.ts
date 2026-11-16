@@ -6,7 +6,10 @@ export class Audio {
   private master: GainNode | null = null;
   private noise: AudioBuffer | null = null;
   enabled = true;
-  private recent = 0;
+  /** End times of gunshot voices still sounding (voice limit). */
+  private voices: number[] = [];
+  /** Last start time per distance band (near / mid / far). */
+  private bandT = [0, 0, 0];
   private echoIn: GainNode | null = null;
 
   /** Must be called from a user gesture (browser autoplay rules). */
@@ -19,7 +22,7 @@ export class Audio {
       const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AC();
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.7;
+      this.master.gain.value = 0.6;
       const comp = this.ctx.createDynamicsCompressor();
       comp.threshold.value = -14;
       comp.ratio.value = 6;
@@ -31,9 +34,9 @@ export class Audio {
       lp.type = 'lowpass';
       lp.frequency.value = 1400;
       const fb = this.ctx.createGain();
-      fb.gain.value = 0.32;
+      fb.gain.value = 0.2;
       this.echoIn = this.ctx.createGain();
-      this.echoIn.gain.value = 0.35;
+      this.echoIn.gain.value = 0.2;
       this.echoIn.connect(dl);
       dl.connect(lp).connect(fb).connect(dl);
       lp.connect(this.master);
@@ -102,23 +105,30 @@ export class Audio {
   /** dist in metres from listener (0 = own gun); pan -1..1. */
   shot(p: SoundProfile, dist = 0, pan = 0): void {
     if (!this.ok()) return;
-    // cap simultaneous distant shots to keep mobile CPUs happy
     const now = this.ctx!.currentTime;
+    this.voices = this.voices.filter((t) => t > now);
     if (dist > 0) {
-      if (now - this.recent < 0.03) return;
-      this.recent = now;
+      // Twenty fighters firing at once turn into noise: limit voices, give
+      // near shots priority and thin out the distant ones.
+      const band = dist < 12 ? 0 : dist < 30 ? 1 : 2;
+      const gap = [0.03, 0.07, 0.16][band];
+      if (now - this.bandT[band] < gap) return;
+      if (this.voices.length >= [9, 6, 3][band]) return;
+      this.bandT[band] = now;
     }
-    const vol = dist <= 0 ? 1 : Math.min(0.8, 9 / (9 + dist));
-    if (vol < 0.04) return;
+    const vol = dist <= 0 ? 1 : Math.min(0.7, (8 / (8 + dist)) ** 1.3);
+    if (vol < 0.03) return;
+    this.voices.push(now + p.decay + 0.05);
     const dest = this.out(vol, pan);
-    if (this.echoIn) dest.connect(this.echoIn);
-    const far = dist > 25;
+    // only close shots get the street echo; far ones are just a muffled pop
+    if (this.echoIn && dist < 20) dest.connect(this.echoIn);
+    const far = dist > 22;
     if (p.laser) {
       this.tone(dest, p.freq * 3, p.freq * 0.6, p.decay, p.gain * 0.6, 'sawtooth');
       this.tone(dest, p.freq * 2, p.freq * 0.4, p.decay * 1.2, p.gain * 0.4, 'square');
       return;
     }
-    this.noiseBurst(dest, far ? p.noise * 0.4 : p.noise, p.decay, p.gain);
+    this.noiseBurst(dest, far ? p.noise * 0.25 : p.noise, far ? p.decay * 1.4 : p.decay, p.gain);
     this.tone(dest, p.freq, p.freq * 0.35, p.decay * 0.8, p.gain * 0.9, 'triangle');
   }
 

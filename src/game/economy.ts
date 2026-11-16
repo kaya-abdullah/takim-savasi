@@ -102,6 +102,34 @@ export function applyMatchResult(save: SaveData, result: 'win' | 'lose' | 'draw'
   return delta;
 }
 
+/** Share of the price paid back when selling something. */
+export const SELL_RATE = 0.7;
+
+/** Resale value, rounded to 50 TL. */
+export function sellPrice(price: number): number {
+  return Math.round((price * SELL_RATE) / 50) * 50;
+}
+
+/** Sells an owned shop weapon (never the starter). If it was equipped, the starter is equipped. */
+export function sellWeapon(save: SaveData, weaponId: string): number {
+  const w = SHOP_WEAPONS.find((x) => x.id === weaponId);
+  if (!w || !save.owned.includes(w.id)) return 0;
+  const got = sellPrice(w.price);
+  save.owned = save.owned.filter((id) => id !== w.id);
+  if (save.equipped === w.id) save.equipped = save.owned[0];
+  save.money += got;
+  return got;
+}
+
+/** Sells an owned vehicle. */
+export function sellVehicle(save: SaveData, kind: VehicleKind): number {
+  if (!save.vehicles.includes(kind)) return 0;
+  const got = sellPrice(VEHICLE_DEFS[kind].price);
+  save.vehicles = save.vehicles.filter((k) => k !== kind);
+  save.money += got;
+  return got;
+}
+
 // ---------------------------------------------------------------- vehicles
 export function buyVehicle(save: SaveData, kind: VehicleKind): BuyResult {
   const v = VEHICLE_DEFS[kind];

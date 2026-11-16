@@ -199,3 +199,21 @@ Kullanıcı istekleri ve uygulanan karşılıkları:
 
 Teknik: zemin düzlemine açıklıklar (pit), kat başına nav ızgarası + merdiven bağlantıları
 (NavWorld), araçlar Match simülasyonunda (birim testli), yeni e2e: v4.spec, v4phone.spec, play.spec.
+
+## 9. Sürüm 4.1 (2026-11-16)
+
+İstekler: ışıkların yanıp sönmesi, karışık sesler, daha detaylı binalar ve grafikler, silah satışı.
+
+- Yanıp sönme: oda içinde otomatik silahla ateş ederken namlu ışığı her mermide 40 şiddetle yanıp sönüyordu
+  (ölçüm: ekran parlaklığı kare başına 90/255 sıçrıyordu). Artık ateş sürdükçe yumuşak sabit parıltı (sıçrama < 3).
+  Pencere/kapı çerçeveleri duvarla aynı düzlemdeydi (z-fighting); artık hep çıkıntılı. Gölge haritası 2 karede bir
+  yenilenirken güneş her kare kayıyordu; artık yalnız yenileme karelerinde ve ışık düzleminde texel'e oturtularak.
+- Ses: silah sesi için ses sınırı (yakın 9, orta 6, uzak 3), uzak sesler boğuk ve yankısız, yankı azaltıldı.
+- Grafik: normal haritalı doku seti (tuğla, sıva, parke, seramik, metro fayansı, granit, beton, kumaş, metal),
+  odalara işlenmiş lamba ışığı ve köşe gölgesi (vertex bake), çift katmanlı duvarlar (dış tuğla, iç sıva),
+  çerçeveli camlı pencereler, süpürgelik, korkuluk, mobilya (masa, sandalye, raf, tezgâh, kanepe, yatak, masa+monitör,
+  bitki, tablo, halı, avize), çatıda klima/depo/anten, metroda bank, otomat, çöp kutusu, afiş, kablo kanalı.
+  Sokakta yuvarlatılmış park arabaları, asfalt kabartması, yangın musluğu, çöp kutusu, bank, baba, trafik lambası.
+- Satış: mağazada alınan silah ve araçlar %70'e satılır (iki dokunuşla onay). Başlangıç tabancası satılamaz.
+- Testler: e2e/visual.spec.ts (her mekânın ekran görüntüsü + parlaklık, yürürken titreşim, dururken kararlılık,
+  ateşte yanıp sönme), satış testleri.

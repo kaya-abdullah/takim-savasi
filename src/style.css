@@ -385,3 +385,6 @@ button { border: none; color: var(--text); }
   .lvl { top: calc(116px + var(--safe-t)); }
   .venter { bottom: calc(150px + var(--safe-b)); }
 }
+/* v4.1: selling */
+.card .sell { margin-top: 6px; width: 100%; padding: 6px 8px; border-radius: 9px; font-weight: 800; font-size: 12px; letter-spacing: 1px; background: rgba(255,255,255,.08); color: #ffd27a; border: 1px solid rgba(255,210,122,.45); pointer-events: auto; }
+.card .sell.armed { background: linear-gradient(180deg, #ff7a3d, #e0480f); color: #fff; border-color: #ffb08a; }

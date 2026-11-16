@@ -238,6 +238,39 @@ test('economy: win pays +1400 TL, a loss costs 400 TL, quitting while behind cou
   expect(errors).toEqual([]);
 });
 
+test('shop: sell a bought weapon (two taps), money comes back, the starter is equipped again', async ({ page }) => {
+  const errors = await boot(page, 3500);
+  await page.click('#menu .shop-btn');
+  const card = page.locator('#shop .card', { hasText: 'Kartal Tüfek' });
+  await card.locator('[data-a="buy"]').click();
+  expect(await g(page, 'g.save.money')).toBe(0);
+  const sell = card.locator('[data-a="sell"]');
+  await expect(sell).toHaveText('SAT · 2.450 TL');
+  await sell.click();
+  await expect(card.locator('[data-a="sell"]')).toContainText('EMİN MİSİN?');
+  expect(await g(page, 'g.save.money')).toBe(0); // first tap only arms
+  await page.screenshot({ path: `${shots}/56-sell-confirm.png` });
+  await card.locator('[data-a="sell"]').click();
+  expect(await g(page, 'g.save.money')).toBe(2450);
+  expect(await g(page, 'g.save.owned')).toEqual(['pistol']);
+  expect(await g(page, 'g.save.equipped')).toBe('pistol');
+  await expect(card.locator('[data-a="sell"]')).toHaveCount(0);
+  // the starter has no sell button
+  await expect(page.locator('#shop .card').first().locator('[data-a="sell"]')).toHaveCount(0);
+  // selling in a match switches the player off the sold gun
+  await g(page, '(g.save.money = 3500, g.ui.renderShop(g.save), 0)');
+  await card.locator('[data-a="buy"]').click();
+  await page.click('#shop [data-a="close"]');
+  await page.click('.big-play');
+  expect(await g(page, 'g.match.player.weapon.def.id')).toBe('rifle');
+  await page.keyboard.press('KeyB');
+  await card.locator('[data-a="sell"]').click();
+  await card.locator('[data-a="sell"]').click();
+  expect(await g(page, 'g.match.player.weapon.def.id')).toBe('pistol');
+  expect(await g(page, 'g.ctrl.owned')).toEqual(['pistol']);
+  expect(errors).toEqual([]);
+});
+
 test('difficulty setting changes bot toughness', async ({ page }) => {
   const errors = await boot(page);
   await page.click('#menu .settings-btn');

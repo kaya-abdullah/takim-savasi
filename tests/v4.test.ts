@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { applyMatchResult, buyVehicle } from '../src/game/economy';
+import { applyMatchResult, buyVehicle, buyWeapon, sellVehicle, sellWeapon } from '../src/game/economy';
 import { defaultSave, sanitize } from '../src/core/save';
 import { buildPhysics, createMap } from '../src/world/map';
 import { Match } from '../src/game/match';
@@ -35,6 +35,31 @@ function walk(m: Match, c: Combatant, to: { x: number; y: number; z: number }, s
   }
   return c.pos.clone();
 }
+
+describe('selling', () => {
+  it('a bought weapon sells back for 70 %, the starter cannot be sold, equipped falls back', () => {
+    const s = defaultSave();
+    s.money = 3500;
+    expect(buyWeapon(s, 'rifle')).toBe('ok');
+    expect(s.equipped).toBe('rifle');
+    expect(sellWeapon(s, 'rifle')).toBe(2450);
+    expect(s.money).toBe(2450);
+    expect(s.owned).toEqual(['pistol']);
+    expect(s.equipped).toBe('pistol');
+    expect(sellWeapon(s, 'rifle')).toBe(0); // not owned any more
+    expect(sellWeapon(s, 'pistol')).toBe(0);
+    expect(s.owned).toEqual(['pistol']);
+  });
+  it('vehicles sell for 70 % too', () => {
+    const s = defaultSave();
+    s.money = 50000;
+    buyVehicle(s, 'heli');
+    expect(sellVehicle(s, 'heli')).toBe(35000);
+    expect(s.vehicles).toEqual([]);
+    expect(s.money).toBe(35000);
+    expect(sellVehicle(s, 'car')).toBe(0);
+  });
+});
 
 describe('economy v4', () => {
   it('win pays 1400 TL, loss costs 400 TL but never below zero', () => {

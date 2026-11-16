@@ -32,7 +32,7 @@ function mesh(g: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0, s
 }
 
 /** Rounded box: a box with bevelled edges via ExtrudeGeometry. */
-function rbox(w: number, h: number, d: number, r: number): THREE.BufferGeometry {
+export function rbox(w: number, h: number, d: number, r: number): THREE.BufferGeometry {
   const s = new THREE.Shape();
   const x = -w / 2, y = -h / 2;
   s.moveTo(x + r, y);
