@@ -10,7 +10,7 @@ export interface Building {
   enter?: boolean;
 }
 
-export type PropKind = 'container' | 'barrier' | 'sandbag' | 'crate' | 'barrel' | 'tree' | 'lamp' | 'wall' | 'statue';
+export type PropKind = 'container' | 'sandbag' | 'crate' | 'barrel' | 'tree' | 'lamp' | 'wall';
 
 export interface Prop {
   kind: PropKind;
@@ -35,14 +35,12 @@ export interface MapData {
 /** Footprint (length along X when rot 0, width along Z) and height. */
 export const PROP_SIZE: Record<PropKind, [number, number, number]> = {
   container: [6.1, 2.45, 2.6],
-  barrier: [3.0, 0.6, 1.1],
   sandbag: [3.0, 0.9, 1.1],
   crate: [1.4, 1.4, 1.4],
   barrel: [0.75, 0.75, 1.05],
   tree: [0.5, 0.5, 3.0],
   lamp: [0.3, 0.3, 5.0],
   wall: [4.0, 0.5, 1.15],
-  statue: [1.3, 1.3, 4.6],
 };
 
 export function propBox(p: Prop): AABB {
@@ -82,29 +80,19 @@ const CONTAINER_COLORS = [0x2f6db5, 0xb5452f, 0x3f8f4a, 0xd08a2c];
 
 const HALF_PROPS: Prop[] = [
   // avenue
-  P('barrier', -38, 1.5, 0),
-  P('barrier', 37, 1.5, 0), // clear of the east metro entrance's railing (no car trap)
-  P('barrier', -8, 4.6, 0),
   // alleys / cross streets
   P('container', -50, 25.5, 0, CONTAINER_COLORS[0]),
-  P('container', -31, 20, 1, CONTAINER_COLORS[1]),
   P('container', 17, 30, 0, CONTAINER_COLORS[2]),
   P('container', 45, 26, 0, CONTAINER_COLORS[3]),
-  P('container', 31, 42, 1, CONTAINER_COLORS[0]),
   P('crate', -20, 9),
   P('crate', -18.5, 9),
-  P('crate', 6, 9.6),
-  P('crate', 29.5, 37),
-  P('crate', -29.5, 44),
-  P('crate', -2.5, 36),
+  P('crate', 10.5, 8), // beside the plaza metro stairwell
   P('barrel', -36, 24),
   P('barrel', -36.9, 24.8),
   P('barrel', -26.5, 12),
   P('barrel', 25.8, 12.5),
-  P('barrel', 2.6, 28),
   // plaza
   P('wall', -8, 9, 0),
-  P('wall', 9, 8, 1),
   P('tree', -11, 11),
   P('tree', 11, 11),
   // sidewalks
@@ -118,16 +106,16 @@ const HALF_PROPS: Prop[] = [
   P('lamp', 44, 6.6),
   P('lamp', -26.6, 28),
   // bases
-  P('sandbag', -59.5, 6, 1),
+  P('sandbag', -59.5, 8, 1),
   P('sandbag', -60, 20, 0),
-  P('sandbag', -54, 0, 1),
   P('sandbag', 58, 11, 1),
   P('crate', -62, 25),
   P('crate', -62, 26.5),
   P('barrel', 63, 24),
 ];
 
-const CENTER_PROPS: Prop[] = [P('statue', 0, 0)];
+// the centre is left open: roads stay clear for cars
+const CENTER_PROPS: Prop[] = [];
 
 function mirrorB(b: Building): Building {
   return { ...b, x0: -b.x1, x1: -b.x0, z0: -b.z1, z1: -b.z0 };

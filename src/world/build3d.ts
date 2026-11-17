@@ -354,12 +354,6 @@ function addProp(B: Builders, p: Prop, r: () => number): void {
       for (const sx of [-1, 1]) for (const sz of [-1, 1]) B.metal.box(sx * 3.0, 1.3, sz * 1.18, 0.14, 2.62, 0.14, shade(p.color, 0.6), m);
       break;
     }
-    case 'barrier': {
-      B.concrete.box(0, 0.18, 0, 3, 0.36, 0.6, 0xc9c5bc, m, { uv: 'world', uvScale: 2 });
-      B.concrete.box(0, 0.7, 0, 3, 0.8, 0.3, 0xc9c5bc, m, { uv: 'world', uvScale: 2 });
-      for (let i = 0; i < 3; i++) B.painted.box(-1 + i, 0.8, 0, 0.45, 0.22, 0.32, i % 2 ? 0xffffff : 0xd33b2c, m);
-      break;
-    }
     case 'sandbag': {
       const bag = new THREE.SphereGeometry(0.5, 8, 6);
       bag.scale(0.62, 0.32, 0.5);
@@ -419,18 +413,6 @@ function addProp(B: Builders, p: Prop, r: () => number): void {
       B.concrete.box(0, 1.13, 0, 4.1, 0.08, 0.6, 0x948c7e, m);
       break;
     }
-    case 'statue': {
-      B.concrete.box(0, 0.1, 0, 1.7, 0.2, 1.7, 0xc9c1b0, m);
-      B.concrete.box(0, 1.0, 0, 1.3, 1.6, 1.3, 0xe2dccd, m, { uv: 'world', uvScale: 2 });
-      B.concrete.box(0, 1.85, 0, 1.5, 0.12, 1.5, 0xc9c1b0, m);
-      const col = new THREE.CylinderGeometry(0.25, 0.4, 2.0, 10);
-      tmpM.copy(m).multiply(new THREE.Matrix4().makeTranslation(0, 2.9, 0));
-      B.metal.add(col, 0xb07b3a, tmpM);
-      const ball = new THREE.IcosahedronGeometry(0.45, 2);
-      tmpM.copy(m).multiply(new THREE.Matrix4().makeTranslation(0, 4.25, 0));
-      B.metal.add(ball, 0xd9a24a, tmpM);
-      break;
-    }
   }
 }
 
@@ -468,7 +450,7 @@ function addStreetFurniture(B: Builders, m: MapData): void {
   // bollards round the plaza
   const pl = m.plaza;
   for (let x = pl.x0 + 1; x <= pl.x1 - 1; x += 2.2) for (const z of [pl.z0 - 0.4, pl.z1 + 0.4]) {
-    if (blocked(x, z, -1.5) || Math.abs(x) < 2.2) continue;
+    if (blocked(x, z, -1.5) || Math.abs(x) < 4.6) continue; // never on the north-south street
     put(B.painted, bollard, 0x2a2c30, x, 0.425, z);
     put(B.glow, cyl(0.092, 0.05, 10), 0xffffff, x, 0.7, z);
   }

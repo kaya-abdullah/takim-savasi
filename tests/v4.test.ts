@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { applyMatchResult, buyVehicle, buyWeapon, sellVehicle, sellWeapon } from '../src/game/economy';
 import { defaultSave, sanitize } from '../src/core/save';
-import { buildPhysics, createMap } from '../src/world/map';
+import { buildPhysics, createMap, propBox } from '../src/world/map';
 import { Match } from '../src/game/match';
 import type { Combatant } from '../src/game/combatant';
 import { FLOOR1_Y, ROOF_Y, STREET, TUNNEL, TUNNEL_Y } from '../src/world/structures';
@@ -107,6 +107,18 @@ describe('walk-in buildings and tunnel', () => {
   it('nothing underground has a top face at street level (z-fighting with the road)', () => {
     const bad = s.pieces.filter((p) => p.mat !== 'hidden' && p.box.minY < 0 && Math.abs(p.box.maxY) < 0.01);
     expect(bad.map((p) => JSON.stringify(p.box))).toEqual([]);
+  });
+  it('the roads are clear for cars: no prop, railing or stairwell on any road', () => {
+    const onRoad = (b: { minX: number; maxX: number; minZ: number; maxZ: number }) =>
+      map.roads.some((r) => b.maxX > r.x0 && b.minX < r.x1 && b.maxZ > r.z0 && b.minZ < r.z1);
+    expect(map.props.filter((p) => onRoad(propBox(p))).map((p) => `${p.kind} ${p.x},${p.z}`)).toEqual([]);
+    // above-ground structure pieces (railings, bollards, signs) and stairwell openings
+    expect(s.pieces.filter((p) => p.box.maxY > 0.05 && p.box.minY < 2 && onRoad(p.box)).map((p) => JSON.stringify(p.box))).toEqual([]);
+    expect(s.pits.filter((p) => onRoad({ minX: p.x0, maxX: p.x1, minZ: p.z0, maxZ: p.z1 }))).toEqual([]);
+  });
+  it('no prop stands inside a stairwell or its railing', () => {
+    const hits = map.props.map(propBox).filter((b) => s.pits.some((p) => b.maxX > p.x0 - 0.2 && b.minX < p.x1 + 0.2 && b.maxZ > p.z0 - 0.2 && b.minZ < p.z1 + 0.2));
+    expect(hits).toEqual([]);
   });
   it('every stair end lies on a walkable cell of its floor', () => {
     for (const l of phys.nav.links) {
@@ -237,6 +249,25 @@ describe('vehicles', () => {
       m.driveInput.set(v, { forward: 1, side: i < 150 ? 1 : -1, up: 0, yaw: 0 });
       m.update(1 / 30);
       for (const [x, z] of v.footprint().map((f) => [f[0], f[1]])) expect(m.world.blocked(x, z, 0.5, v.pos.y + 0.6, 0.6)).toBe(false);
+    }
+  });
+  it('a car drives every road end to end without hitting anything', () => {
+    const runs: [number, number, number, (v: { pos: THREE.Vector3 }) => number][] = [
+      [-64, 2, Math.PI / 2, (v) => v.pos.x], // avenue, eastbound lane
+      [64, -2, -Math.PI / 2, (v) => -v.pos.x], // avenue, westbound lane
+      [0, -46, 0, (v) => v.pos.z], // north-south street through the plaza
+      [-31, -46, 0, (v) => v.pos.z], // west cross street
+      [31, 46, Math.PI, (v) => -v.pos.z], // east cross street
+    ];
+    for (const [x, z, yaw, progress] of runs) {
+      const { m, v } = withVehicle('car', { x: -66, z: -5 }, Math.PI / 2);
+      v.pos.set(x, 0, z);
+      v.yaw = yaw;
+      const start = progress(v);
+      for (let i = 0; i < 150; i++) { m.driveInput.set(v, { forward: 1, side: 0, up: 0, yaw: 0 }); m.update(1 / 30); }
+      // 5 s at full throttle with nothing in the way covers ~79 m (and stops short of the map edge)
+      expect(progress(v) - start, `${x},${z}`).toBeGreaterThan(72);
+      expect(v.hp, `${x},${z}`).toBe(v.maxHp);
     }
   });
   it('a car cannot drive down a metro stairwell (bollards at the open end)', () => {

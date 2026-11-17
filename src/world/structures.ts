@@ -481,26 +481,28 @@ function tunnelHalf(o: Out, res: Res, pits: Rect[]): void {
   // the corridor's west end is closed now
   tunnelWall(o, 'z', -40.3, -40, false, -2.8, 2.8);
   const rc = RAIL_C, rh = RAIL_H;
-  // north stairwell: x -1.5..1.5, z 6..11.6, going down toward -z into the hall
-  const pitN: Rect = { x0: -1.5, x1: 1.5, z0: 6, z1: 11.6 };
+  // north stairwell on the plaza, east of the north-south street (x 5..8), going down
+  // toward -z into the hall
+  const nx0 = PLAZA_X - 1.5, nx1 = PLAZA_X + 1.5;
+  const pitN: Rect = { x0: nx0, x1: nx1, z0: 6, z1: 11.6 };
   pits.push(pitN);
   for (let i = 0; i < 15; i++) {
-    o.add(box(-1.5, 1.5, TB, -(i + 1) * RISE, 11.6 - (i + 1) * TREAD, 11.6 - i * TREAD), 'concrete', 0xb0aba2);
-    o.add(box(-1.48, 1.48, -(i + 1) * RISE - 0.03, -(i + 1) * RISE + 0.004, 11.6 - i * TREAD - 0.06, 11.6 - i * TREAD + 0.005), 'paint', 0xd9b21f, false);
+    o.add(box(nx0, nx1, TB, -(i + 1) * RISE, 11.6 - (i + 1) * TREAD, 11.6 - i * TREAD), 'concrete', 0xb0aba2);
+    o.add(box(nx0 + 0.02, nx1 - 0.02, -(i + 1) * RISE - 0.03, -(i + 1) * RISE + 0.004, 11.6 - i * TREAD - 0.06, 11.6 - i * TREAD + 0.005), 'paint', 0xd9b21f, false);
   }
-  o.add(box(-1.5, 1.5, TY - 0.03, TY, 6, 6.35), 'granite', 0xffffff, false);
-  o.add(box(1.5, 1.8, TB, 0, 6, 11.6), 'subway', 0xffffff);
-  o.add(box(-1.8, -1.5, TB, 0, 6, 11.6), 'subway', 0xffffff);
-  railing(o, box(1.5, 1.62, 0, rh, 6, 11.6), rc);
-  railing(o, box(-1.62, -1.5, 0, rh, 6, 11.6), rc);
-  railing(o, box(-1.5, 1.5, 0, rh, 6, 6.12), rc);
-  metroSign(o, 1.95, 12.3);
-  for (const bx of [-0.85, 0.85]) bollard(o, bx, 12.1);
+  o.add(box(nx0, nx1, TY - 0.03, TY, 6, 6.35), 'granite', 0xffffff, false);
+  o.add(box(nx1, nx1 + 0.3, TB, 0, 6, 11.6), 'subway', 0xffffff);
+  o.add(box(nx0 - 0.3, nx0, TB, 0, 6, 11.6), 'subway', 0xffffff);
+  railing(o, box(nx1, nx1 + 0.12, 0, rh, 6, 11.6), rc);
+  railing(o, box(nx0 - 0.12, nx0, 0, rh, 6, 11.6), rc);
+  railing(o, box(nx0, nx1, 0, rh, 6, 6.12), rc);
+  metroSign(o, nx1 + 0.45, 12.3);
+  for (const bx of [-0.85, 0.85]) bollard(o, PLAZA_X + bx, 12.1);
   // hall walls (west side and north side)
   tunnelWall(o, 'z', -10.3, -10, false, 2.5, 6.3);
   tunnelWall(o, 'z', -10.3, -10, false, -6.3, -2.5);
-  tunnelWall(o, 'x', 6, 6.3, true, -10.3, -1.8);
-  tunnelWall(o, 'x', 6, 6.3, true, 1.8, 10.3);
+  tunnelWall(o, 'x', 6, 6.3, true, -10.3, PLAZA_X - 1.8);
+  tunnelWall(o, 'x', 6, 6.3, true, PLAZA_X + 1.8, 10.3);
   // tiled pillars with a blue band
   for (const z of [3, -3]) {
     o.add(box(-5.35, -4.65, TY, -CEIL, z - 0.35, z + 0.35), 'subway', 0xffffff);
@@ -531,11 +533,11 @@ function tunnelHalf(o: Out, res: Res, pits: Rect[]): void {
     o.add(box(x - 0.7, x + 0.7, -CEIL - 0.12, -CEIL - 0.1, -0.12, 0.12), 'glow', 0xffffff, false);
     res.lamps.push({ x, y: -CEIL - 0.5, z: 0, reach: 5.5, y0: TB, y1: 0, power: 1.0 });
   }
-  res.lamps.push({ x: 0, y: -1.2, z: 9, reach: 4, y0: TB, y1: 0.1, power: 0.7 });
+  res.lamps.push({ x: PLAZA_X, y: -1.2, z: 9, reach: 4, y0: TB, y1: 0.1, power: 0.7 });
   res.rooms.push({ x0: -40, x1: -10, z0: -2.5, z1: 2.5, y0: TY, y1: -CEIL });
-  res.rooms.push({ x0: -1.5, x1: 1.5, z0: 6, z1: 11.6, y0: TY, y1: 0 });
+  res.rooms.push({ x0: PLAZA_X - 1.5, x1: PLAZA_X + 1.5, z0: 6, z1: 11.6, y0: TY, y1: 0 });
   // links
-  res.links.push({ a: STREET, b: TUNNEL, pts: [{ x: 0, y: 0, z: 12.6 }, { x: 0, y: TY, z: 5.2 }] });
+  res.links.push({ a: STREET, b: TUNNEL, pts: [{ x: PLAZA_X, y: 0, z: 12.6 }, { x: PLAZA_X, y: TY, z: 5.2 }] });
   res.spots.push({ name: TUNNEL, label: 'METRO', p: { x: -26, y: TY, z: 0 } });
 }
 
@@ -544,6 +546,8 @@ const RAIL_H = 1.05;
 /** Centre x and top-step z of the west sidewalk entrance (mirrored to the east). */
 const WEST_X = -38;
 const WEST_TOP = -13.85;
+/** Centre x of the plaza stairwell (mirrored to -x): east of the north-south street. */
+const PLAZA_X = 6.5;
 const STAIR_LEN = 15 * TREAD + 0.35;
 
 /** The passage under the avenue from the west entrance (nav needs it). */

@@ -262,3 +262,14 @@ kaldırıma taşınması, hataların düzeltilmesi.
   6° yakınındaki düşmana görüşü kendiliğinden çekiyordu (ölçüm: fareye dokunmadan 2 saniyede 10,3°). Artık fareyle
   nişan yardımı yok; dokunmatikte yalnız ateş ederken veya parmakla nişan alınırken çalışır, boşta görüş hiç kaymaz.
   Ayar adı: "Nişan yardımı (dokunmatik)". Test: e2e/aim.spec.ts (fare 0°, dokunmatik boşta 0°, ateşte çekim var).
+
+## 14. Sürüm 4.6 (2026-11-17)
+
+İstek: araba geçebilsin diye yollar açılsın; barikatlar, ortadaki büyük şey kaldırılsın.
+
+- Yollardan kaldırılanlar: 6 barikat, meydandaki heykel, caddedeki kum torbaları, ara sokaklardaki 2 konteyner,
+  3 sandık ve 1 varil (aynalarıyla birlikte toplam 23 engel). Meydandaki beton duvarlardan biri de kaldırıldı.
+- Meydanın metro girişleri kuzey-güney sokağının ortasındaydı; sokağın doğusuna, meydan kenarına taşındı (x 5..8).
+- Meydan babaları artık sokağın üstünde değil.
+- Testler: hiçbir yolda engel, korkuluk veya merdiven ağzı yok; araba caddeyi iki yönde ve üç ara sokağı baştan
+  sona çarpmadan sürüyor (eski haritada caddede 57 m'de barikata çarpıyordu); hiçbir eşya merdiven ağzında değil.
