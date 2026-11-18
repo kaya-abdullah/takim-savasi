@@ -242,11 +242,11 @@ export class Audio {
     [523, 659, 784, 1047, 1319].forEach((f, i) => this.tone(d, f, f, 0.3, 0.35, 'triangle', i * 0.12));
   }
   /** Continuous engine sound while driving; kind null fades it out. level 0..1 is speed/throttle. */
-  engine(kind: 'car' | 'heli' | null, level: number): void {
+  engine(kind: 'tank' | 'jet' | null, level: number): void {
     if (!this.ctx || !this.master) return;
     const ctx = this.ctx, now = ctx.currentTime;
     if (!this.eng && kind) {
-      // car: two detuned saws through a lowpass; heli: noise chopped by a low LFO (blade slap)
+      // tank: low detuned saws plus track rattle; jet: turbine whine over a roar of noise
       const out = ctx.createGain();
       out.gain.value = 0;
       out.connect(this.master);
@@ -282,25 +282,26 @@ export class Audio {
     const on = !!kind && this.enabled;
     if (kind) e.kind = kind;
     const k = Math.max(0, Math.min(1, level));
-    if (e.kind === 'car') {
-      e.o1.frequency.setTargetAtTime(45 + k * 110, now, 0.08);
-      e.o2.frequency.setTargetAtTime(46.5 + k * 113, now, 0.08);
-      e.og.gain.setTargetAtTime(0.25, now, 0.1);
-      e.ng.gain.setTargetAtTime(0.05, now, 0.1);
-      e.lp.frequency.setTargetAtTime(400 + k * 1400, now, 0.1);
+    if (e.kind === 'tank') {
+      e.o1.frequency.setTargetAtTime(32 + k * 50, now, 0.12);
+      e.o2.frequency.setTargetAtTime(33.5 + k * 52, now, 0.12);
+      e.og.gain.setTargetAtTime(0.3, now, 0.1);
+      e.ng.gain.setTargetAtTime(0.25, now, 0.1);
+      e.lfo.frequency.setTargetAtTime(4 + k * 14, now, 0.2);
+      e.lp.frequency.setTargetAtTime(300 + k * 700, now, 0.1);
     } else {
-      e.o1.frequency.setTargetAtTime(32 + k * 10, now, 0.2);
-      e.o2.frequency.setTargetAtTime(64 + k * 20, now, 0.2);
-      e.og.gain.setTargetAtTime(0.08, now, 0.2);
+      e.o1.frequency.setTargetAtTime(420 + k * 380, now, 0.3);
+      e.o2.frequency.setTargetAtTime(843 + k * 760, now, 0.3);
+      e.og.gain.setTargetAtTime(0.05, now, 0.2);
       e.ng.gain.setTargetAtTime(0.9, now, 0.2);
-      e.lfo.frequency.setTargetAtTime(7 + k * 5, now, 0.3);
-      e.lp.frequency.setTargetAtTime(700 + k * 500, now, 0.2);
+      e.lfo.frequency.setTargetAtTime(60, now, 0.3);
+      e.lp.frequency.setTargetAtTime(1600 + k * 1800, now, 0.2);
     }
-    e.out.gain.setTargetAtTime(on ? (e.kind === 'heli' ? 0.32 : 0.22) : 0, now, on ? 0.15 : 0.25);
+    e.out.gain.setTargetAtTime(on ? (e.kind === 'jet' ? 0.32 : 0.22) : 0, now, on ? 0.15 : 0.25);
   }
   private eng: {
     out: GainNode; lp: BiquadFilterNode; o1: OscillatorNode; o2: OscillatorNode; og: GainNode; ng: GainNode; lfo: OscillatorNode;
-    kind: 'car' | 'heli';
+    kind: 'tank' | 'jet';
   } | null = null;
 
   crash(strength: number): void {

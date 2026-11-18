@@ -127,7 +127,7 @@ export class BotBrain {
         c.trigger = true;
         c.aiming = def.zoom < 0.6 && dist > 20;
       }
-      const flying = t.vehicle?.kind === 'heli';
+      const flying = t.vehicle?.kind === 'jet';
       // knife at point-blank range, grenades at mid range
       if (visible && dist < 2.0 && !t.vehicle) m.melee(c);
       else if (visible && !flying && this.reactT <= 0 && this.grenadeCd <= 0 && c.grenades > 0 && dist > 9 && dist < 24) {

@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import { HELI_GUN, VEHICLE_DEFS, type VehicleDef, type VehicleKind } from '../data/vehicles';
+import { JET_GUN, TANK_GUN, VEHICLE_DEFS, type VehicleDef, type VehicleKind } from '../data/vehicles';
 import { WORLD_FLOOR, rayBox, type CollisionWorld } from '../world/collision';
 import { WeaponState, type Combatant } from './combatant';
 
-export const CAR_MAX_SPEED = 19;
-const CAR_REVERSE = 7;
-export const HELI_SPEED = 20;
-export const HELI_CLIMB = 8;
-export const HELI_MAX_ALT = 45;
+export const TANK_MAX_SPEED = 12;
+const TANK_REVERSE = 5;
+export const JET_SPEED = 30;
+export const JET_CLIMB = 10;
+export const JET_MAX_ALT = 50;
 const GRAV = 18;
 
 /** Driver controls, already mapped from the joystick/keys. */
@@ -24,8 +24,8 @@ export interface DriveInput {
 
 /** Half extents of the hit box in the vehicle's own frame (x = right, z = forward). */
 const HIT: Record<VehicleKind, { hx: number; hz: number; h: number }> = {
-  car: { hx: 1.0, hz: 2.2, h: 1.45 },
-  heli: { hx: 1.25, hz: 3.4, h: 2.6 },
+  tank: { hx: 1.15, hz: 2.4, h: 2.0 },
+  jet: { hx: 1.3, hz: 4.2, h: 2.4 },
 };
 
 function angleDiff(a: number, b: number): number {
@@ -47,14 +47,15 @@ export class Vehicle {
   alive = true;
   driver: Combatant | null = null;
   onGround = true;
-  /** Heli rotor spin 0..1 (lift needs a spun-up rotor). */
+  /** Jet engine spool 0..1 (lift needs a spun-up engine). */
   rotor = 0;
   /** Visual state. */
   wheel = 0;
   steer = 0;
   tiltX = 0;
   tiltZ = 0;
-  readonly gun: WeaponState | null;
+  readonly gun: WeaponState;
+  /** Seconds until the heavy weapon (tank shell / jet bomb) is ready. */
   rocketCd = 0;
   /** Time of the last hard crash (for sound/damage throttling). */
   lastImpact = 0;
@@ -62,7 +63,7 @@ export class Vehicle {
   constructor(readonly kind: VehicleKind, readonly owner: Combatant) {
     this.def = VEHICLE_DEFS[kind];
     this.hp = this.def.hp;
-    this.gun = kind === 'heli' ? new WeaponState(HELI_GUN) : null;
+    this.gun = new WeaponState(kind === 'jet' ? JET_GUN : TANK_GUN);
   }
 
   get maxHp(): number {
@@ -80,7 +81,7 @@ export class Vehicle {
   /** Circles (x, z, r) that approximate the footprint, front to back. */
   footprint(): [number, number, number][] {
     const fx = this.forwardX(), fz = this.forwardZ();
-    if (this.kind === 'car') return [-1.3, 0, 1.3].map((o) => [this.pos.x + fx * o, this.pos.z + fz * o, this.def.radius]);
+    if (this.kind === 'tank') return [-1.3, 0, 1.3].map((o) => [this.pos.x + fx * o, this.pos.z + fz * o, this.def.radius]);
     return [[this.pos.x, this.pos.z, this.def.radius], [this.pos.x - fx * 3.6, this.pos.z - fz * 3.6, 0.5]];
   }
 
@@ -110,10 +111,10 @@ export class Vehicle {
   step(world: CollisionWorld, inp: DriveInput | null, dt: number): number {
     if (!this.alive) return 0;
     this.rocketCd = Math.max(0, this.rocketCd - dt);
-    return this.kind === 'car' ? this.stepCar(world, inp, dt) : this.stepHeli(world, inp, dt);
+    return this.kind === 'tank' ? this.stepTank(world, inp, dt) : this.stepJet(world, inp, dt);
   }
 
-  private stepCar(world: CollisionWorld, inp: DriveInput | null, dt: number): number {
+  private stepTank(world: CollisionWorld, inp: DriveInput | null, dt: number): number {
     const throttle = inp?.forward ?? 0, steerIn = inp?.side ?? 0;
     if (throttle > 0.05) this.speed += (this.speed < 0 ? 24 : 11) * dt * throttle;
     else if (throttle < -0.05) this.speed += (this.speed > 0 ? 24 : 8) * dt * throttle;
@@ -123,11 +124,11 @@ export class Vehicle {
       const brake = 22 * dt;
       this.speed = Math.abs(this.speed) <= brake ? 0 : this.speed - Math.sign(this.speed) * brake;
     }
-    this.speed = THREE.MathUtils.clamp(this.speed, -CAR_REVERSE, CAR_MAX_SPEED);
+    this.speed = THREE.MathUtils.clamp(this.speed, -TANK_REVERSE, TANK_MAX_SPEED);
     this.steer += (steerIn - this.steer) * Math.min(1, dt * 8);
-    // turning needs motion; high speed turns a little wider
-    const k = THREE.MathUtils.clamp(this.speed / 5, -1, 1) * (1 - 0.35 * Math.min(1, Math.abs(this.speed) / CAR_MAX_SPEED));
-    this.yaw -= this.steer * 1.9 * k * dt;
+    // tracks let a tank pivot on the spot; reversing flips the steering like a car
+    const k = this.speed < -0.5 ? -1 : 1;
+    this.yaw -= this.steer * 1.5 * k * dt;
     const fx = this.forwardX(), fz = this.forwardZ();
     let x = this.pos.x + fx * this.speed * dt, z = this.pos.z + fz * this.speed * dt;
     for (let it = 0; it < 2; it++)
@@ -154,17 +155,17 @@ export class Vehicle {
     return impact;
   }
 
-  private stepHeli(world: CollisionWorld, inp: DriveInput | null, dt: number): number {
+  private stepJet(world: CollisionWorld, inp: DriveInput | null, dt: number): number {
     this.rotor += ((inp ? 1 : 0) - this.rotor) * Math.min(1, dt * (inp ? 0.9 : 0.4));
     const v = this.vel;
     if (inp) {
       this.yaw += angleDiff(inp.yaw, this.yaw) * Math.min(1, dt * 4);
       const fx = Math.sin(inp.yaw), fz = Math.cos(inp.yaw), rx = -Math.cos(inp.yaw), rz = Math.sin(inp.yaw);
-      const tx = (fx * inp.forward + rx * inp.side) * HELI_SPEED, tz = (fz * inp.forward + rz * inp.side) * HELI_SPEED;
+      const tx = (fx * inp.forward + rx * inp.side) * JET_SPEED, tz = (fz * inp.forward + rz * inp.side) * JET_SPEED;
       const k = Math.min(1, dt * 1.6);
       v.x += (tx - v.x) * k;
       v.z += (tz - v.z) * k;
-      const lift = this.rotor > 0.55 ? inp.up * HELI_CLIMB : -2;
+      const lift = this.rotor > 0.55 ? inp.up * JET_CLIMB : -2;
       v.y += (lift - v.y) * Math.min(1, dt * 3);
     } else {
       v.x *= 1 - Math.min(1, dt * 1.2);
@@ -173,7 +174,7 @@ export class Vehicle {
     }
     const ox = this.pos.x, oz = this.pos.z;
     this.pos.addScaledVector(v, dt);
-    if (this.pos.y > HELI_MAX_ALT) { this.pos.y = HELI_MAX_ALT; v.y = Math.min(0, v.y); }
+    if (this.pos.y > JET_MAX_ALT) { this.pos.y = JET_MAX_ALT; v.y = Math.min(0, v.y); }
     let impact = 0;
     const r = world.resolveCircle(this.pos.x, this.pos.z, this.def.radius, this.pos.y, 2.4, 0.6);
     if (Math.hypot(r.x - this.pos.x, r.z - this.pos.z) > 1e-3) {
@@ -216,6 +217,6 @@ export class Vehicle {
 
   /** Horizontal speed in m/s. */
   get groundSpeed(): number {
-    return this.kind === 'car' ? Math.abs(this.speed) : Math.hypot(this.vel.x, this.vel.z);
+    return this.kind === 'tank' ? Math.abs(this.speed) : Math.hypot(this.vel.x, this.vel.z);
   }
 }

@@ -182,7 +182,7 @@ export class PlayerController {
     }
   }
 
-  /** Driving or flying: joystick steers, the view stays free; fire uses the hand gun (car) or cannon (heli). */
+  /** Driving or flying: joystick steers, the view stays free; fire uses the vehicle gun, the grenade button its heavy weapon. */
   private drive(dt: number, c: Combatant, input: Input, m: Match): void {
     const v = c.vehicle!;
     input.poll();
@@ -190,9 +190,9 @@ export class PlayerController {
     c.sprinting = false;
     this.grenadeAiming = false;
     c.trigger = input.isHeld('fire');
-    if (v.kind === 'car') {
+    if (v.kind === 'tank') {
       m.driveInput.set(v, { forward: input.moveY, side: input.moveX, up: 0, yaw: c.yaw });
-      // the camera swings back behind the car when the player isn't looking around
+      // the camera swings back behind the tank when the player isn't looking around
       if (this.lookIdle > 0.8 && Math.abs(v.speed) > 2) {
         let d = v.yaw - c.yaw;
         while (d > Math.PI) d -= Math.PI * 2;
@@ -200,13 +200,12 @@ export class PlayerController {
         c.yaw += d * Math.min(1, dt * 2.5);
         c.pitch += (-0.12 - c.pitch) * Math.min(1, dt * 2);
       }
-      if (input.consume('reload') && c.weapon.startReload()) this.reloaded = true;
     } else {
       const up = (input.isHeld('jump') ? 1 : 0) - (input.isHeld('crouch') ? 1 : 0);
       m.driveInput.set(v, { forward: input.moveY, side: input.moveX, up, yaw: c.yaw });
-      if (input.consume('grenade') && m.heliRocket(c)) this.rocket = true;
-      if (input.consume('reload') && v.gun?.startReload()) this.reloaded = true;
     }
+    if (input.consume('grenade') && m.heavyFire(c)) this.rocket = true;
+    if (input.consume('reload') && v.gun.startReload()) this.reloaded = true;
     // presses that mean nothing in a vehicle must not fire later
     input.consume('jump');
     input.consume('crouch');
@@ -217,8 +216,8 @@ export class PlayerController {
     const cam = this.camera;
     cam.getWorldDirection(_dir);
     const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw);
-    if (v.kind === 'heli') _head.set(v.pos.x + fx * 2.6, v.pos.y + 0.7, v.pos.z + fz * 2.6);
-    else _head.set(v.pos.x, v.pos.y + 1.35, v.pos.z);
+    if (v.kind === 'jet') _head.set(v.pos.x + fx * 2.6, v.pos.y + 0.7, v.pos.z + fz * 2.6);
+    else _head.set(v.pos.x, v.pos.y + 1.9, v.pos.z);
     const ahead = Math.max(0, _want.copy(_head).sub(cam.position).dot(_dir));
     c.aimOrigin.copy(cam.position).addScaledVector(_dir, ahead + 0.3);
     c.aimDir.copy(_dir);
@@ -298,9 +297,9 @@ export class PlayerController {
     let shoulder = aiming ? 0.62 : 0.95;
     let pivotY = 1.62 - 0.5 * c.crouchK;
     if (v) {
-      dist = v.kind === 'heli' ? 12 : 7;
+      dist = v.kind === 'jet' ? 13 : 8;
       shoulder = 0;
-      pivotY = v.kind === 'heli' ? 3.2 : 2.3;
+      pivotY = v.kind === 'jet' ? 3.2 : 3.0;
     }
     _head.set(c.pos.x, c.pos.y + pivotY + bobY, c.pos.z).addScaledVector(_r, shoulder);
     _want.copy(_head).addScaledVector(_dir, -dist);

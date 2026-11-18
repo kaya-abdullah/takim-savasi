@@ -34,11 +34,11 @@ export function renderWeaponIcons(renderer: THREE.WebGLRenderer, envMap: THREE.T
     return { id: w.id, obj: g };
   });
   // vehicles: three-quarter view
-  for (const kind of ['car', 'heli'] as const) {
+  for (const kind of ['tank', 'jet'] as const) {
     const v = new VehicleView(kind, 'blue', true);
     const g = new THREE.Group();
     g.add(v.root);
-    v.root.rotation.y = kind === 'car' ? 2.2 : 2.0;
+    v.root.rotation.y = kind === 'tank' ? 2.3 : 2.0;
     v.root.rotation.x = 0.12;
     items.push({ id: 'veh-' + kind, obj: g, done: () => v.dispose() });
   }

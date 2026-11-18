@@ -344,8 +344,8 @@ button { border: none; color: var(--text); }
 .tc.crouch { width: 54px; height: 54px; right: calc(222px + var(--safe-r)); bottom: calc(224px + var(--safe-b)); }
 .tc.crouch.active { background: rgba(255,204,51,.45); border-color: var(--gold); }
 .tc.vcall { width: 50px; height: 50px; top: calc(12px + var(--safe-t)); background: rgba(40,40,40,.5); display: none; }
-.tc.vcall.car { left: calc(188px + var(--safe-l)); }
-.tc.vcall.heli { left: calc(246px + var(--safe-l)); }
+.tc.vcall.tank { left: calc(188px + var(--safe-l)); }
+.tc.vcall.jet { left: calc(246px + var(--safe-l)); }
 #hud.touch .tc.vcall.owned { display: flex; background: rgba(255,170,30,.55); border-color: rgba(255,220,140,.9); }
 .tc.vcall.wait { opacity: .55; }
 .tc.vcall .cd { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 900; color: #fff; text-shadow: 0 2px 4px #000; pointer-events: none; }
@@ -353,7 +353,7 @@ button { border: none; color: var(--text); }
 .venter.show { display: block; animation: wob 1.4s ease-in-out infinite; }
 .venter.out { background: linear-gradient(180deg, #e9eef5, #aab4c2); color: #1a2230; box-shadow: 0 4px 0 #59606b, 0 8px 18px rgba(0,0,0,.4); animation: none; left: calc(108px + var(--safe-l)); top: calc(44% + 8px); bottom: auto; transform: none; padding: 10px 22px; font-size: 16px; }
 #hud:not(.touch) .venter.out { left: calc(18px + var(--safe-l)); top: auto; bottom: calc(18px + var(--safe-b)); }
-#hud.in-heli .tc.grenade .badge { display: none; }
+#hud.in-tank .tc.grenade .badge, #hud.in-jet .tc.grenade .badge { display: none; }
 .vhp { position: absolute; left: calc(188px + var(--safe-l)); top: calc(70px + var(--safe-t)); width: 220px; display: none; font-weight: 900; font-size: 12px; text-shadow: 0 2px 4px #000; }
 .vhp.on { display: block; }
 .vhp .bar { height: 10px; border-radius: 6px; background: rgba(0,0,0,.5); border: 1px solid rgba(255,255,255,.3); overflow: hidden; margin-top: 3px; }
@@ -369,18 +369,18 @@ button { border: none; color: var(--text); }
 .tgt .bar { height: 7px; border-radius: 4px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.25); overflow: hidden; margin-top: 2px; }
 .tgt .bar i { display: block; height: 100%; background: linear-gradient(90deg, #ff3b3b, #ff8a3b); transition: width .12s; }
 /* in a vehicle: drop the on-foot controls */
-#hud.in-car .tc.knife, #hud.in-car .tc.grenade, #hud.in-car .tc.aim, #hud.in-car .tc.jump, #hud.in-car .tc.crouch, #hud.in-car .joy-hint,
-#hud.in-heli .tc.knife, #hud.in-heli .tc.aim, #hud.in-heli .tc.switch, #hud.in-heli .joy-hint { visibility: hidden; }
-#hud.in-heli .tc.jump::after { content: '▲'; position: absolute; bottom: -18px; font-size: 12px; color: #fff; text-shadow: 0 1px 3px #000; }
-#hud.in-heli .tc.crouch::after { content: '▼'; position: absolute; bottom: -18px; font-size: 12px; color: #fff; text-shadow: 0 1px 3px #000; }
-#hud.in-heli .tc.grenade { background: rgba(200,90,20,.6); }
+#hud.in-tank .tc.knife, #hud.in-tank .tc.aim, #hud.in-tank .tc.switch, #hud.in-tank .tc.jump, #hud.in-tank .tc.crouch, #hud.in-tank .joy-hint,
+#hud.in-jet .tc.knife, #hud.in-jet .tc.aim, #hud.in-jet .tc.switch, #hud.in-jet .joy-hint { visibility: hidden; }
+#hud.in-jet .tc.jump::after { content: '▲'; position: absolute; bottom: -18px; font-size: 12px; color: #fff; text-shadow: 0 1px 3px #000; }
+#hud.in-jet .tc.crouch::after { content: '▼'; position: absolute; bottom: -18px; font-size: 12px; color: #fff; text-shadow: 0 1px 3px #000; }
+#hud.in-tank .tc.grenade, #hud.in-jet .tc.grenade { background: rgba(200,90,20,.6); }
 .card.veh .pic img { max-height: 100%; }
 .earn b.neg { color: #ff7a6a; }
 @media (max-height: 430px) {
   .tc.crouch { right: calc(196px + var(--safe-r)); bottom: calc(186px + var(--safe-b)); width: 50px; height: 50px; }
   .tc.vcall { width: 44px; height: 44px; }
-  .tc.vcall.car { left: calc(152px + var(--safe-l)); }
-  .tc.vcall.heli { left: calc(202px + var(--safe-l)); }
+  .tc.vcall.tank { left: calc(152px + var(--safe-l)); }
+  .tc.vcall.jet { left: calc(202px + var(--safe-l)); }
   .vhp { left: calc(152px + var(--safe-l)); top: calc(62px + var(--safe-t)); width: 190px; }
   .lvl { top: calc(116px + var(--safe-t)); }
   .venter { bottom: calc(150px + var(--safe-b)); }

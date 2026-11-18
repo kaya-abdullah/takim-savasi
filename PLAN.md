@@ -273,3 +273,18 @@ kaldırıma taşınması, hataların düzeltilmesi.
 - Meydan babaları artık sokağın üstünde değil.
 - Testler: hiçbir yolda engel, korkuluk veya merdiven ağzı yok; araba caddeyi iki yönde ve üç ara sokağı baştan
   sona çarpmadan sürüyor (eski haritada caddede 57 m'de barikata çarpıyordu); hiçbir eşya merdiven ağzında değil.
+
+## 15. Sürüm 4.7 (2026-11-18)
+
+İstek: araba ve helikopter kalksın, yerine tank ve savaş uçağı gelsin; fiyatlar aynı kalsın; uçak biraz büyük,
+tank biraz daha küçük bomba atsın.
+
+- Araba → Savaş Tankı (30.000 TL, 800 can, en hızlı 12 m/s, olduğu yerde döner, düşmanı ezer). Ateş: makineli;
+  G / bomba düğmesi: top mermisi (patlama 6 m, hasar 160, 2,5 sn bekleme). Taret ve namlu nişan yönüne döner.
+- Helikopter → Savaş Uçağı (50.000 TL, 650 can, 30 m/s, dikine kalkış ve çatıya iniş). Ateş: uçak topu;
+  G / bomba düğmesi: bomba (patlama 9 m, hasar 220, 3 sn bekleme). Bomba hiç yukarı gitmez, uçağın hızını taşır.
+- Eski kayıtlar: satın alınmış araba tanka, helikopter uçağa dönüşür.
+- Yeni modeller (tank: palet, tekerlek, dönen taret; uçak: delta kanat, çift dikey kuyruk, art yakıcı alevi,
+  katlanan iniş takımı), motor sesleri, mağaza simgeleri, HUD yazıları, mini haritada T / U.
+- Testler: tankın makinelisi ve top mermisi, uçak bombası aşağı gidiyor, bomba tank mermisinden büyük, eski kayıt
+  dönüşümü; e2e tank/uçak (masaüstü ve telefon) güncellendi.

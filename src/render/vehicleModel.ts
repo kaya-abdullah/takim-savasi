@@ -3,7 +3,7 @@ import type { VehicleKind } from '../data/vehicles';
 import type { Vehicle } from '../game/vehicle';
 
 /**
- * Procedural car and helicopter models. Forward is +z (matches yaw), the
+ * Procedural tank and fighter jet models. Forward is +z (matches yaw), the
  * origin sits on the ground under the body.
  */
 
@@ -11,10 +11,10 @@ interface Parts {
   root: THREE.Group;
   body: THREE.Group;
   wheels: THREE.Object3D[];
-  frontWheels: THREE.Object3D[];
-  rotor: THREE.Object3D | null;
-  tailRotor: THREE.Object3D | null;
-  disc: THREE.Mesh | null;
+  turret: THREE.Object3D | null;
+  barrel: THREE.Object3D | null;
+  flame: THREE.Mesh | null;
+  gear: THREE.Object3D | null;
   lights: THREE.Mesh[];
 }
 
@@ -49,151 +49,144 @@ export function rbox(w: number, h: number, d: number, r: number): THREE.BufferGe
   return g;
 }
 
-function makeCar(team: 'blue' | 'red'): Parts {
-  const root = new THREE.Group(), body = new THREE.Group();
-  root.add(body);
-  const paint = track(new THREE.MeshPhysicalMaterial({
-    color: team === 'blue' ? 0x1d5fd8 : 0xd8261d, metalness: 0.55, roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.08,
-  }));
-  const stripe = track(new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.35 }));
-  const glass = track(new THREE.MeshPhysicalMaterial({ color: 0x0d151d, metalness: 0.2, roughness: 0.05, clearcoat: 1 }));
-  const black = track(new THREE.MeshStandardMaterial({ color: 0x18191b, roughness: 0.7 }));
-  const chrome = track(new THREE.MeshStandardMaterial({ color: 0xd8dde3, metalness: 1, roughness: 0.18 }));
-  const tyre = track(new THREE.MeshStandardMaterial({ color: 0x141416, roughness: 0.9 }));
-  const head = track(new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2.8, 2.2), toneMapped: false }));
-  const tail = track(new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 0.15, 0.1), toneMapped: false }));
-  // lower body, hood and boot
-  body.add(mesh(rbox(1.96, 0.6, 4.4, 0.16), paint, 0, 0.62, 0));
-  const hood = mesh(rbox(1.8, 0.16, 1.5, 0.06), paint, 0, 0.94, 1.25);
-  hood.rotation.x = 0.08;
-  body.add(hood);
-  // cabin: tinted glasshouse with a painted roof
-  const cab = mesh(rbox(1.66, 0.52, 2.0, 0.14), glass, 0, 1.15, -0.3);
-  body.add(cab);
-  body.add(mesh(rbox(1.5, 0.07, 1.55, 0.03), paint, 0, 1.43, -0.4));
-  // racing stripes
-  body.add(mesh(new THREE.BoxGeometry(0.22, 0.02, 4.38), stripe, 0.22, 0.93, 0));
-  body.add(mesh(new THREE.BoxGeometry(0.22, 0.02, 4.38), stripe, -0.22, 0.93, 0));
-  // bumpers, skirts, spoiler
-  body.add(mesh(new THREE.BoxGeometry(1.9, 0.22, 0.18), black, 0, 0.42, 2.22));
-  body.add(mesh(new THREE.BoxGeometry(1.9, 0.22, 0.18), black, 0, 0.42, -2.22));
-  body.add(mesh(new THREE.BoxGeometry(2.0, 0.1, 3.0), black, 0, 0.33, 0));
-  body.add(mesh(new THREE.BoxGeometry(1.9, 0.06, 0.32), paint, 0, 1.22, -2.05));
-  for (const x of [-0.7, 0.7]) body.add(mesh(new THREE.BoxGeometry(0.06, 0.28, 0.14), black, x, 1.06, -2.05));
-  // lights and grille
-  const lights: THREE.Mesh[] = [];
-  for (const x of [-0.66, 0.66]) {
-    const h = mesh(new THREE.BoxGeometry(0.42, 0.12, 0.05), head, x, 0.78, 2.21, false);
-    const t = mesh(new THREE.BoxGeometry(0.42, 0.1, 0.05), tail, x, 0.8, -2.21, false);
-    body.add(h, t);
-    lights.push(h, t);
-  }
-  body.add(mesh(new THREE.BoxGeometry(0.7, 0.14, 0.04), chrome, 0, 0.66, 2.22));
-  // mirrors
-  for (const x of [-0.95, 0.95]) body.add(mesh(new THREE.BoxGeometry(0.16, 0.1, 0.12), paint, x, 1.08, 0.55));
-  // wheels with chrome rims
-  const wheels: THREE.Object3D[] = [], front: THREE.Object3D[] = [];
-  const tg = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 20);
-  tg.rotateZ(Math.PI / 2);
-  const rg = new THREE.CylinderGeometry(0.24, 0.24, 0.32, 10);
-  rg.rotateZ(Math.PI / 2);
-  for (const [x, z] of [[0.86, 1.35], [-0.86, 1.35], [0.86, -1.38], [-0.86, -1.38]]) {
-    const pivot = new THREE.Group();
-    pivot.position.set(x, 0.38, z);
-    const spin = new THREE.Group();
-    spin.add(mesh(tg, tyre), mesh(rg, chrome));
-    // spokes so the roll is visible
-    for (let k = 0; k < 3; k++) {
-      const sp = mesh(new THREE.BoxGeometry(0.33, 0.06, 0.42), chrome, 0, 0, 0, false);
-      sp.rotation.x = (k * Math.PI) / 3;
-      spin.add(sp);
-    }
-    pivot.add(spin);
-    root.add(pivot);
-    wheels.push(spin);
-    if (z > 0) front.push(pivot);
-  }
-  return { root, body, wheels, frontWheels: front, rotor: null, tailRotor: null, disc: null, lights };
+/** Military paint per team: blue-grey vs rust, so the side reads at a glance. */
+function armyPaint(team: 'blue' | 'red', metal = 0.35): THREE.MeshPhysicalMaterial {
+  return track(new THREE.MeshPhysicalMaterial({ color: team === 'blue' ? 0x3f5b7c : 0x7c4636, metalness: metal, roughness: 0.55, clearcoat: 0.3 }));
 }
 
-function makeHeli(team: 'blue' | 'red'): Parts {
+function makeTank(team: 'blue' | 'red'): Parts {
   const root = new THREE.Group(), body = new THREE.Group();
   root.add(body);
-  const hull = track(new THREE.MeshPhysicalMaterial({ color: team === 'blue' ? 0x2f4f6f : 0x6f2f2f, metalness: 0.4, roughness: 0.45, clearcoat: 0.6 }));
-  const dark = track(new THREE.MeshStandardMaterial({ color: 0x23272c, metalness: 0.6, roughness: 0.4 }));
-  const glass = track(new THREE.MeshPhysicalMaterial({ color: 0x1b2a36, metalness: 0.1, roughness: 0.05, clearcoat: 1, transparent: true, opacity: 0.85 }));
-  const blade = track(new THREE.MeshStandardMaterial({ color: 0x1c1e21, roughness: 0.6 }));
-  const strobe = track(new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 0.3, 0.2), toneMapped: false }));
-  const nav = track(new THREE.MeshBasicMaterial({ color: new THREE.Color(0.3, 3, 0.6), toneMapped: false }));
-  const Y = 1.25; // fuselage centre height (skids touch y = 0)
-  const fus = mesh(new THREE.CapsuleGeometry(0.95, 2.2, 8, 16), hull, 0, Y, 0);
-  fus.rotation.x = Math.PI / 2;
-  fus.scale.set(1, 1, 0.9);
-  body.add(fus);
-  // bubble canopy
-  const can = mesh(new THREE.SphereGeometry(0.88, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.55), glass, 0, Y + 0.15, 1.15);
-  can.rotation.x = Math.PI / 2.4;
-  body.add(can);
-  // tail boom, fin and stabiliser
-  const boom = mesh(new THREE.CylinderGeometry(0.13, 0.32, 4.2, 12), hull, 0, Y + 0.25, -3.3);
-  boom.rotation.x = Math.PI / 2;
-  body.add(boom);
-  const fin = mesh(new THREE.BoxGeometry(0.08, 1.1, 0.7), hull, 0, Y + 0.75, -5.25);
-  fin.rotation.x = -0.35;
-  body.add(fin);
-  body.add(mesh(new THREE.BoxGeometry(1.5, 0.06, 0.45), hull, 0, Y + 0.25, -4.9));
-  // engine housing and mast
-  body.add(mesh(rbox(0.9, 0.45, 1.6, 0.15), dark, 0, Y + 0.95, -0.3));
-  body.add(mesh(new THREE.CylinderGeometry(0.09, 0.12, 0.5, 10), dark, 0, Y + 1.3, 0));
-  // stub wings with rocket pods and a nose gun
-  body.add(mesh(new THREE.BoxGeometry(2.9, 0.08, 0.6), hull, 0, Y - 0.1, -0.2));
-  for (const x of [-1.35, 1.35]) {
-    const pod = mesh(new THREE.CylinderGeometry(0.17, 0.17, 1.0, 10), dark, x, Y - 0.32, -0.15);
-    pod.rotation.x = Math.PI / 2;
-    body.add(pod);
-  }
-  const gun = mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.9, 8), dark, 0, Y - 0.75, 1.75);
-  gun.rotation.x = Math.PI / 2;
-  body.add(gun);
-  body.add(mesh(new THREE.SphereGeometry(0.2, 10, 8), dark, 0, Y - 0.7, 1.35));
-  // skids
-  for (const x of [-0.8, 0.8]) {
-    const sk = mesh(new THREE.CylinderGeometry(0.05, 0.05, 3.0, 8), dark, x, 0.05, 0.1);
-    sk.rotation.x = Math.PI / 2;
-    body.add(sk);
-    for (const z of [-0.7, 0.8]) {
-      const st = mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.85, 6), dark, x * 0.85, 0.45, z);
-      st.rotation.z = x > 0 ? 0.3 : -0.3;
-      body.add(st);
+  const paint = armyPaint(team);
+  const band = track(new THREE.MeshStandardMaterial({ color: team === 'blue' ? 0x3d8bff : 0xff4a3d, roughness: 0.4 }));
+  const dark = track(new THREE.MeshStandardMaterial({ color: 0x24272b, metalness: 0.5, roughness: 0.55 }));
+  const track_ = track(new THREE.MeshStandardMaterial({ color: 0x151618, roughness: 0.95 }));
+  const steel = track(new THREE.MeshStandardMaterial({ color: 0x5d636b, metalness: 0.8, roughness: 0.35 }));
+  const head = track(new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2.8, 2.2), toneMapped: false }));
+  // hull with a sloped front plate
+  body.add(mesh(rbox(2.2, 0.62, 4.5, 0.1), paint, 0, 0.92, 0));
+  const glacis = mesh(new THREE.BoxGeometry(2.1, 0.08, 1.0), paint, 0, 1.12, 2.0);
+  glacis.rotation.x = 0.45;
+  body.add(glacis);
+  // tracks: dark belts with road wheels showing on the outside
+  const wheels: THREE.Object3D[] = [];
+  const wg = new THREE.CylinderGeometry(0.3, 0.3, 0.16, 14);
+  wg.rotateZ(Math.PI / 2);
+  for (const x of [-1.02, 1.02]) {
+    body.add(mesh(rbox(0.5, 0.72, 4.8, 0.3), track_, x, 0.42, 0));
+    body.add(mesh(new THREE.BoxGeometry(0.62, 0.06, 4.7), paint, x, 0.88, 0)); // track guard
+    for (let i = 0; i < 6; i++) {
+      const w = new THREE.Group();
+      w.position.set(x * 1.3, 0.38, -1.85 + i * 0.74);
+      w.add(mesh(wg, steel));
+      // a hub bolt so the roll is visible
+      w.add(mesh(new THREE.BoxGeometry(0.17, 0.08, 0.36), dark, 0, 0, 0, false));
+      body.add(w);
+      wheels.push(w);
     }
   }
-  // lights
-  const lights = [mesh(new THREE.SphereGeometry(0.06, 8, 6), strobe, 0, Y + 1.3, -5.5, false), mesh(new THREE.SphereGeometry(0.05, 8, 6), nav, 1.45, Y - 0.1, -0.2, false)];
+  // lights and exhausts
+  const lights: THREE.Mesh[] = [];
+  for (const x of [-0.8, 0.8]) {
+    const h = mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.06, 10), head, x, 1.18, 2.28, false);
+    h.rotation.x = Math.PI / 2;
+    body.add(h);
+    lights.push(h);
+    body.add(mesh(new THREE.BoxGeometry(0.3, 0.14, 0.12), dark, x * 0.7, 1.05, -2.27));
+  }
+  // turret: turns to the driver's aim; the barrel pivots up and down
+  const turret = new THREE.Group();
+  turret.position.set(0, 1.23, -0.2);
+  turret.add(mesh(rbox(1.7, 0.56, 2.1, 0.16), paint, 0, 0.28, 0));
+  turret.add(mesh(new THREE.BoxGeometry(1.74, 0.1, 1.2), band, 0, 0.36, -0.2));
+  turret.add(mesh(new THREE.CylinderGeometry(0.34, 0.38, 0.22, 14), paint, 0.4, 0.64, -0.3)); // commander hatch
+  turret.add(mesh(new THREE.BoxGeometry(0.7, 0.4, 0.6), paint, 0, 0.3, -1.25)); // bustle
+  const mg = mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.8, 8), dark, 0.4, 0.86, 0.05);
+  mg.rotation.x = Math.PI / 2;
+  turret.add(mg);
+  const barrel = new THREE.Group();
+  barrel.position.set(0, 0.32, 1.0);
+  const mantlet = mesh(new THREE.BoxGeometry(0.62, 0.38, 0.34), paint, 0, 0, 0.05);
+  const tube = mesh(new THREE.CylinderGeometry(0.075, 0.1, 2.7, 12), dark, 0, 0, 1.45);
+  tube.rotation.x = Math.PI / 2;
+  const brake = mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.3, 12), dark, 0, 0, 2.8);
+  brake.rotation.x = Math.PI / 2;
+  barrel.add(mantlet, tube, brake);
+  turret.add(barrel);
+  body.add(turret);
+  return { root, body, wheels, turret, barrel, flame: null, gear: null, lights };
+}
+
+function makeJet(team: 'blue' | 'red'): Parts {
+  const root = new THREE.Group(), body = new THREE.Group();
+  root.add(body);
+  const hull = armyPaint(team, 0.5);
+  const band = track(new THREE.MeshStandardMaterial({ color: team === 'blue' ? 0x3d8bff : 0xff4a3d, roughness: 0.4 }));
+  const dark = track(new THREE.MeshStandardMaterial({ color: 0x23272c, metalness: 0.6, roughness: 0.4 }));
+  const glass = track(new THREE.MeshPhysicalMaterial({ color: 0x3a3010, metalness: 0.6, roughness: 0.05, clearcoat: 1, transparent: true, opacity: 0.85 }));
+  const strobe = track(new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 0.3, 0.2), toneMapped: false }));
+  const nav = track(new THREE.MeshBasicMaterial({ color: new THREE.Color(0.3, 3, 0.6), toneMapped: false }));
+  const fire = track(new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 1.4, 0.4), toneMapped: false, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+  const Y = 1.35; // fuselage centre height (wheels touch y = 0)
+  // fuselage along +z with a pointed nose
+  const fus = mesh(new THREE.CylinderGeometry(0.62, 0.72, 6.4, 16), hull, 0, Y, -0.4);
+  fus.rotation.x = Math.PI / 2;
+  body.add(fus);
+  const nose = mesh(new THREE.ConeGeometry(0.62, 2.2, 16), hull, 0, Y, 3.9);
+  nose.rotation.x = Math.PI / 2;
+  body.add(nose);
+  const can = mesh(new THREE.SphereGeometry(0.5, 16, 12), glass, 0, Y + 0.48, 1.9);
+  can.scale.set(0.9, 0.8, 2.4);
+  body.add(can);
+  // air intakes either side of the cockpit
+  for (const x of [-0.72, 0.72]) body.add(mesh(new THREE.BoxGeometry(0.42, 0.62, 2.4), hull, x, Y - 0.08, 0.4));
+  // flat shapes drawn in (x, z) are laid down with rotateX (shape y becomes world z)
+  const flat = (pts: [number, number][], depth: number): THREE.BufferGeometry => {
+    const s = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, z)));
+    const g = new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false });
+    g.rotateX(Math.PI / 2);
+    g.translate(0, depth / 2, 0);
+    return g;
+  };
+  // swept delta wing and tailplane
+  body.add(mesh(flat([[0, 1.6], [3.5, -1.6], [3.5, -2.3], [-3.5, -2.3], [-3.5, -1.6]], 0.1), hull, 0, Y - 0.15, 0));
+  body.add(mesh(flat([[0, -2.5], [1.9, -3.7], [1.9, -4.1], [-1.9, -4.1], [-1.9, -3.7]], 0.07), hull, 0, Y - 0.05, 0));
+  // team bands on the wing tips
+  for (const x of [-3.2, 3.2]) body.add(mesh(new THREE.BoxGeometry(0.6, 0.12, 0.72), band, x, Y - 0.15, -1.95));
+  // twin canted tail fins
+  for (const x of [-0.55, 0.55]) {
+    const fin = mesh(flat([[0, -2.4], [0, -3.9], [1.3, -4.1], [1.3, -3.4]], 0.07), hull, x, Y + 0.3, 0);
+    // stand the flat shape up, then lean it outwards
+    fin.geometry.rotateZ(Math.PI / 2);
+    fin.rotation.z = x > 0 ? -0.35 : 0.35;
+    body.add(fin);
+  }
+  // engine nozzle and the afterburner flame
+  const noz = mesh(new THREE.CylinderGeometry(0.5, 0.42, 0.7, 14), dark, 0, Y, -3.85);
+  noz.rotation.x = Math.PI / 2;
+  body.add(noz);
+  const flame = mesh(new THREE.ConeGeometry(0.4, 2.4, 14, 1, true), fire, 0, Y, -5.4, false);
+  flame.rotation.x = -Math.PI / 2;
+  body.add(flame);
+  // bombs under the wings
+  for (const x of [-1.7, 1.7]) {
+    const b = mesh(new THREE.CapsuleGeometry(0.2, 1.0, 6, 10), dark, x, Y - 0.5, -0.6);
+    b.rotation.x = Math.PI / 2;
+    body.add(b);
+  }
+  // landing gear: folds away in the air
+  const gear = new THREE.Group();
+  const tyre = track(new THREE.MeshStandardMaterial({ color: 0x141416, roughness: 0.9 }));
+  const tg = new THREE.CylinderGeometry(0.22, 0.22, 0.16, 12);
+  tg.rotateZ(Math.PI / 2);
+  for (const [x, z] of [[0, 2.6], [-1.1, -1.2], [1.1, -1.2]]) {
+    gear.add(mesh(new THREE.CylinderGeometry(0.05, 0.05, Y - 0.4, 6), dark, x, (Y - 0.4) / 2 + 0.22, z));
+    gear.add(mesh(tg, tyre, x, 0.22, z));
+  }
+  body.add(gear);
+  const lights = [mesh(new THREE.SphereGeometry(0.07, 8, 6), strobe, 0, Y + 1.6, -4.0, false), mesh(new THREE.SphereGeometry(0.06, 8, 6), nav, 3.5, Y - 0.1, -1.9, false)];
   body.add(...lights);
-  // main rotor
-  const rotor = new THREE.Group();
-  rotor.position.set(0, Y + 1.58, 0);
-  rotor.add(mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.14, 12), dark));
-  for (let k = 0; k < 4; k++) {
-    const b = mesh(new THREE.BoxGeometry(0.26, 0.035, 5.4), blade, 0, 0, 0);
-    b.geometry.translate(0, 0, 2.75);
-    b.rotation.y = (k * Math.PI) / 2;
-    rotor.add(b);
-  }
-  body.add(rotor);
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(5.6, 40), track(new THREE.MeshBasicMaterial({ color: 0x111111, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide })));
-  disc.rotation.x = -Math.PI / 2;
-  disc.position.set(0, Y + 1.6, 0);
-  body.add(disc);
-  const tailRotor = new THREE.Group();
-  tailRotor.position.set(0.12, Y + 0.85, -5.45);
-  for (let k = 0; k < 2; k++) {
-    const b = mesh(new THREE.BoxGeometry(0.03, 1.2, 0.12), blade, 0, 0, 0, false);
-    b.rotation.x = (k * Math.PI) / 2;
-    tailRotor.add(b);
-  }
-  body.add(tailRotor);
-  return { root, body, wheels: [], frontWheels: [], rotor, tailRotor, disc, lights };
+  return { root, body, wheels: [], turret: null, barrel: null, flame, gear, lights };
 }
 
 export class VehicleView {
@@ -202,10 +195,10 @@ export class VehicleView {
   private t = 0;
 
   constructor(readonly kind: VehicleKind, team: 'blue' | 'red', icon = false) {
-    this.p = kind === 'car' ? makeCar(team) : makeHeli(team);
+    this.p = kind === 'tank' ? makeTank(team) : makeJet(team);
     this.root = this.p.root;
-    // shop icon: drop the (invisible) blur disc so it doesn't blow up the framing
-    if (icon && this.p.disc) this.p.disc.removeFromParent();
+    // shop icon: drop the (invisible) flame so it doesn't blow up the framing
+    if (icon && this.p.flame) this.p.flame.removeFromParent();
   }
 
   sync(v: Vehicle, dt: number): void {
@@ -213,19 +206,28 @@ export class VehicleView {
     this.t += dt;
     this.root.position.copy(v.pos);
     this.root.rotation.y = v.yaw;
-    if (v.kind === 'car') {
-      for (const w of p.wheels) w.rotation.x = v.wheel;
-      for (const w of p.frontWheels) w.rotation.y = -v.steer * 0.45;
-      // body rolls in turns and dips under braking
-      p.body.rotation.z += (v.steer * Math.min(1, Math.abs(v.speed) / 12) * 0.05 - p.body.rotation.z) * Math.min(1, dt * 6);
+    if (v.kind === 'tank') {
+      for (const w of p.wheels) w.rotation.x = v.wheel * 1.25;
+      // turret follows the driver's view; with nobody inside it swings back to the front
+      const d = v.driver;
+      let want = d ? d.yaw - v.yaw : 0;
+      let cur = p.turret!.rotation.y;
+      want = cur + Math.atan2(Math.sin(want - cur), Math.cos(want - cur));
+      cur += (want - cur) * Math.min(1, dt * 6);
+      p.turret!.rotation.y = cur;
+      const pitch = d ? THREE.MathUtils.clamp(d.pitch, -0.15, 0.35) : 0;
+      p.barrel!.rotation.x += (-pitch - p.barrel!.rotation.x) * Math.min(1, dt * 6);
+      // the hull rocks back a little when it pulls away
+      p.body.rotation.x += (-THREE.MathUtils.clamp(v.speed / 12, -1, 1) * 0.02 - p.body.rotation.x) * Math.min(1, dt * 4);
     } else {
       const spin = v.rotor;
-      p.rotor!.rotation.y += dt * spin * 32;
-      p.tailRotor!.rotation.x += dt * spin * 45;
-      // a faint blur disc once the blades are a smear
-      (p.disc!.material as THREE.MeshBasicMaterial).opacity = Math.max(0, spin - 0.5) * 0.35;
+      const f = p.flame!.material as THREE.MeshBasicMaterial;
+      const sp = Math.min(1, v.groundSpeed / 25);
+      f.opacity = Math.max(0, spin - 0.3) * (0.35 + 0.5 * sp) * (0.85 + 0.15 * Math.sin(this.t * 40));
+      p.flame!.scale.set(1, 0.6 + 0.8 * sp, 1);
+      p.gear!.visible = v.onGround || spin < 0.6;
       p.body.rotation.x = v.tiltX;
-      p.body.rotation.z = -v.tiltZ;
+      p.body.rotation.z = -v.tiltZ * 1.6;
       p.lights[0].visible = Math.sin(this.t * 6) > 0.6;
     }
   }

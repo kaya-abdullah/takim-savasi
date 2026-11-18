@@ -12,7 +12,7 @@ import { ALL_WEAPONS, getWeapon } from './data/weapons';
 import { makeWeaponMesh } from './render/weaponModel';
 import { canSpin, spinWheel, applyMatchResult, buyUpgrade, buyVehicle, buyWeapon, sellVehicle, sellWeapon, equipWeapon, formatTL, grenadeCount, killReward, maxHp, streakReward, UPGRADES, type UpgradeId } from './game/economy';
 import { Match, type Drop, type Grenade, type HitInfo, type Projectile } from './game/match';
-import { VEHICLE_DEFS, type VehicleKind } from './data/vehicles';
+import { HEAVY_CD, VEHICLE_DEFS, type VehicleKind } from './data/vehicles';
 import type { WeaponDef } from './data/weapons';
 import type { Vehicle } from './game/vehicle';
 import { VehicleView } from './render/vehicleModel';
@@ -437,7 +437,7 @@ class Game {
         this.effects.explosion(at, 6);
         for (let i = 0; i < 6; i++) this.effects.puff(_v.set(at.x + (Math.random() - 0.5) * 3, at.y + Math.random() * 2, at.z + (Math.random() - 0.5) * 3), 1.6, 0x2a2622, 2.5, 3);
         if (v.owner.isPlayer) {
-          this.ui.banner(v.kind === 'car' ? 'ARABAN PATLADI!' : 'HELİKOPTER DÜŞTÜ!', `${a.name} vurdu · ${VEHICLE_DEFS[v.kind].respawn} sn sonra yeniden çağır`);
+          this.ui.banner(v.kind === 'tank' ? 'TANKIN PATLADI!' : 'UÇAĞIN DÜŞTÜ!', `${a.name} vurdu · ${VEHICLE_DEFS[v.kind].respawn} sn sonra yeniden çağır`);
           audio.lose();
         }
       },
@@ -534,7 +534,7 @@ class Game {
     if (r === 'ok') {
       writeSave(this.save);
       audio.buy();
-      this.ui.toast(`${VEHICLE_DEFS[kind].name} senin! Maçta ${kind === 'car' ? 'araba' : 'helikopter'} tuşuyla çağır.`);
+      this.ui.toast(`${VEHICLE_DEFS[kind].name} senin! Maçta ${kind === 'tank' ? 'tank (T)' : 'uçak (Y)'} tuşuyla çağır.`);
     } else if (r === 'no-money') this.ui.toast('Yeterli paran yok!');
     this.ui.renderShop(this.save);
   }
@@ -569,7 +569,7 @@ class Game {
     const r = m.spawnVehicle(kind, p);
     if (r === 'ok') {
       m.enterVehicle(p, m.vehicleOf(kind, p)!);
-      this.ui.popup(kind === 'car' ? 'ARABAYA BİNDİN' : 'HELİKOPTERE BİNDİN', 'kill');
+      this.ui.popup(kind === 'tank' ? 'TANKA BİNDİN' : 'UÇAĞA BİNDİN', 'kill');
     } else if (r === 'cooldown') this.ui.popup(`${Math.ceil(m.vehicleCd[kind])} sn sonra hazır`, 'kill');
     else if (r === 'blocked') this.ui.popup('Burada çağrılamaz: açık alana çık', 'kill');
     else if (r === 'busy') this.ui.popup('Önce araçtan in', 'kill');
@@ -699,8 +699,9 @@ class Game {
     const v = c.vehicle;
     if (v) {
       const fx = Math.sin(v.yaw), fz = Math.cos(v.yaw);
-      if (v.kind === 'heli') return out.set(v.pos.x + fx * 2.2, v.pos.y + 0.5, v.pos.z + fz * 2.2);
-      return out.set(v.pos.x - fz * 0.95, v.pos.y + 1.2, v.pos.z + fx * 0.95);
+      if (v.kind === 'jet') return out.set(v.pos.x + fx * 2.2, v.pos.y + 0.5, v.pos.z + fz * 2.2);
+      // tank: the turret follows the driver's aim, so the gun sits at its barrel tip
+      return out.set(v.pos.x + Math.sin(c.yaw) * 2.4, v.pos.y + 1.75, v.pos.z + Math.cos(c.yaw) * 2.4);
     }
     return c.view ? c.view.muzzle(out) : out.copy(c.aimOrigin);
   }
@@ -847,7 +848,7 @@ class Game {
       writeSave(this.save);
       this.ui.hitmark('kill');
       this.ui.popup(`+${formatTL(reward)}`);
-      this.ui.popup(knife ? `BIÇAKLADIN! ${e.victim.name}` : e.weapon.id === 'car' ? `EZDİN! ${e.victim.name}` : e.head ? `KAFADAN! ${e.victim.name}` : `LEŞ: ${e.victim.name}`, 'kill');
+      this.ui.popup(knife ? `BIÇAKLADIN! ${e.victim.name}` : e.weapon.id === 'tank' ? `EZDİN! ${e.victim.name}` : e.head ? `KAFADAN! ${e.victim.name}` : `LEŞ: ${e.victim.name}`, 'kill');
       audio.kill();
       setTimeout(() => audio.coin(), 120);
       if (st) {
@@ -904,13 +905,13 @@ class Game {
     this.frames++;
     const m = this.match;
     if (m && this.state === 'playing') {
-      if (this.input.consume('car')) this.vehicleAction('car');
-      if (this.input.consume('heli')) this.vehicleAction('heli');
+      if (this.input.consume('tank')) this.vehicleAction('tank');
+      if (this.input.consume('jet')) this.vehicleAction('jet');
       if (this.input.consume('vehicle')) this.vehicleAction('toggle');
       // after the match ends (end screen pending) this still drives the camera
       this.ctrl.update(dt, m.player, this.input, m, this.save.settings);
       const pv = m.player.vehicle;
-      audio.engine(pv && !m.over ? pv.kind : null, pv ? (pv.kind === 'car' ? Math.abs(pv.speed) / 19 : 0.3 + pv.vel.length() / 25) : 0);
+      audio.engine(pv && !m.over ? pv.kind : null, pv ? (pv.kind === 'tank' ? Math.abs(pv.speed) / 12 : 0.3 + pv.vel.length() / 25) : 0);
       if (this.ctrl.reloaded) audio.reload();
       if (this.ctrl.jumped) audio.jump();
       if (this.ctrl.stepped) audio.step(m.player.sprinting);
@@ -1101,7 +1102,7 @@ class Game {
       const h = m.hitscan(p, p.aimOrigin, p.aimDir, p.weapon.def.range * 2);
       this.enemyUnderCross = !!h.victim;
     }
-    // the helicopter's cannon replaces the hand gun on the ammo counter
+    // the vehicle's gun replaces the hand gun on the ammo counter
     const w = p.vehicle?.gun ?? p.weapon;
     this.ui.updateHud({
       blue: m.score.blue, red: m.score.red, limit: m.killLimit, timeLeft: m.duration - m.time,
@@ -1116,10 +1117,10 @@ class Game {
       veh: {
         driving: p.vehicle ? {
           kind: p.vehicle.kind, hp: p.vehicle.hp, max: p.vehicle.maxHp, speed: p.vehicle.groundSpeed,
-          rocket: p.vehicle.kind === 'heli' ? p.vehicle.rocketCd / 2.2 : 0,
+          rocket: p.vehicle.rocketCd / HEAVY_CD[p.vehicle.kind],
         } : null,
-        car: this.save.vehicles.includes('car') ? m.vehicleCd.car : undefined,
-        heli: this.save.vehicles.includes('heli') ? m.vehicleCd.heli : undefined,
+        tank: this.save.vehicles.includes('tank') ? m.vehicleCd.tank : undefined,
+        jet: this.save.vehicles.includes('jet') ? m.vehicleCd.jet : undefined,
         near: p.alive && !p.vehicle && !!m.nearbyVehicle(p),
       },
       level: p.alive ? this.levelLabel(m, p) : '',
@@ -1133,7 +1134,7 @@ class Game {
 
   /** Short label of where the player is: METRO, ÇATI, 1. KAT, BİNA. */
   private levelLabel(m: Match, p: Combatant): string {
-    if (p.vehicle) return p.vehicle.kind === 'heli' ? `İRTİFA ${Math.round(p.pos.y)} m` : '';
+    if (p.vehicle) return p.vehicle.kind === 'jet' ? `İRTİFA ${Math.round(p.pos.y)} m` : '';
     const name = m.nav.levelName(p.pos.x, p.pos.y, p.pos.z);
     if (name === TUNNEL) return 'METRO';
     if (p.pos.y >= ROOF_Y - 0.5 && name.endsWith('-roof')) return 'ÇATI';

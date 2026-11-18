@@ -19,8 +19,8 @@ const ICON = {
   grenade: '<svg viewBox="0 0 24 24"><path d="M10 2h4v2h2.5l1.5 2-1.6 1.2A7.5 7.5 0 1 1 7.6 7.2L6 6l1.5-2H10zm2 7a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zm-1 2h2v3h3v2h-3v3h-2v-3H8v-2h3z"/></svg>',
   knife: '<svg viewBox="0 0 24 24"><path d="M20.5 2.5c.6 3.8-1.4 8-5.3 11.9l-2.1-2.1zM11.7 13.7l2.1 2.1-1.4 1.4 1.1 1.1-2.8 2.8a1.5 1.5 0 0 1-2.1 0l-1.6-1.6a1.5 1.5 0 0 1 0-2.1l2.8-2.8 1.1 1.1z"/></svg>',
   shield: '<svg viewBox="0 0 24 24"><path d="M12 2l8 3v6c0 5.2-3.4 9.6-8 11-4.6-1.4-8-5.8-8-11V5z"/></svg>',
-  car: '<svg viewBox="0 0 24 24"><path d="M5 11l1.6-4.4A2 2 0 0 1 8.5 5h7a2 2 0 0 1 1.9 1.6L19 11h1a1 1 0 0 1 1 1v5h-2v1.5a1.5 1.5 0 0 1-3 0V17H8v1.5a1.5 1.5 0 0 1-3 0V17H3v-5a1 1 0 0 1 1-1zm2.2 0h9.6l-1.2-3.4a1 1 0 0 0-.9-.6H9.3a1 1 0 0 0-.9.6zM6.5 12.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm11 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/></svg>',
-  heli: '<svg viewBox="0 0 24 24"><path d="M2 4h20v1.6h-9.2V8H14c3.3 0 6 1.9 6 4.6 0 1.6-1.2 2.9-3 3.4V18h3v1.6H6V18h3v-1.7H7.5L3 12H1V9h1.6l2.6 2.6A9 9 0 0 1 11.2 8V5.6H2zm8.6 12.3V18h4.8v-1.7zm3-6.7v4.2h3.6a3.2 3.2 0 0 0-3.6-4.2z"/></svg>',
+  tank: '<svg viewBox="0 0 24 24"><path d="M6 8h7l1.2-1.6H22V8h-7.2L14 9.4V11h3v2H4v-2h1zM3 14h18l-2 4.5H5zm3 1.3a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6zm4 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6zm4 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6zm4 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6z"/></svg>',
+  jet: '<svg viewBox="0 0 24 24"><path d="M12 1.5c.9 0 1.5 1.6 1.5 4v3.3l8.5 5.4v2l-8.5-2.6v4.2l2.5 2v1.7L12 20.6l-4 .9v-1.7l2.5-2v-4.2L2 16.2v-2l8.5-5.4V5.5c0-2.4.6-4 1.5-4z"/></svg>',
   crouch: '<svg viewBox="0 0 24 24"><path d="M13 2.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM9.6 9h5.2l2.6 4.2-1.7 1-1.8-2.9-1.6 2.6 3.1 2.6V22h-2v-4.6l-3.2-2.7-1.6 2.5H4v-2h3.6z"/></svg>',
   rocket: '<svg viewBox="0 0 24 24"><path d="M20.5 3.5c-3.9-.4-7.6 1.2-10.2 4.3L7 8 4 11l3.2.9-1 1.6 4.3 4.3 1.6-1 .9 3.2 3-3 .2-3.3c3.1-2.6 4.7-6.3 4.3-10.2zM15 7.2a1.8 1.8 0 1 1 0 3.6 1.8 1.8 0 0 1 0-3.6zM5.4 15.5l3.1 3.1-3.9 1.4z"/></svg>',
   phone: '<svg viewBox="0 0 24 24"><path d="M7 1h10a2 2 0 0 1 2 2v18a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2zm0 4v14h10V5z"/></svg>',
@@ -51,8 +51,8 @@ export interface UICallbacks {
 export interface VehicleHud {
   driving: { kind: VehicleKind; hp: number; max: number; rocket: number; speed: number } | null;
   /** Seconds until each owned vehicle can be called (0 = ready); undefined = not owned. */
-  car?: number;
-  heli?: number;
+  tank?: number;
+  jet?: number;
   /** Own vehicle within reach to get in. */
   near: boolean;
 }
@@ -103,7 +103,7 @@ export class UI {
     reload: HTMLElement; reloadI: HTMLElement; aimBtn: HTMLElement; switchBtn: HTMLElement; touch: HTMLElement[];
     keys: HTMLElement; gCount: HTMLElement; banner: HTMLElement; warn: HTMLElement; buffs: HTMLElement; nums: HTMLElement;
     inv: HTMLElement; stam: HTMLElement;
-    crouchBtn: HTMLElement; carBtn: HTMLElement; heliBtn: HTMLElement; venter: HTMLElement; vhp: HTMLElement;
+    crouchBtn: HTMLElement; tankBtn: HTMLElement; jetBtn: HTMLElement; venter: HTMLElement; vhp: HTMLElement;
     level: HTMLElement; target: HTMLElement; jumpBtn: HTMLElement;
   };
   private numPool: HTMLElement[] = [];
@@ -225,8 +225,8 @@ export class UI {
       <button class="tc grenade" data-b="grenade" data-look="1" aria-label="El bombası">${ICON.grenade}<b class="badge" id="gc">3</b></button>
       <button class="tc knife" data-b="knife" aria-label="Bıçak">${ICON.knife}</button>
       <button class="tc crouch" data-b="crouch" aria-label="Eğil">${ICON.crouch}</button>
-      <button class="tc vcall car" data-b="car" aria-label="Araba çağır">${ICON.car}<b class="cd"></b></button>
-      <button class="tc vcall heli" data-b="heli" aria-label="Helikopter çağır">${ICON.heli}<b class="cd"></b></button>
+      <button class="tc vcall tank" data-b="tank" aria-label="Tank çağır">${ICON.tank}<b class="cd"></b></button>
+      <button class="tc vcall jet" data-b="jet" aria-label="Uçak çağır">${ICON.jet}<b class="cd"></b></button>
       <button class="venter" data-b="vehicle"></button>
       <div class="vhp"><span class="vn"></span><div class="bar"><i></i></div><div class="rk"><i></i></div></div>
       <div class="lvl"></div>
@@ -237,7 +237,7 @@ export class UI {
       <div class="nums"></div>
       <div class="gwarn">${ICON.grenade}<span>BOMBA!</span></div>
       <button class="shop-btn" data-a="shop">${ICON.cart}MAĞAZA</button>
-      <div class="keys">WASD yürü · Fare nişan · Sol tık ateş · Sağ tık/E dürbün · R şarjör · G bomba (basılı tut) · V bıçak · Space zıpla · Shift koş · C eğil · 1-9/Q silah · T araba · Y helikopter · X bin/in · B mağaza · Esc</div>
+      <div class="keys">WASD yürü · Fare nişan · Sol tık ateş · Sağ tık/E dürbün · R şarjör · G bomba (basılı tut) · V bıçak · Space zıpla · Shift koş · C eğil · 1-9/Q silah · T tank · Y uçak · X bin/in · B mağaza · Esc</div>
       <div class="death"><h2>ÖLDÜN!</h2><p id="dby"></p><div class="cd" id="dcd">3</div></div>`;
     s.prepend(this.minimap);
     const q = <T extends HTMLElement>(sel: string) => s.querySelector(sel) as T;
@@ -251,7 +251,7 @@ export class UI {
       touch: Array.from(s.querySelectorAll('.tc, .joy-hint')) as HTMLElement[], keys: q('.keys'),
       gCount: q('#gc'), banner: q('.banner'), warn: q('.gwarn'), buffs: q('.buffs'), nums: q('.nums'),
       inv: q('.inv'), stam: q('.stam i'),
-      crouchBtn: q('.tc.crouch'), carBtn: q('.vcall.car'), heliBtn: q('.vcall.heli'), venter: q('.venter'), vhp: q('.vhp'),
+      crouchBtn: q('.tc.crouch'), tankBtn: q('.vcall.tank'), jetBtn: q('.vcall.jet'), venter: q('.venter'), vhp: q('.vhp'),
       level: q('.lvl'), target: q('.tgt'), jumpBtn: q('.tc.jump'),
     };
     this.hud.inv.addEventListener('pointerdown', (e) => {
@@ -335,17 +335,17 @@ export class UI {
     const v = d.veh, dr = v.driving;
     const mode = dr ? 'in-' + dr.kind : '';
     this.set('vmode', mode, () => {
-      this.screens.hud.classList.toggle('in-car', mode === 'in-car');
-      this.screens.hud.classList.toggle('in-heli', mode === 'in-heli');
-      h.jumpBtn.setAttribute('aria-label', mode === 'in-heli' ? 'Yüksel' : 'Zıpla');
-      h.crouchBtn.setAttribute('aria-label', mode === 'in-heli' ? 'Alçal' : 'Eğil');
-      h.gCount.parentElement!.innerHTML = (mode === 'in-heli' ? ICON.rocket : ICON.grenade) + `<b class="badge" id="gc">${d.grenades}</b>`;
+      this.screens.hud.classList.toggle('in-tank', mode === 'in-tank');
+      this.screens.hud.classList.toggle('in-jet', mode === 'in-jet');
+      h.jumpBtn.setAttribute('aria-label', mode === 'in-jet' ? 'Yüksel' : 'Zıpla');
+      h.crouchBtn.setAttribute('aria-label', mode === 'in-jet' ? 'Alçal' : 'Eğil');
+      h.gCount.parentElement!.innerHTML = (dr ? ICON.rocket : ICON.grenade) + `<b class="badge" id="gc">${d.grenades}</b>`;
       h.gCount = this.screens.hud.querySelector('#gc') as HTMLElement;
       this.last.gc = -1;
     });
     const callKey = (x?: number) => (x === undefined ? 'x' : x > 0 ? String(Math.ceil(x)) : 'r');
-    this.set('vcall', `${callKey(v.car)}|${callKey(v.heli)}|${!!dr}`, () => {
-      for (const [btn, cd] of [[h.carBtn, v.car], [h.heliBtn, v.heli]] as [HTMLElement, number | undefined][]) {
+    this.set('vcall', `${callKey(v.tank)}|${callKey(v.jet)}|${!!dr}`, () => {
+      for (const [btn, cd] of [[h.tankBtn, v.tank], [h.jetBtn, v.jet]] as [HTMLElement, number | undefined][]) {
         btn.classList.toggle('owned', cd !== undefined);
         btn.classList.toggle('wait', !!cd && cd > 0);
         (btn.querySelector('.cd') as HTMLElement).textContent = cd && cd > 0 ? String(Math.ceil(cd)) : '';
@@ -357,12 +357,12 @@ export class UI {
     this.set('vhp', vk, () => {
       h.vhp.classList.toggle('on', !!dr);
       if (!dr) return;
-      (h.vhp.querySelector('.vn') as HTMLElement).textContent = `${dr.kind === 'car' ? 'ARABA' : 'HELİKOPTER'}  ${Math.ceil(dr.hp)}/${dr.max}  ·  ${Math.round(dr.speed * 3.6)} km/s`;
+      (h.vhp.querySelector('.vn') as HTMLElement).textContent = `${dr.kind === 'tank' ? 'TANK' : 'SAVAŞ UÇAĞI'}  ${Math.ceil(dr.hp)}/${dr.max}  ·  ${Math.round(dr.speed * 3.6)} km/s`;
       const bar = h.vhp.querySelector('.bar i') as HTMLElement;
       bar.style.width = `${Math.max(0, (100 * dr.hp) / dr.max)}%`;
       bar.classList.toggle('low', dr.hp / dr.max < 0.3);
       const rk = h.vhp.querySelector('.rk') as HTMLElement;
-      rk.style.display = dr.kind === 'heli' ? '' : 'none';
+      rk.style.display = '';
       (rk.firstElementChild as HTMLElement).style.width = `${Math.round((1 - dr.rocket) * 100)}%`;
     });
     const st = Math.round(d.stamina * 50);
@@ -558,7 +558,7 @@ export class UI {
       const poor = !owned && save.money < v.price;
       const bar = (n: number) => `<span><i style="width:${Math.round(n * 100)}%"></i></span>`;
       const act = owned
-        ? `<button class="act on" disabled>SENİN · ${v.kind === 'car' ? 'T' : 'Y'} / ${v.kind === 'car' ? '🚗' : '🚁'} TUŞU</button>`
+        ? `<button class="act on" disabled>SENİN · ${v.kind === 'tank' ? 'T' : 'Y'} TUŞU</button>`
         : poor
           ? `<button class="act buy" disabled>${formatTL(v.price - save.money)} eksik</button>`
           : `<button class="act buy" data-a="veh" data-id="${v.kind}">SATIN AL · ${formatTL(v.price)}</button>`;

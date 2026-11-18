@@ -5,7 +5,7 @@ import { CollisionWorld, WORLD_FLOOR, rayCharacter } from '../world/collision';
 import type { MapData, V2 } from '../world/map';
 import { NavWorld } from '../world/navworld';
 import type { Difficulty } from '../core/save';
-import { CAR_HIT, HELI_ROCKET, HELI_ROCKET_CD, VEHICLE_DEFS, type VehicleKind } from '../data/vehicles';
+import { HEAVY_CD, JET_BOMB, TANK_HIT, TANK_SHELL, VEHICLE_DEFS, type VehicleKind } from '../data/vehicles';
 import { BotBrain, DIFFICULTY } from './bot';
 import { BODY_R, Combatant, HEAD_R, MAX_HP } from './combatant';
 import { Vehicle, type DriveInput } from './vehicle';
@@ -150,7 +150,7 @@ export class Match {
   readonly drops: Drop[] = [];
   readonly vehicles: Vehicle[] = [];
   /** Seconds until each vehicle kind may be called again. */
-  readonly vehicleCd: Record<VehicleKind, number> = { car: 0, heli: 0 };
+  readonly vehicleCd: Record<VehicleKind, number> = { tank: 0, jet: 0 };
   /** Driver input for each driven vehicle, set by the controller every frame. */
   readonly driveInput = new Map<Vehicle, DriveInput>();
   readonly difficulty: Difficulty;
@@ -283,7 +283,7 @@ export class Match {
       if (c.hp < c.maxHp && this.time - c.lastHurtT > REGEN_DELAY) c.hp = Math.min(c.maxHp, c.hp + REGEN_RATE * dt);
       const brain = this.brains.get(c);
       if (brain) brain.update(dt, c, this);
-      // the helicopter's cannon replaces the hand weapon while flying
+      // the vehicle's gun replaces the hand weapon while driving or flying
       const ws = c.vehicle?.gun ?? c.weapon;
       const shots = ws.update(dt, c.trigger);
       for (let i = 0; i < shots; i++) this.fire(c, ws.def);
@@ -692,7 +692,7 @@ export class Match {
     for (const [dist, side] of [[4.5, 0], [4.5, 2.5], [4.5, -2.5], [6.5, 0], [-4.5, 0], [0, 4], [0, -4]] as [number, number][]) {
       const x = owner.pos.x + fx * dist - fz * side, z = owner.pos.z + fz * dist + fx * side;
       if (x < this.map.minX + def.radius || x > this.map.maxX - def.radius || z < this.map.minZ + def.radius || z > this.map.maxZ - def.radius) continue;
-      if (this.world.blocked(x, z, def.radius + (kind === 'car' ? 1.2 : 0.4), y, def.height)) continue;
+      if (this.world.blocked(x, z, def.radius + (kind === 'tank' ? 1.2 : 0.4), y, def.height)) continue;
       if (Math.abs(this.world.groundHeight(x, z, def.radius, y + 0.5, 1) - y) > 0.6) continue;
       // open sky above (no roof, no tunnel ceiling)
       if (!this.world.segmentClear(x, y + 0.5, z, x, y + 12, z)) continue;
@@ -719,7 +719,7 @@ export class Match {
     let best: Vehicle | null = null, bd = reach;
     for (const v of this.vehicles) {
       if (!v.alive || v.driver || v.owner.team !== c.team) continue;
-      const d = Math.hypot(v.pos.x - c.pos.x, v.pos.z - c.pos.z) - (v.kind === 'heli' ? 1.5 : 0.8);
+      const d = Math.hypot(v.pos.x - c.pos.x, v.pos.z - c.pos.z) - (v.kind === 'jet' ? 1.5 : 0.8);
       if (d < bd && Math.abs(v.pos.y - c.pos.y) < 2.5) { bd = d; best = v; }
     }
     return best;
@@ -746,7 +746,7 @@ export class Match {
     c.vehicle = null;
     this.driveInput.delete(v);
     const fx = v.forwardX(), fz = v.forwardZ();
-    const side = v.kind === 'heli' ? 2.6 : 1.9;
+    const side = v.kind === 'jet' ? 2.6 : 1.9;
     for (const [rx, fwd] of [[-side, 0], [side, 0], [0, -3.6], [0, 3.6], [-side, -2], [side, -2]]) {
       const x = v.pos.x - fz * rx + fx * fwd, z = v.pos.z + fx * rx + fz * fwd;
       if (this.world.blocked(x, z, BODY_R, v.pos.y, 1.8) || v.contains(x, z, BODY_R * 0.5)) continue;
@@ -754,7 +754,7 @@ export class Match {
       c.velY = 0;
       return;
     }
-    c.pos.set(v.pos.x, v.pos.y + (v.kind === 'heli' ? 2.7 : 1.6), v.pos.z);
+    c.pos.set(v.pos.x, v.pos.y + (v.kind === 'jet' ? 2.7 : 1.6), v.pos.z);
   }
 
   damageVehicle(v: Vehicle, attacker: Combatant, amount: number): void {
@@ -785,18 +785,26 @@ export class Match {
     if (i >= 0) this.vehicles.splice(i, 1);
   }
 
-  /** Helicopter rocket (grenade button while flying). */
-  heliRocket(c: Combatant): boolean {
+  /** Heavy weapon on the grenade button: tank shell or jet bomb. */
+  heavyFire(c: Combatant): boolean {
     const v = c.vehicle;
-    if (!v || v.kind !== 'heli' || v.rocketCd > 0 || !c.alive) return false;
-    v.rocketCd = HELI_ROCKET_CD;
+    if (!v || v.rocketCd > 0 || !c.alive) return false;
+    v.rocketCd = HEAVY_CD[v.kind];
     c.lastShotT = this.time;
-    this.launch(c, HELI_ROCKET, c.aimOrigin, c.aimDir);
+    if (v.kind === 'tank') this.launch(c, TANK_SHELL, c.aimOrigin, c.aimDir);
+    else {
+      // the bomb leaves from under the belly and never flies upward
+      _v.copy(c.aimDir); _v.y = Math.min(_v.y, -0.25);
+      const b = this.launch(c, JET_BOMB, _v2.set(v.pos.x, v.pos.y + 0.4, v.pos.z), _v);
+      // it keeps the jet's speed, so the jet never overtakes its own bomb
+      b.vel.x += v.vel.x;
+      b.vel.z += v.vel.z;
+    }
     return true;
   }
 
   private updateVehicles(dt: number): void {
-    for (const k of ['car', 'heli'] as VehicleKind[]) this.vehicleCd[k] = Math.max(0, this.vehicleCd[k] - dt);
+    for (const k of ['tank', 'jet'] as VehicleKind[]) this.vehicleCd[k] = Math.max(0, this.vehicleCd[k] - dt);
     for (const v of [...this.vehicles]) {
       const inp = v.driver ? this.driveInput.get(v) ?? null : null;
       const impact = v.step(this.world, inp, dt);
@@ -809,18 +817,18 @@ export class Match {
       const d = v.driver;
       if (d) {
         d.pos.copy(v.pos);
-        d.vx = v.kind === 'car' ? v.forwardX() * v.speed : v.vel.x;
-        d.vz = v.kind === 'car' ? v.forwardZ() * v.speed : v.vel.z;
+        d.vx = v.kind === 'tank' ? v.forwardX() * v.speed : v.vel.x;
+        d.vz = v.kind === 'tank' ? v.forwardZ() * v.speed : v.vel.z;
         d.velY = 0;
         d.onGround = true;
       }
-      // the car runs people over
-      if (v.kind === 'car' && Math.abs(v.speed) > 4 && d) {
+      // the tank runs people over
+      if (v.kind === 'tank' && Math.abs(v.speed) > 4 && d) {
         for (const e of this.combatants) {
           if (!e.alive || e.vehicle || e.team === d.team || Math.abs(e.pos.y - v.pos.y) > 1.5) continue;
           if (!v.contains(e.pos.x, e.pos.z, BODY_R + 0.25)) continue;
           e.shieldT = 0;
-          this.damage(e, d, CAR_HIT.damage, false, CAR_HIT);
+          this.damage(e, d, TANK_HIT.damage, false, TANK_HIT);
           this.events.runOver?.(v, e);
         }
       }

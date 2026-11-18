@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 type G = any;
 const shots = 'test-results/shots';
 const g = (page: Page, fn: string) => page.evaluate(`(() => { const g = window.__game; return ${fn}; })()`);
-test('free play: real-time match with heli and car against live bots', async ({ page }) => {
+test('free play: real-time match with jet and tank against live bots', async ({ page }) => {
   test.setTimeout(240_000);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -11,7 +11,7 @@ test('free play: real-time match with heli and car against live bots', async ({ 
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForFunction(() => (window as G).__game?.state === 'menu', null, { timeout: 90_000 });
-  await g(page, "(g.save.vehicles = ['car', 'heli'], g.save.settings.quality = 'medium', g.applyQuality(), 0)");
+  await g(page, "(g.save.vehicles = ['tank', 'jet'], g.save.settings.quality = 'medium', g.applyQuality(), 0)");
   await page.click('.big-play');
   // on foot: run toward the enemy and shoot for 15 s
   await page.keyboard.down('KeyW');
@@ -23,11 +23,11 @@ test('free play: real-time match with heli and car against live bots', async ({ 
   }
   await page.keyboard.up('KeyW');
   await page.screenshot({ path: `${shots}/70-play-foot.png` });
-  // helicopter over the battle, strafing with the cannon
+  // jet over the battle, strafing with the cannon
   await page.keyboard.press('KeyY');
   await page.waitForTimeout(300);
-  const inHeli = await g(page, "!!(g.match.player.vehicle && g.match.player.vehicle.kind === 'heli')");
-  if (inHeli) {
+  const inJet = await g(page, "!!(g.match.player.vehicle && g.match.player.vehicle.kind === 'jet')");
+  if (inJet) {
     await page.keyboard.down('Space');
     await page.waitForTimeout(2500);
     await page.keyboard.up('Space');
@@ -36,9 +36,9 @@ test('free play: real-time match with heli and car against live bots', async ({ 
     for (let i = 0; i < 10; i++) { await page.keyboard.press('KeyG'); await page.waitForTimeout(1000); }
     await page.keyboard.up('KeyF');
     await page.keyboard.up('KeyW');
-    await page.screenshot({ path: `${shots}/71-play-heli.png` });
+    await page.screenshot({ path: `${shots}/71-play-jet.png` });
   }
-  const st = await g(page, `({ fps: g.fps, score: { ...g.match.score }, kills: g.match.player.kills, deaths: g.match.player.deaths, vehicles: g.match.vehicles.map(v => [v.kind, v.hp, v.alive]), heliDamaged: g.match.vehicles.some(v => v.kind === 'heli' && v.hp < v.maxHp) })`);
+  const st = await g(page, `({ fps: g.fps, score: { ...g.match.score }, kills: g.match.player.kills, deaths: g.match.player.deaths, vehicles: g.match.vehicles.map(v => [v.kind, v.hp, v.alive]), jetDamaged: g.match.vehicles.some(v => v.kind === 'jet' && v.hp < v.maxHp) })`);
   console.log('STATE', JSON.stringify(st));
   // let it run 20 s more in real time
   await page.waitForTimeout(20_000);

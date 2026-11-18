@@ -7,6 +7,7 @@ import { Match } from '../src/game/match';
 import type { Combatant } from '../src/game/combatant';
 import { FLOOR1_Y, ROOF_Y, STREET, TUNNEL, TUNNEL_Y } from '../src/world/structures';
 import { getWeapon } from '../src/data/weapons';
+import { JET_BOMB, TANK_SHELL } from '../src/data/vehicles';
 
 const map = createMap();
 const phys = buildPhysics(map);
@@ -53,11 +54,11 @@ describe('selling', () => {
   it('vehicles sell for 70 % too', () => {
     const s = defaultSave();
     s.money = 50000;
-    buyVehicle(s, 'heli');
-    expect(sellVehicle(s, 'heli')).toBe(35000);
+    buyVehicle(s, 'jet');
+    expect(sellVehicle(s, 'jet')).toBe(35000);
     expect(s.vehicles).toEqual([]);
     expect(s.money).toBe(35000);
-    expect(sellVehicle(s, 'car')).toBe(0);
+    expect(sellVehicle(s, 'tank')).toBe(0);
   });
 });
 
@@ -76,18 +77,20 @@ describe('economy v4', () => {
   it('car costs 30000 TL, helicopter 50000 TL', () => {
     const s = defaultSave();
     s.money = 29999;
-    expect(buyVehicle(s, 'car')).toBe('no-money');
+    expect(buyVehicle(s, 'tank')).toBe('no-money');
     s.money = 80000;
-    expect(buyVehicle(s, 'car')).toBe('ok');
+    expect(buyVehicle(s, 'tank')).toBe('ok');
     expect(s.money).toBe(50000);
-    expect(buyVehicle(s, 'heli')).toBe('ok');
+    expect(buyVehicle(s, 'jet')).toBe('ok');
     expect(s.money).toBe(0);
-    expect(buyVehicle(s, 'car')).toBe('owned');
-    expect(s.vehicles).toEqual(['car', 'heli']);
+    expect(buyVehicle(s, 'tank')).toBe('owned');
+    expect(s.vehicles).toEqual(['tank', 'jet']);
   });
   it('save keeps vehicles and difficulty, drops junk', () => {
-    const s = sanitize({ money: 5, vehicles: ['heli', 'tank', 'heli'], settings: { difficulty: 'extreme' } });
-    expect(s.vehicles).toEqual(['heli']);
+    const s = sanitize({ money: 5, vehicles: ['jet', 'boat', 'jet', 'constructor'], settings: { difficulty: 'extreme' } });
+    expect(s.vehicles).toEqual(['jet']);
+    // old saves: the car became the tank, the helicopter the jet
+    expect(sanitize({ vehicles: ['heli', 'car', 'heli'] }).vehicles).toEqual(['jet', 'tank']);
     expect(s.settings.difficulty).toBe('extreme');
     expect(sanitize({}).settings.difficulty).toBe('hard');
     expect(sanitize({ settings: { difficulty: 'god' } }).settings.difficulty).toBe('hard');
@@ -225,7 +228,7 @@ describe('difficulty', () => {
 });
 
 describe('vehicles', () => {
-  function withVehicle(kind: 'car' | 'heli', at = { x: -66, z: -5 }, yaw = Math.PI / 2) {
+  function withVehicle(kind: 'tank' | 'jet', at = { x: -66, z: -5 }, yaw = Math.PI / 2) {
     const m = quietMatch(21);
     const p = m.player;
     p.pos.set(at.x, 0, at.z);
@@ -236,13 +239,13 @@ describe('vehicles', () => {
     expect(m.enterVehicle(p, v)).toBe(true);
     return { m, p, v };
   }
-  it('the car drives, steers and stays out of buildings', () => {
-    const { m, p, v } = withVehicle('car');
+  it('the tank drives, steers and stays out of buildings', () => {
+    const { m, p, v } = withVehicle('tank');
     const x0 = v.pos.x;
     let top = 0;
     for (let i = 0; i < 60; i++) { m.driveInput.set(v, { forward: 1, side: 0, up: 0, yaw: 0 }); m.update(1 / 30); top = Math.max(top, v.speed); }
     expect(v.pos.x - x0).toBeGreaterThan(12);
-    expect(top).toBeGreaterThan(15);
+    expect(top).toBeGreaterThan(10);
     expect(p.pos.distanceTo(v.pos)).toBeLessThan(1e-6);
     // full lock into the buildings for a while: it must never end up inside one
     for (let i = 0; i < 300; i++) {
@@ -251,7 +254,7 @@ describe('vehicles', () => {
       for (const [x, z] of v.footprint().map((f) => [f[0], f[1]])) expect(m.world.blocked(x, z, 0.5, v.pos.y + 0.6, 0.6)).toBe(false);
     }
   });
-  it('a car drives every road end to end without hitting anything', () => {
+  it('a tank drives every road end to end without hitting anything', () => {
     const runs: [number, number, number, (v: { pos: THREE.Vector3 }) => number][] = [
       [-64, 2, Math.PI / 2, (v) => v.pos.x], // avenue, eastbound lane
       [64, -2, -Math.PI / 2, (v) => -v.pos.x], // avenue, westbound lane
@@ -260,18 +263,18 @@ describe('vehicles', () => {
       [31, 46, Math.PI, (v) => -v.pos.z], // east cross street
     ];
     for (const [x, z, yaw, progress] of runs) {
-      const { m, v } = withVehicle('car', { x: -66, z: -5 }, Math.PI / 2);
+      const { m, v } = withVehicle('tank', { x: -66, z: -5 }, Math.PI / 2);
       v.pos.set(x, 0, z);
       v.yaw = yaw;
       const start = progress(v);
       for (let i = 0; i < 150; i++) { m.driveInput.set(v, { forward: 1, side: 0, up: 0, yaw: 0 }); m.update(1 / 30); }
-      // 5 s at full throttle with nothing in the way covers ~79 m (and stops short of the map edge)
-      expect(progress(v) - start, `${x},${z}`).toBeGreaterThan(72);
+      // 5 s at full throttle with nothing in the way covers ~54 m (the tank tops out at 12 m/s)
+      expect(progress(v) - start, `${x},${z}`).toBeGreaterThan(48);
       expect(v.hp, `${x},${z}`).toBe(v.maxHp);
     }
   });
-  it('a car cannot drive down a metro stairwell (bollards at the open end)', () => {
-    const { m, v } = withVehicle('car', { x: -38, z: -24 }, 0);
+  it('a tank cannot drive down a metro stairwell (bollards at the open end)', () => {
+    const { m, v } = withVehicle('tank', { x: -38, z: -24 }, 0);
     v.pos.set(-38, 0, -22); // straight at the open top step
     v.yaw = 0;
     for (let i = 0; i < 120; i++) { m.driveInput.set(v, { forward: 1, side: 0, up: 0, yaw: 0 }); m.update(1 / 30); }
@@ -279,7 +282,7 @@ describe('vehicles', () => {
     expect(v.pos.z).toBeLessThan(-13.85);
   });
   it('running an enemy over kills them and credits the driver', () => {
-    const { m, p, v } = withVehicle('car');
+    const { m, p, v } = withVehicle('tank');
     const e = m.combatants.find((c) => c.team === 'red')!;
     e.alive = true;
     e.hp = e.maxHp;
@@ -291,8 +294,8 @@ describe('vehicles', () => {
     expect(e.alive).toBe(false);
     expect(p.kills).toBe(1);
   });
-  it('the helicopter climbs, flies and lands on a roof', () => {
-    const { m, v } = withVehicle('heli');
+  it('the jet climbs, flies and lands on a roof', () => {
+    const { m, v } = withVehicle('jet');
     for (let i = 0; i < 120; i++) { m.driveInput.set(v, { forward: 0, side: 0, up: 1, yaw: Math.PI / 2 }); m.update(1 / 30); }
     expect(v.pos.y).toBeGreaterThan(12);
     // fly over the blue-side walk-in building at x -58..-46, z 9..21 and land on it
@@ -307,7 +310,7 @@ describe('vehicles', () => {
     expect(v.onGround).toBe(true);
   });
   it('shots at the driver hit the vehicle; a wreck throws the driver out', () => {
-    const { m, p, v } = withVehicle('car');
+    const { m, p, v } = withVehicle('tank');
     const e = m.combatants.find((c) => c.team === 'red')!;
     e.alive = true;
     const hp = p.hp;
@@ -321,11 +324,11 @@ describe('vehicles', () => {
     expect(p.vehicle).toBeNull();
     expect(m.vehicles).toHaveLength(0);
     expect(p.hp).toBeLessThan(hp);
-    expect(m.vehicleCd.car).toBeGreaterThan(20);
-    expect(m.spawnVehicle('car', p)).toBe('cooldown');
+    expect(m.vehicleCd.tank).toBeGreaterThan(20);
+    expect(m.spawnVehicle('tank', p)).toBe('cooldown');
   });
-  it('hitscan from an enemy stops at the car body and damages it', () => {
-    const { m, v } = withVehicle('car');
+  it('hitscan from an enemy stops at the tank body and damages it', () => {
+    const { m, v } = withVehicle('tank');
     const e = m.combatants.find((c) => c.team === 'red')!;
     e.alive = true;
     const c = v.center(new THREE.Vector3());
@@ -338,23 +341,45 @@ describe('vehicles', () => {
     const m = quietMatch(31);
     const p = m.player;
     p.pos.set(-26, TUNNEL_Y, 0);
-    expect(m.spawnVehicle('car', p)).toBe('blocked');
+    expect(m.spawnVehicle('tank', p)).toBe('blocked');
     p.pos.set(-50, 0, 18); // ground floor of the blue walk-in building
-    expect(m.spawnVehicle('heli', p)).toBe('blocked');
+    expect(m.spawnVehicle('jet', p)).toBe('blocked');
   });
-  it('heli cannon and rockets fire from the air', () => {
-    const { m, p, v } = withVehicle('heli');
+  it('jet cannon and bombs fire from the air', () => {
+    const { m, p, v } = withVehicle('jet');
     for (let i = 0; i < 60; i++) { m.driveInput.set(v, { forward: 0, side: 0, up: 1, yaw: 0 }); m.update(1 / 30); }
     let shots = 0;
-    m.events.shot = (_c, _h, def) => { if (def.id === 'heligun') shots++; };
+    m.events.shot = (_c, _h, def) => { if (def.id === 'jetgun') shots++; };
     p.aimOrigin.copy(v.pos).add(new THREE.Vector3(0, 0.7, 2.6));
     p.aimDir.set(0, -0.3, 1).normalize();
     p.trigger = true;
     for (let i = 0; i < 30; i++) m.update(1 / 30);
     expect(shots).toBeGreaterThan(5);
-    expect(m.heliRocket(p)).toBe(true);
-    expect(m.heliRocket(p)).toBe(false); // cooldown
+    expect(m.heavyFire(p)).toBe(true);
+    expect(m.heavyFire(p)).toBe(false); // cooldown
     expect(m.projectiles.length).toBe(1);
+    expect(m.projectiles[0].def.id).toBe('jetbomb');
+    expect(m.projectiles[0].vel.y).toBeLessThan(0); // a bomb never flies upward
+  });
+  it('the tank fires its machine gun and a cannon shell', () => {
+    const { m, p, v } = withVehicle('tank');
+    let shots = 0;
+    m.events.shot = (_c, _h, def) => { if (def.id === 'tankgun') shots++; };
+    p.aimOrigin.copy(v.pos).add(new THREE.Vector3(0, 1.9, 0));
+    p.aimDir.set(1, 0, 0);
+    p.trigger = true;
+    for (let i = 0; i < 30; i++) m.update(1 / 30);
+    expect(shots).toBeGreaterThan(5);
+    expect(m.heavyFire(p)).toBe(true);
+    expect(m.heavyFire(p)).toBe(false); // cooldown
+    expect(m.projectiles.map((x) => x.def.id)).toEqual(['tankshell']);
+  });
+  it('the jet bomb is a bigger blast than the tank shell', () => {
+    const shell = TANK_SHELL.projectile!, bomb = JET_BOMB.projectile!;
+    expect(bomb.splash).toBeGreaterThan(shell.splash);
+    expect(JET_BOMB.damage).toBeGreaterThan(TANK_SHELL.damage);
+    // and both outclass the hand-held rocket launcher
+    expect(shell.splash).toBeGreaterThan(getWeapon('rocket').projectile!.splash);
   });
 });
 

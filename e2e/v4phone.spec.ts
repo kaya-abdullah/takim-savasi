@@ -81,12 +81,12 @@ test('phone: crouch button, vehicle buttons, driving and flying by touch', async
   await page.screenshot({ path: `${shots}/60-phone-shop-vehicles.png` });
   await page.locator('.card.veh [data-a="veh"]').first().tap();
   await page.locator('.card.veh [data-a="veh"]').first().tap();
-  expect(await g(page, 'g.save.vehicles')).toEqual(['car', 'heli']);
+  expect(await g(page, 'g.save.vehicles')).toEqual(['tank', 'jet']);
   await page.tap('#shop [data-a="close"]');
   await page.tap('.big-play');
   await expect(page.locator('#hud')).toHaveClass(/on/);
   await g(page, `(() => { const m = g.match; m.brains.clear(); for (const c of m.combatants) if (!c.isPlayer) { c.alive = false; c.respawnT = 1e9; c.view.root.visible = false; } const p = m.player; p.pos.set(-66, 0, -5); p.yaw = Math.PI / 2; p.pitch = -0.1; })()`);
-  for (const sel of ['.tc.crouch', '.tc.vcall.car', '.tc.vcall.heli', '.tc.fire', '.tc.jump', '.tc.grenade']) {
+  for (const sel of ['.tc.crouch', '.tc.vcall.tank', '.tc.vcall.jet', '.tc.fire', '.tc.jump', '.tc.grenade']) {
     await expect(page.locator(sel)).toBeVisible();
     await inViewport(page, sel);
   }
@@ -100,28 +100,28 @@ test('phone: crouch button, vehicle buttons, driving and flying by touch', async
   await touch(cdp, page, '.tc.crouch');
   expect(await g(page, 'g.match.player.crouch')).toBe(false);
 
-  // car: tap the car button, drive with the joystick, tap İN
-  await touch(cdp, page, '.tc.vcall.car');
-  expect(await g(page, 'g.match.player.vehicle && g.match.player.vehicle.kind')).toBe('car');
-  await expect(page.locator('#hud')).toHaveClass(/in-car/);
+  // tank: tap the tank button, drive with the joystick, tap İN
+  await touch(cdp, page, '.tc.vcall.tank');
+  expect(await g(page, 'g.match.player.vehicle && g.match.player.vehicle.kind')).toBe('tank');
+  await expect(page.locator('#hud')).toHaveClass(/in-tank/);
   await expect(page.locator('.tc.knife')).toBeHidden();
   const x0 = await g(page, 'g.match.player.pos.x');
   await joystick(cdp, page, 1200);
   expect(await g(page, 'g.match.player.pos.x')).toBeGreaterThan(x0 + 5);
-  await page.screenshot({ path: `${shots}/62-phone-car.png` });
+  await page.screenshot({ path: `${shots}/62-phone-tank.png` });
   await noOverlap(page);
   await touch(cdp, page, '.venter');
   expect(await g(page, 'g.match.player.vehicle')).toBeNull();
   await expect(page.locator('.venter')).toHaveText('BİN');
   await touch(cdp, page, '.venter');
-  expect(await g(page, 'g.match.player.vehicle.kind')).toBe('car');
+  expect(await g(page, 'g.match.player.vehicle.kind')).toBe('tank');
   await touch(cdp, page, '.venter');
 
-  // helicopter: tap, hold ▲ (jump) to climb, fire, rocket, hold ▼ (crouch) to come down
-  await g(page, '(g.match.vehicleCd.heli = 0, 0)');
-  await touch(cdp, page, '.tc.vcall.heli');
-  expect(await g(page, 'g.match.player.vehicle.kind')).toBe('heli');
-  await expect(page.locator('#hud')).toHaveClass(/in-heli/);
+  // jet: tap, hold ▲ (jump) to climb, fire, bomb, hold ▼ (crouch) to come down
+  await g(page, '(g.match.vehicleCd.jet = 0, 0)');
+  await touch(cdp, page, '.tc.vcall.jet');
+  expect(await g(page, 'g.match.player.vehicle.kind')).toBe('jet');
+  await expect(page.locator('#hud')).toHaveClass(/in-jet/);
   await touch(cdp, page, '.tc.jump', 2500);
   const alt = await g(page, 'g.match.player.pos.y');
   expect(alt).toBeGreaterThan(8);
@@ -132,7 +132,7 @@ test('phone: crouch button, vehicle buttons, driving and flying by touch', async
   await touch(cdp, page, '.tc.grenade');
   expect(await g(page, 'g.match.player.vehicle.rocketCd')).toBeGreaterThan(0);
   await joystick(cdp, page, 800);
-  await page.screenshot({ path: `${shots}/63-phone-heli.png` });
+  await page.screenshot({ path: `${shots}/63-phone-jet.png` });
   await noOverlap(page);
   await touch(cdp, page, '.tc.crouch', 1500);
   expect(await g(page, 'g.match.player.pos.y')).toBeLessThan(alt);

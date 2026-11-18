@@ -126,15 +126,15 @@ test('metro: walk down the stairs and fight underground', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test('car: buy in the shop, call with T, drive, run over, get out with X', async ({ page }) => {
+test('tank: buy in the shop, call with T, drive, run over, fire the cannon, get out with X', async ({ page }) => {
   const errors = await boot(page, 100000);
   await page.click('#menu .shop-btn');
   const card = page.locator('.card.veh').first();
-  await expect(card).toContainText('Spor Araba');
+  await expect(card).toContainText('Savaş Tankı');
   await expect(card).toContainText('30.000 TL');
   await page.screenshot({ path: `${shots}/48-shop-vehicles.png` });
   await card.locator('[data-a="veh"]').click();
-  expect(await g(page, 'g.save.vehicles')).toEqual(['car']);
+  expect(await g(page, 'g.save.vehicles')).toEqual(['tank']);
   expect(await g(page, 'g.save.money')).toBe(70000);
   await expect(card).toContainText('SENİN');
   await page.click('#shop [data-a="close"]');
@@ -142,18 +142,22 @@ test('car: buy in the shop, call with T, drive, run over, get out with X', async
   await place(page, -66, 0, -5, Math.PI / 2, -0.1);
   await page.keyboard.press('KeyT');
   await page.waitForTimeout(200);
-  expect(await g(page, "g.match.player.vehicle && g.match.player.vehicle.kind")).toBe('car');
+  expect(await g(page, "g.match.player.vehicle && g.match.player.vehicle.kind")).toBe('tank');
   await expect(page.locator('#hud .vhp')).toHaveClass(/on/);
   // an enemy stands in the road ahead
   await g(page, `(() => { const m = g.match, v = m.player.vehicle; const e = m.combatants.find(c => c.team === 'red'); e.alive = true; e.hp = e.maxHp; e.shieldT = 0; e.view.revive(); e.pos.set(v.pos.x + 14, 0, v.pos.z); })()`);
   const x0 = (await pos(page))[0];
   await page.keyboard.down('KeyW');
   await page.waitForTimeout(700);
-  await page.screenshot({ path: `${shots}/49-car.png` });
-  await page.waitForTimeout(900);
+  await page.screenshot({ path: `${shots}/49-tank.png` });
+  await page.waitForTimeout(1300);
   await page.keyboard.up('KeyW');
   expect((await pos(page))[0] - x0).toBeGreaterThan(10);
   expect(await g(page, 'g.match.player.kills')).toBe(1);
+  // main gun on G
+  await page.keyboard.press('KeyG');
+  await page.waitForTimeout(100);
+  expect(await g(page, 'g.match.player.vehicle.rocketCd')).toBeGreaterThan(0);
   await page.keyboard.press('KeyX');
   await page.waitForTimeout(200);
   expect(await g(page, 'g.match.player.vehicle')).toBeNull();
@@ -162,38 +166,38 @@ test('car: buy in the shop, call with T, drive, run over, get out with X', async
   // X again gets back in
   await page.keyboard.press('KeyX');
   await page.waitForTimeout(200);
-  expect(await g(page, "g.match.player.vehicle.kind")).toBe('car');
+  expect(await g(page, "g.match.player.vehicle.kind")).toBe('tank');
   expect(await g(page, 'g.errors')).toEqual([]);
   expect(errors).toEqual([]);
 });
 
-test('helicopter: buy, call with Y, climb, shoot cannon and rockets, land on a roof', async ({ page }) => {
+test('jet: buy, call with Y, climb, shoot cannon and bombs, land on a roof', async ({ page }) => {
   const errors = await boot(page, 50000);
   await page.click('#menu .shop-btn');
   await page.locator('.card.veh').nth(1).locator('[data-a="veh"]').click();
-  expect(await g(page, 'g.save.vehicles')).toEqual(['heli']);
+  expect(await g(page, 'g.save.vehicles')).toEqual(['jet']);
   expect(await g(page, 'g.save.money')).toBe(0);
   await page.click('#shop [data-a="close"]');
   await quietMatch(page);
   await place(page, -63, 0, -16, Math.PI / 2, -0.2);
   await page.keyboard.press('KeyY');
   await page.waitForTimeout(200);
-  expect(await g(page, "g.match.player.vehicle.kind")).toBe('heli');
+  expect(await g(page, "g.match.player.vehicle.kind")).toBe('jet');
   await holdKey(page, 'Space', 3500);
   const alt = (await pos(page))[1];
   expect(alt).toBeGreaterThan(10);
-  await page.screenshot({ path: `${shots}/50-heli-air.png` });
+  await page.screenshot({ path: `${shots}/50-jet-air.png` });
   // cannon
   await g(page, '(g.match.player.pitch = -0.5, 0)');
   const before = await g(page, 'g.match.player.vehicle.gun.ammo');
   await holdKey(page, 'KeyF', 800);
   expect(await g(page, 'g.match.player.vehicle.gun.ammo')).toBeLessThan(before);
-  // rocket
+  // bomb
   await page.keyboard.press('KeyG');
   await page.waitForTimeout(100);
   expect(await g(page, 'g.match.player.vehicle.rocketCd')).toBeGreaterThan(0);
   await page.waitForTimeout(900);
-  await page.screenshot({ path: `${shots}/51-heli-rocket.png` });
+  await page.screenshot({ path: `${shots}/51-jet-bomb.png` });
   // fly over the walk-in building and land on its roof
   await g(page, `(() => { const v = g.match.player.vehicle; v.pos.set(-52, 14, 15); v.vel.set(0, 0, 0); })()`);
   await holdKey(page, 'KeyC', 3500);
@@ -204,7 +208,7 @@ test('helicopter: buy, call with Y, climb, shoot cannon and rockets, land on a r
   await page.waitForTimeout(300);
   expect(await g(page, 'g.match.player.vehicle')).toBeNull();
   expect((await pos(page))[1]).toBeCloseTo(7, 0);
-  await page.screenshot({ path: `${shots}/52-heli-roof.png` });
+  await page.screenshot({ path: `${shots}/52-jet-roof.png` });
   expect(await g(page, 'g.errors')).toEqual([]);
   expect(errors).toEqual([]);
 });

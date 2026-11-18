@@ -104,7 +104,7 @@ export class Minimap {
       g.stroke();
       g.fill();
       g.fillStyle = '#000';
-      g.fillText(v.kind === 'car' ? 'A' : 'H', this.X(v.pos.x), this.Z(v.pos.z) + 0.5);
+      g.fillText(v.kind === 'tank' ? 'T' : 'U', this.X(v.pos.x), this.Z(v.pos.z) + 0.5);
     }
     for (const c of m.combatants) {
       if (!c.alive || c === p) continue;

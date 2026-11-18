@@ -89,7 +89,9 @@ export function sanitize(raw: unknown): SaveData {
     d.upgrades.bag = Math.min(2, num(u.bag, 0));
     d.upgrades.armor = Math.min(2, num(u.armor, 0));
   }
-  if (Array.isArray(r.vehicles)) d.vehicles = Array.from(new Set(r.vehicles.filter((v): v is VehicleKind => v === 'car' || v === 'heli')));
+  // v4.7: the car became the tank and the helicopter the jet (same prices), so old purchases carry over
+  const kind = (v: unknown): VehicleKind | null => (v === 'car' || v === 'tank' ? 'tank' : v === 'heli' || v === 'jet' ? 'jet' : null);
+  if (Array.isArray(r.vehicles)) d.vehicles = Array.from(new Set(r.vehicles.map(kind).filter((v): v is VehicleKind => !!v)));
   return d;
 }
 
