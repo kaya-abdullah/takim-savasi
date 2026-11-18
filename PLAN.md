@@ -288,3 +288,11 @@ tank biraz daha küçük bomba atsın.
   katlanan iniş takımı), motor sesleri, mağaza simgeleri, HUD yazıları, mini haritada T / U.
 - Testler: tankın makinelisi ve top mermisi, uçak bombası aşağı gidiyor, bomba tank mermisinden büyük, eski kayıt
   dönüşümü; e2e tank/uçak (masaüstü ve telefon) güncellendi.
+
+## 16. Sürüm 4.8 (2026-11-18)
+
+İstek: uçak bombayı alta doğru atsın.
+
+- Uçak bombası artık nişangâha doğru gitmez; uçağın tam altından dümdüz aşağı düşer (ilk hız 14 m/s, yerçekimi
+  20 m/s²; 13 m'den 0,67 sn'de yere iner) ve uçağın hızını taşımaz. Patlama alanı (9 m) ve hasar (220) aynı.
+- Test: nişangâh ileri bakarken bile bomba yatay hızsız, uçağın x/z konumundan aşağı doğru çıkıyor.

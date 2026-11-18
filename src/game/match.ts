@@ -793,12 +793,8 @@ export class Match {
     c.lastShotT = this.time;
     if (v.kind === 'tank') this.launch(c, TANK_SHELL, c.aimOrigin, c.aimDir);
     else {
-      // the bomb leaves from under the belly and never flies upward
-      _v.copy(c.aimDir); _v.y = Math.min(_v.y, -0.25);
-      const b = this.launch(c, JET_BOMB, _v2.set(v.pos.x, v.pos.y + 0.4, v.pos.z), _v);
-      // it keeps the jet's speed, so the jet never overtakes its own bomb
-      b.vel.x += v.vel.x;
-      b.vel.z += v.vel.z;
+      // the bomb drops straight down from under the belly, whatever the camera looks at
+      this.launch(c, JET_BOMB, _v2.set(v.pos.x, v.pos.y + 0.4, v.pos.z), _v.set(0, -1, 0));
     }
     return true;
   }

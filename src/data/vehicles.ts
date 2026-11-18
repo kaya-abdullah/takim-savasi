@@ -59,11 +59,11 @@ export const JET_GUN: WeaponDef = {
   sound: { freq: 90, noise: 2400, decay: 0.12, gain: 0.55 },
 };
 
-/** Jet bomb: falls in an arc towards the crosshair, bigger blast than the tank shell. */
+/** Jet bomb: drops straight down under the jet, bigger blast than the tank shell. */
 export const JET_BOMB: WeaponDef = {
   ...STARTER, id: 'jetbomb', name: 'Uçak Bombası', desc: '', mode: 'projectile',
   damage: 220, fireRate: 0.33, mag: 1, reload: 3, spread: 0.004, pellets: 1, range: 120,
-  projectile: { speed: 34, radius: 0.3, splash: 9, gravity: 12, color: 0x3a3f46 },
+  projectile: { speed: 14, radius: 0.3, splash: 9, gravity: 20, color: 0x3a3f46 },
   tracer: 0xff7a1a, sound: { freq: 40, noise: 700, decay: 0.9, gain: 1 },
 };
 export const JET_BOMB_CD = 3;

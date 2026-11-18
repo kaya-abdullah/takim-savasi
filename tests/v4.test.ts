@@ -359,7 +359,12 @@ describe('vehicles', () => {
     expect(m.heavyFire(p)).toBe(false); // cooldown
     expect(m.projectiles.length).toBe(1);
     expect(m.projectiles[0].def.id).toBe('jetbomb');
-    expect(m.projectiles[0].vel.y).toBeLessThan(0); // a bomb never flies upward
+    // the bomb drops straight down, not towards the crosshair
+    const b = m.projectiles[0];
+    expect(b.vel.y).toBeLessThan(0);
+    expect(Math.hypot(b.vel.x, b.vel.z)).toBe(0);
+    expect(b.pos.x).toBeCloseTo(v.pos.x, 5);
+    expect(b.pos.z).toBeCloseTo(v.pos.z, 5);
   });
   it('the tank fires its machine gun and a cannon shell', () => {
     const { m, p, v } = withVehicle('tank');
