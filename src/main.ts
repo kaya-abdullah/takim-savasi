@@ -11,7 +11,7 @@ import { LOADOUT_SIZE, loadSave, writeSave, type SaveData, type Settings } from 
 import { ALL_WEAPONS, getWeapon } from './data/weapons';
 import { makeWeaponMesh } from './render/weaponModel';
 import { canSpin, spinWheel, applyMatchResult, putInLoadout, buyUpgrade, buyVehicle, buyWeapon, sellVehicle, sellWeapon, equipWeapon, formatTL, grenadeCount, killReward, maxHp, streakReward, UPGRADES, type UpgradeId } from './game/economy';
-import { Match, type Drop, type Grenade, type HitInfo, type Projectile, type ThrownKnife } from './game/match';
+import { Match, type Drop, type Grenade, type HitInfo, type PickupKind, type Projectile, type ThrownKnife } from './game/match';
 import { HEAVY_CD, VEHICLE_DEFS, type VehicleKind } from './data/vehicles';
 import type { WeaponDef } from './data/weapons';
 import type { Vehicle } from './game/vehicle';
@@ -997,7 +997,7 @@ class Game {
     }
   }
 
-  private onPickup(c: Combatant, kind: 'health' | 'damage' | 'speed' | 'airdrop', w?: { id: string; name: string }): void {
+  private onPickup(c: Combatant, kind: PickupKind, w?: { id: string; name: string }): void {
     const s = this.listenerPan(c.pos);
     if (c.isPlayer) {
       audio.powerup();
@@ -1011,7 +1011,7 @@ class Game {
       const cls = c.team === 'blue' ? 'kb' : 'kr';
       this.ui.feedText(`<span class="${cls}">${c.name}</span><span class="w">ikmalden aldı:</span>${w.name}`);
     }
-    this.effects.sparkBurst(_v.set(c.pos.x, c.pos.y + 1, c.pos.z), _v2.set(0, 1, 0), kind === 'health' ? 0x3dff7a : kind === 'damage' ? 0xff3b3b : kind === 'speed' ? 0x3dd8ff : 0xffc533, 30, 7);
+    this.effects.sparkBurst(_v.set(c.pos.x, c.pos.y + 1, c.pos.z), _v2.set(0, 1, 0), kind === 'health' ? 0x3dff7a : kind === 'damage' ? 0xff3b3b : kind === 'speed' ? 0x3dd8ff : kind === 'bandage' ? 0xff6b6b : 0xffc533, kind === 'bandage' ? 14 : 30, 7);
   }
 
   private onMelee(c: Combatant, v: Combatant | null, back: boolean): void {
@@ -1107,6 +1107,7 @@ class Game {
       this.ctrl.update(dt, m.player, this.input, m, this.save.settings);
       const pv = m.player.vehicle;
       audio.engine(pv && !m.over ? pv.kind : null, pv ? (pv.kind === 'tank' ? Math.abs(pv.speed) / 12 : 0.3 + pv.vel.length() / 25) : 0);
+      if (this.ctrl.rocket && m.player.vehicle?.kind === 'jet') this.ui.popup(m.lastLock ? `ROKET KİLİTLENDİ: ${m.lastLock.name}` : 'ROKET ATILDI', 'kill');
       if (this.ctrl.reloaded) audio.reload();
       if (this.ctrl.jumped) audio.jump();
       if (this.ctrl.stepped) audio.step(m.player.sprinting);

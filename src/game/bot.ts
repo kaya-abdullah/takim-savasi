@@ -329,6 +329,8 @@ export class BotBrain {
     let near = null as P3 | null, nd = 40;
     for (const p of m.pickups) {
       if (!p.alive) continue;
+      // bandages only matter when hurt
+      if (p.kind === 'bandage' && c.hp > c.maxHp * 0.6) continue;
       const d = Math.hypot(p.pos.x - c.pos.x, p.pos.z - c.pos.z) * (p.kind === 'airdrop' ? 0.5 : 1);
       if (d < nd) { nd = d; near = { x: p.pos.x, y: p.falling ? 0 : p.pos.y, z: p.pos.z }; }
     }

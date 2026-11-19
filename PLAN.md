@@ -357,3 +357,18 @@ ekranda bütün silahlar görünür); el bombası ve bıçak tuşu yerinde kals�
 - Testler: tests/v6.test.ts (blok çeşitliliği, şehre yayılan doğuş noktaları, güvenli yeniden doğuş, slot/çanta
   kuralları, çanta açıkken ateş yok, bıçak isabeti, kafadan öldürme, bıçağı geri alma); her binanın her katı
   merdivenden erişilebilir; e2e'de çanta ekranı ve bıçak fırlatma.
+
+## 21. Sürüm 5.4 (2026-11-19)
+
+İstekler: uçağın roketi alttan bırakılıp düşmana doğru gitsin; binaların içinde 50 can dolduran bandaj olsun.
+
+- Uçak roketi (G / bomba tuşu): uçağın altından bırakılır, 0,3 sn düşer (uçağın tırmanışını almaz, hep
+  aşağı başlar), sonra motoru yanar ve burnunu hızla çevirip nişangâha en yakın görünen düşmana kilitlenir
+  (45°'lik koni, 170 m); hedef yoksa nişangâhın gösterdiği noktaya gider. Hız 60 m/s, patlama 9 m, hasar 220.
+  Ateşlenince ekranda "ROKET KİLİTLENDİ: <isim>" ya da "ROKET ATILDI".
+- Bandaj: girilen her binanın zemin katında ve her üst katında bir bandaj (çatılarda yok), toplam 50.
+  Üstünden geçince +50 can (can doluysa alınmaz, sonraya kalır). Alınan bandaj 30 sn sonra yerine gelir.
+  Yerde dönen bir sargı rulosu ve kırmızı halka; mini haritada kırmızı artı. Botlar canı %60'ın altındayken
+  bandaja gider.
+- Testler: roket önce düşer ve 8 m irtifadan bile hedefini vurur; her katta bandaj var ve yürünebilir yerde;
+  bandaj 50 iyileştirir, can doluyken alınmaz, 30 sn sonra geri gelir.

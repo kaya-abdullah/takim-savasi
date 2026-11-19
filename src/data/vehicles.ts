@@ -59,13 +59,19 @@ export const JET_GUN: WeaponDef = {
   sound: { freq: 90, noise: 2400, decay: 0.12, gain: 0.55 },
 };
 
-/** Jet bomb: drops straight down under the jet, bigger blast than the tank shell. */
+/**
+ * Jet rocket: released under the belly, it falls for a moment, then its motor
+ * lights and it homes on the enemy nearest the crosshair (or flies to the
+ * crosshair point). Bigger blast than the tank shell.
+ */
 export const JET_BOMB: WeaponDef = {
-  ...STARTER, id: 'jetbomb', name: 'Uçak Bombası', desc: '', mode: 'projectile',
-  damage: 220, fireRate: 0.33, mag: 1, reload: 3, spread: 0.004, pellets: 1, range: 120,
-  projectile: { speed: 14, radius: 0.3, splash: 9, gravity: 20, color: 0x3a3f46 },
+  ...STARTER, id: 'jetbomb', name: 'Uçak Roketi', desc: '', mode: 'projectile',
+  damage: 220, fireRate: 0.33, mag: 1, reload: 3, spread: 0.004, pellets: 1, range: 160,
+  projectile: { speed: 60, radius: 0.3, splash: 9, gravity: 0, color: 0xff7a1a },
   tracer: 0xff7a1a, sound: { freq: 40, noise: 700, decay: 0.9, gain: 1 },
 };
+/** Free fall after release, top speed and turn rate of the jet rocket. */
+export const JET_ROCKET = { drop: 0.3, speed: 60, accel: 90, ignite: 25, pitchOver: 0.4, turnFast: 7, turn: 2.6, lockCone: 0.45, lockRange: 170 };
 export const JET_BOMB_CD = 3;
 
 /** Cooldown of each vehicle's heavy weapon (grenade button). */

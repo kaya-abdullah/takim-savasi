@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { buildPhysics, createMap } from '../src/world/map';
-import { Match, SPAWN_SAFE } from '../src/game/match';
+import { BANDAGE_HEAL, BANDAGE_RESPAWN, Match, SPAWN_SAFE } from '../src/game/match';
 import { defaultSave, sanitize, LOADOUT_SIZE } from '../src/core/save';
 import { buyWeapon, putInLoadout, sellWeapon } from '../src/game/economy';
 import { KNIFE_RETURN, THROWN_KNIFE } from '../src/data/weapons';
@@ -162,5 +162,36 @@ describe('throwing the knife', () => {
     m.throwKnife(p, new THREE.Vector3(0.3, 1, 0));
     for (let t = 0; t < KNIFE_RETURN + 1; t += 1 / 30) m.update(1 / 30);
     expect(p.hasKnife).toBe(true);
+  });
+});
+
+describe('bandages in the buildings', () => {
+  it('every walk-in building has a bandage on each floor (not on the roofs)', () => {
+    const m = quiet();
+    const b = m.pickups.filter((p) => p.kind === 'bandage');
+    const floors = phys.nav.levels.filter((l) => /-\d+m?$/.test(l.name)).length;
+    expect(b.length).toBe(map.structures.houses.length + floors);
+    for (const p of b) {
+      expect(map.structures.houses.some((h) => p.pos.x > h.x0 && p.pos.x < h.x1 && p.pos.z > h.z0 && p.pos.z < h.z1)).toBe(true);
+      expect(phys.nav.walkableAt(p.pos.x, p.pos.y, p.pos.z)).toBe(true);
+    }
+    expect(new Set(b.map((p) => p.pos.y)).size).toBeGreaterThan(5); // up the towers too
+  });
+  it('heals 50, only when hurt, and comes back after a while', () => {
+    const m = quiet();
+    const p = m.player;
+    const bd = m.pickups.find((q) => q.kind === 'bandage' && q.pos.y > 10)!;
+    p.pos.copy(bd.pos);
+    p.hp = p.maxHp;
+    m.update(1 / 30);
+    expect(bd.alive).toBe(true); // full health: left for later
+    p.hp = 20;
+    p.lastHurtT = m.time; // no regen during the test
+    m.update(1 / 30);
+    expect(bd.alive).toBe(false);
+    expect(p.hp).toBeCloseTo(20 + BANDAGE_HEAL, 0);
+    p.pos.set(-20, 0, -3);
+    for (let t = 0; t < BANDAGE_RESPAWN + 1; t += 1 / 10) m.update(1 / 10);
+    expect(m.pickups.some((q) => q.kind === 'bandage' && q.alive && q.pos.distanceTo(bd.pos) < 0.01)).toBe(true);
   });
 });

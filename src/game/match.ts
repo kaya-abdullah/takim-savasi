@@ -5,7 +5,7 @@ import { CollisionWorld, WORLD_FLOOR, rayCharacter } from '../world/collision';
 import type { MapData, V2 } from '../world/map';
 import { NavWorld } from '../world/navworld';
 import type { Difficulty } from '../core/save';
-import { HEAVY_CD, JET_BOMB, TANK_HIT, TANK_SHELL, VEHICLE_DEFS, type VehicleKind } from '../data/vehicles';
+import { HEAVY_CD, JET_BOMB, JET_ROCKET, TANK_HIT, TANK_SHELL, VEHICLE_DEFS, type VehicleKind } from '../data/vehicles';
 import { BotBrain, DIFFICULTY } from './bot';
 import { BODY_R, Combatant, HEAD_R, MAX_HP } from './combatant';
 import { Vehicle, type DriveInput } from './vehicle';
@@ -28,6 +28,8 @@ export interface Projectile {
   vel: THREE.Vector3;
   life: number;
   alive: boolean;
+  /** Guided rocket: free fall for a moment, then it steers toward the target (or the point). */
+  guide?: { target: Combatant | null; point: THREE.Vector3; t: number };
 }
 
 export interface Grenade {
@@ -51,7 +53,7 @@ export interface ThrownKnife {
   age: number;
 }
 
-export type PickupKind = 'health' | 'damage' | 'speed' | 'airdrop';
+export type PickupKind = 'health' | 'damage' | 'speed' | 'airdrop' | 'bandage';
 export interface Pickup {
   kind: PickupKind;
   pos: THREE.Vector3;
@@ -60,6 +62,10 @@ export interface Pickup {
   age: number;
 }
 export const BUFF_TIME = 10;
+/** A bandage heals this much; one lies on every floor of every walk-in building. */
+export const BANDAGE_HEAL = 50;
+/** Seconds until a taken bandage is back in its place. */
+export const BANDAGE_RESPAWN = 30;
 export const AIRDROP_WEAPONS = ['minigun', 'rocket', 'plasma', 'sniper', 'lmg'];
 const PICKUP_EVERY = 12;
 const AIRDROP_FIRST = 35;
@@ -175,9 +181,13 @@ export class Match {
   readonly driveInput = new Map<Vehicle, DriveInput>();
   readonly difficulty: Difficulty;
   private pickupT = 6;
+  /** Bandages waiting to come back: where and when. */
+  private bandageBack: { pos: THREE.Vector3; t: number }[] = [];
   private airdropT = AIRDROP_FIRST;
   readonly killFeed: KillEntry[] = [];
   readonly brains = new Map<Combatant, BotBrain>();
+  /** Enemy the last jet rocket locked onto (null: flew to the crosshair). */
+  lastLock: Combatant | null = null;
   private rand: () => number;
 
   constructor(
@@ -216,6 +226,7 @@ export class Match {
       c.shieldT = SHIELD_TIME;
       c.grenades = c.maxGrenades;
     }
+    for (const b of bandageSpots(map, nav)) this.spawnPickup('bandage', b);
   }
 
   readonly killLimit: number;
@@ -429,6 +440,7 @@ export class Match {
       p.life -= dt;
       const spec = p.def.projectile!;
       p.vel.y -= spec.gravity * dt;
+      if (p.guide) this.steer(p, dt);
       const sx = p.vel.x * dt, sy = p.vel.y * dt, sz = p.vel.z * dt;
       const wh = this.world.raycast(p.pos.x, p.pos.y, p.pos.z, sx, sy, sz, 1);
       const tr = this.traceTargets(p.owner, p.pos.x, p.pos.y, p.pos.z, sx, sy, sz, wh ? wh.t : 1, spec.radius);
@@ -455,6 +467,45 @@ export class Match {
     }
     // compact
     for (let i = this.projectiles.length - 1; i >= 0; i--) if (!this.projectiles[i].alive) this.projectiles.splice(i, 1);
+  }
+
+  /** Jet rocket guidance: drop, then accelerate and turn toward the target at a limited rate. */
+  private steer(p: Projectile, dt: number): void {
+    const g = p.guide!;
+    g.t += dt;
+    if (g.t < JET_ROCKET.drop) { p.vel.y -= 20 * dt; return; }
+    const t = g.target;
+    if (t && (!t.alive || (t.vehicle && !t.vehicle.alive))) g.target = null;
+    const aim = g.target
+      ? (g.target.vehicle ? g.target.vehicle.center(_v2) : _v2.set(g.target.pos.x, g.target.pos.y + 1.0, g.target.pos.z))
+      : _v2.copy(g.point);
+    // the motor lights at a good speed and the nose swings round fast at first (pitch-over),
+    // then it steers more gently so a dodging target can still escape a late turn
+    const lit = g.t - JET_ROCKET.drop;
+    const speed = Math.min(JET_ROCKET.speed, Math.max(JET_ROCKET.ignite, p.vel.length() + JET_ROCKET.accel * dt));
+    const cur = _d.copy(p.vel).normalize();
+    const want = _right.copy(aim).sub(p.pos).normalize();
+    const ang = Math.acos(THREE.MathUtils.clamp(cur.dot(want), -1, 1));
+    const rate = lit < JET_ROCKET.pitchOver ? JET_ROCKET.turnFast : JET_ROCKET.turn;
+    const k = ang > 1e-4 ? Math.min(1, (rate * dt) / ang) : 1;
+    cur.lerp(want, k).normalize();
+    p.vel.copy(cur).multiplyScalar(speed);
+  }
+
+  /** The enemy nearest the crosshair that the jet's rocket can lock onto. */
+  rocketTarget(c: Combatant): Combatant | null {
+    let best: Combatant | null = null, bestA = JET_ROCKET.lockCone;
+    const d = _d.copy(c.aimDir).normalize();
+    for (const e of this.combatants) {
+      if (!e.alive || e.team === c.team) continue;
+      const tp = e.vehicle ? e.vehicle.center(_v2) : _v2.set(e.pos.x, e.pos.y + 1, e.pos.z);
+      const to = _right.copy(tp).sub(c.aimOrigin);
+      const dist = to.length();
+      if (dist > JET_ROCKET.lockRange || dist < 4) continue;
+      const a = Math.acos(THREE.MathUtils.clamp(to.dot(d) / dist, -1, 1));
+      if (a < bestA && this.world.segmentClear(c.aimOrigin.x, c.aimOrigin.y, c.aimOrigin.z, tp.x, tp.y, tp.z)) { bestA = a; best = e; }
+    }
+    return best;
   }
 
   private explode(p: Projectile, direct: Combatant | null): void {
@@ -540,10 +591,12 @@ export class Match {
   }
 
   private updatePickups(dt: number): void {
+    for (const b of this.bandageBack) if ((b.t -= dt) <= 0) this.spawnPickup('bandage', b.pos);
+    if (this.bandageBack.some((b) => b.t <= 0)) this.bandageBack = this.bandageBack.filter((b) => b.t > 0);
     this.pickupT -= dt;
     if (this.pickupT <= 0) {
       this.pickupT = PICKUP_EVERY;
-      if (this.pickups.filter((p) => p.alive && p.kind !== 'airdrop').length < 3) {
+      if (this.pickups.filter((p) => p.alive && p.kind !== 'airdrop' && p.kind !== 'bandage').length < 3) {
         const kinds: PickupKind[] = ['health', 'damage', 'speed'];
         this.spawnPickup(kinds[Math.floor(this.rand() * 3)]);
       }
@@ -561,10 +614,10 @@ export class Match {
         if (p.pos.y <= 0) { p.pos.y = 0; p.falling = false; }
         continue;
       }
-      if (p.kind !== 'airdrop' && p.age > 40) { p.alive = false; continue; }
+      if (p.kind !== 'airdrop' && p.kind !== 'bandage' && p.age > 40) { p.alive = false; continue; }
       for (const c of this.combatants) {
         if (!c.alive || c.vehicle || Math.hypot(c.pos.x - p.pos.x, c.pos.z - p.pos.z) > 1.4 || Math.abs(c.pos.y - p.pos.y) > 1.5) continue;
-        if (p.kind === 'health' && c.hp >= c.maxHp) continue;
+        if ((p.kind === 'health' || p.kind === 'bandage') && c.hp >= c.maxHp) continue;
         this.collect(c, p);
         break;
       }
@@ -576,6 +629,10 @@ export class Match {
     p.alive = false;
     let weapon: WeaponDef | undefined;
     if (p.kind === 'health') c.hp = c.maxHp;
+    else if (p.kind === 'bandage') {
+      c.hp = Math.min(c.maxHp, c.hp + BANDAGE_HEAL);
+      this.bandageBack.push({ pos: p.pos.clone(), t: BANDAGE_RESPAWN });
+    }
     else if (p.kind === 'damage') c.dmgBuffT = BUFF_TIME;
     else if (p.kind === 'speed') c.speedBuffT = BUFF_TIME;
     else {
@@ -911,8 +968,17 @@ export class Match {
     c.lastShotT = this.time;
     if (v.kind === 'tank') this.launch(c, TANK_SHELL, c.aimOrigin, c.aimDir);
     else {
-      // the bomb drops straight down from under the belly, whatever the camera looks at
-      this.launch(c, JET_BOMB, _v2.set(v.pos.x, v.pos.y + 0.4, v.pos.z), _v.set(0, -1, 0));
+      // the rocket is released under the belly with the jet's speed, falls a moment,
+      // then flies at the enemy nearest the crosshair (or the crosshair point)
+      const target = this.rocketTarget(c);
+      const wh = this.world.raycast(c.aimOrigin.x, c.aimOrigin.y, c.aimOrigin.z, c.aimDir.x, c.aimDir.y, c.aimDir.z, JET_ROCKET.lockRange);
+      const point = c.aimOrigin.clone().addScaledVector(c.aimDir, wh ? wh.t : JET_ROCKET.lockRange);
+      const pr = this.launch(c, JET_BOMB, _v2.set(v.pos.x, v.pos.y - 0.5, v.pos.z), _v.set(0, -1, 0));
+      // it keeps the jet's forward speed but never its climb: released, it always falls first
+      pr.vel.set(v.vel.x, Math.min(0, v.vel.y) - 3, v.vel.z);
+      pr.life = 7;
+      pr.guide = { target, point, t: 0 };
+      this.lastLock = target;
     }
     return true;
   }
@@ -968,6 +1034,26 @@ export class Match {
     const sorted = [...this.combatants].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
     return sorted.indexOf(this.player) + 1;
   }
+}
+
+/**
+ * One bandage on every floor of every walk-in building: the ground floor and
+ * each upper storey (not the open roof), on a walkable spot near the middle.
+ */
+export function bandageSpots(map: MapData, nav: NavWorld): THREE.Vector3[] {
+  const out: THREE.Vector3[] = [];
+  const s = map.structures;
+  for (const h of s.houses) {
+    const cx = (h.x0 + h.x1) / 2, cz = (h.z0 + h.z1) / 2 + 1.5;
+    const g = nav.street.nearestWalkable(cx, cz, 4);
+    if (g && g.x > h.x0 && g.x < h.x1 && g.z > h.z0 && g.z < h.z1) out.push(new THREE.Vector3(g.x, 0, g.z));
+  }
+  for (const lv of nav.levels) {
+    if (lv.name.endsWith('-roof') || lv.name.endsWith('-roofm') || lv.name === 'tunnel' || lv.name === 'street') continue;
+    const p = lv.grid.nearestWalkable((lv.x0 + lv.x1) / 2, (lv.z0 + lv.z1) / 2 + 1.5, 5);
+    if (p) out.push(new THREE.Vector3(p.x, lv.y, p.z));
+  }
+  return out;
 }
 
 /** Damage source for wrecks exploding and drivers being thrown out. */

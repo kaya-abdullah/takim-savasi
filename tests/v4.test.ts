@@ -390,12 +390,34 @@ describe('vehicles', () => {
     expect(m.heavyFire(p)).toBe(false); // cooldown
     expect(m.projectiles.length).toBe(1);
     expect(m.projectiles[0].def.id).toBe('jetbomb');
-    // the bomb drops straight down, not towards the crosshair
+    // the rocket is released under the belly and first falls (it does not shoot out forward)
     const b = m.projectiles[0];
-    expect(b.vel.y).toBeLessThan(0);
-    expect(Math.hypot(b.vel.x, b.vel.z)).toBe(0);
     expect(b.pos.x).toBeCloseTo(v.pos.x, 5);
     expect(b.pos.z).toBeCloseTo(v.pos.z, 5);
+    expect(b.pos.y).toBeLessThan(v.pos.y);
+    expect(b.vel.y).toBeLessThan(0);
+  });
+  it('the jet rocket drops, then homes on the enemy nearest the crosshair', () => {
+    const { m, p, v } = withVehicle('jet');
+    for (let i = 0; i < 60; i++) { m.driveInput.set(v, { forward: 0, side: 0, up: 1, yaw: 0 }); m.update(1 / 30); }
+    m.driveInput.set(v, { forward: 0, side: 0, up: 0, yaw: 0 });
+    // an enemy on open street ahead and below, a little off the crosshair
+    const e = m.combatants.find((c) => c.team === 'red')!;
+    e.alive = true; e.hp = e.maxHp = 100; e.shieldT = 0; e.respawnT = 1e9;
+    e.pos.set(v.pos.x + 30, 0, v.pos.z + 4);
+    p.aimOrigin.copy(v.pos).add(new THREE.Vector3(1, 0.7, 0));
+    p.aimDir.set(30, -v.pos.y, 0).normalize();
+    expect(m.heavyFire(p)).toBe(true);
+    expect(m.lastLock).toBe(e);
+    const r = m.projectiles[0];
+    const y0 = r.pos.y;
+    m.update(1 / 30);
+    m.update(1 / 30);
+    expect(r.pos.y).toBeLessThan(y0); // the drop
+    let hit = false;
+    m.events.kill = (k) => { if (k.victim === e) hit = true; };
+    for (let i = 0; i < 30 * 4 && !hit; i++) m.update(1 / 30);
+    expect(hit).toBe(true);
   });
   it('the tank fires its machine gun and a cannon shell', () => {
     const { m, p, v } = withVehicle('tank');
@@ -410,7 +432,7 @@ describe('vehicles', () => {
     expect(m.heavyFire(p)).toBe(false); // cooldown
     expect(m.projectiles.map((x) => x.def.id)).toEqual(['tankshell']);
   });
-  it('the jet bomb is a bigger blast than the tank shell', () => {
+  it('the jet rocket is a bigger blast than the tank shell', () => {
     const shell = TANK_SHELL.projectile!, bomb = JET_BOMB.projectile!;
     expect(bomb.splash).toBeGreaterThan(shell.splash);
     expect(JET_BOMB.damage).toBeGreaterThan(TANK_SHELL.damage);

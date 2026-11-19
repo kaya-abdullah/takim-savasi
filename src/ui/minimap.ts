@@ -100,7 +100,7 @@ export class Minimap {
     g.fillRect(0, 0, W, H);
     const sw = (W / this.k) * S, sh = (H / this.k) * S;
     g.drawImage(this.bg, this.X(this.cx) - sw / 2, this.Z(this.cz) - sh / 2, sw, sh, 0, 0, W, H);
-    const pc: Record<string, string> = { health: '#3dff7a', damage: '#ff3b3b', speed: '#3dd8ff', airdrop: '#ffc533' };
+    const pc: Record<string, string> = { health: '#3dff7a', damage: '#ff3b3b', speed: '#3dd8ff', airdrop: '#ffc533', bandage: '#ff8a8a' };
     for (const q of m.pickups) {
       let x = this.U(q.pos.x), y = this.V(q.pos.z);
       // the supply drop stays on the edge of the map when it is out of view
@@ -117,6 +117,11 @@ export class Minimap {
           const a = (k / 10) * Math.PI * 2 - Math.PI / 2, rr = k % 2 ? r * 0.45 : r;
           if (k) g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); else g.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
         }
+      } else if (q.kind === 'bandage') {
+        // small red-cross plus for a bandage
+        const a = 2, b = 6;
+        g.moveTo(x - a, y - b); g.lineTo(x + a, y - b); g.lineTo(x + a, y - a); g.lineTo(x + b, y - a); g.lineTo(x + b, y + a); g.lineTo(x + a, y + a);
+        g.lineTo(x + a, y + b); g.lineTo(x - a, y + b); g.lineTo(x - a, y + a); g.lineTo(x - b, y + a); g.lineTo(x - b, y - a); g.lineTo(x - a, y - a);
       } else {
         g.moveTo(x, y - 7); g.lineTo(x + 7, y); g.lineTo(x, y + 7); g.lineTo(x - 7, y);
       }

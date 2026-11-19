@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Pickup, PickupKind } from '../game/match';
 import { GeomBuilder } from './geomBuilder';
 
-const COLORS: Record<PickupKind, number> = { health: 0x3dff7a, damage: 0xff3b3b, speed: 0x3dd8ff, airdrop: 0xffc533 };
+const COLORS: Record<PickupKind, number> = { health: 0x3dff7a, damage: 0xff3b3b, speed: 0x3dd8ff, airdrop: 0xffc533, bandage: 0xff6b6b };
 
 function beamMaterial(color: number): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
@@ -25,6 +25,14 @@ function iconGeometry(kind: PickupKind): THREE.BufferGeometry {
     gb.box(0, 0, 0, 0.5, 0.5, 0.16, 0xffffff);
     gb.box(0, 0, 0, 0.36, 0.11, 0.18, 0xe02020);
     gb.box(0, 0, 0, 0.11, 0.36, 0.18, 0xe02020);
+  } else if (kind === 'bandage') {
+    // a rolled bandage with a red cross, and a loose end
+    const roll = new THREE.CylinderGeometry(0.17, 0.17, 0.22, 20).rotateZ(Math.PI / 2);
+    gb.add(roll, 0xf3eee2);
+    gb.add(new THREE.CylinderGeometry(0.06, 0.06, 0.23, 12).rotateZ(Math.PI / 2), 0xb9b2a2);
+    gb.box(0, 0.172, 0, 0.12, 0.012, 0.035, 0xd42a2a);
+    gb.box(0, 0.172, 0, 0.035, 0.012, 0.12, 0xd42a2a);
+    gb.box(0.02, -0.12, 0.21, 0.2, 0.01, 0.16, 0xece6d8);
   } else if (kind === 'damage') {
     gb.add(new THREE.OctahedronGeometry(0.3, 0), 0xff4040);
     gb.add(new THREE.TorusGeometry(0.36, 0.035, 6, 24), 0xffd0d0);
@@ -106,6 +114,16 @@ export class PickupViews {
     if (p.kind === 'airdrop') {
       icon = crate();
       beam.scale.set(1.6, 2.2, 1.6);
+    } else if (p.kind === 'bandage') {
+      // indoors: no light beam through the ceilings, a small glow ring on the floor
+      beam.visible = false;
+      ring.scale.set(0.55, 1, 0.55);
+      let g = this.icons.bandage;
+      if (!g) this.icons.bandage = g = iconGeometry('bandage');
+      icon = new THREE.Mesh(g, this.iconMat);
+      icon.castShadow = true;
+      icon.position.y = 0.12;
+      icon.scale.setScalar(1.3);
     } else {
       let g = this.icons[p.kind];
       if (!g) this.icons[p.kind] = g = iconGeometry(p.kind);
@@ -129,14 +147,20 @@ export class PickupViews {
         v.icon!.rotation.y = p.falling ? Math.sin(this.t) * 0.2 : 0;
         // red flare smoke marks the landing zone while the crate falls
         if (p.falling && Math.random() < dt * 8) onFallingSmoke(p.pos);
+      } else if (p.kind === 'bandage') {
+        // a bandage just lies there (indoors a spinning, pulsing thing reads as flicker)
+        v.icon!.position.y = 0.12;
+        v.icon!.rotation.set(0, p.pos.x * 1.7, 0);
       } else {
         v.icon!.rotation.y += dt * 2;
         v.icon!.position.y = 1.1 + Math.sin(this.t * 3 + p.pos.x) * 0.12;
       }
-      v.root.position.set(p.pos.x, 0, p.pos.z);
+      // power-ups and bandages sit on their own floor (roofs and upper storeys too)
+      v.root.position.set(p.pos.x, p.kind === 'airdrop' ? 0 : p.pos.y, p.pos.z);
       (v.beam.material as THREE.ShaderMaterial).uniforms.time.value = this.t;
       const pulse = 1 + Math.sin(this.t * 4) * 0.12;
-      v.ring.scale.set(pulse, 1, pulse);
+      if (p.kind === 'bandage') v.ring.scale.set(0.55, 1, 0.55);
+      else v.ring.scale.set(pulse, 1, pulse);
     }
     for (const [p, v] of this.views) {
       if (pickups.includes(p) && p.alive) continue;
@@ -158,5 +182,6 @@ export const PICKUP_NAMES: Record<PickupKind, string> = {
   damage: '2X HASAR!',
   speed: 'SÜPER HIZ!',
   airdrop: 'HAVA İKMALİ!',
+  bandage: 'BANDAJ: +50 CAN',
 };
 export const PICKUP_COLORS = COLORS;
