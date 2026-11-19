@@ -9,7 +9,7 @@ import { audio } from './core/audio';
 import { Input } from './core/input';
 import { loadSave, writeSave, type SaveData, type Settings } from './core/save';
 import { ALL_WEAPONS, getWeapon } from './data/weapons';
-import { loadGuns, makeWeaponMesh } from './render/weaponModel';
+import { makeWeaponMesh } from './render/weaponModel';
 import { canSpin, spinWheel, applyMatchResult, buyUpgrade, buyVehicle, buyWeapon, sellVehicle, sellWeapon, equipWeapon, formatTL, grenadeCount, killReward, maxHp, streakReward, UPGRADES, type UpgradeId } from './game/economy';
 import { Match, type Drop, type Grenade, type HitInfo, type Projectile } from './game/match';
 import { HEAVY_CD, VEHICLE_DEFS, type VehicleKind } from './data/vehicles';
@@ -181,7 +181,6 @@ class Game {
     window.addEventListener('resize', () => this.onResize());
     this.ui.loading(0.75, 'Silahlar hazırlanıyor...');
     await step();
-    await loadGuns();
     this.ui.icons = renderWeaponIcons(this.renderer, this.envMap);
     this.minimap = new Minimap(this.ui.minimap, this.map);
     this.ui.loading(0.82, 'Askerler hazırlanıyor...');

@@ -140,22 +140,10 @@ function makeKnife(): THREE.Group {
  * animation; its pose is copied onto the soldier's skeleton every frame.
  * Without the asset (load failed) the procedural figure is used instead.
  */
-interface HumanAsset {
-  scene: THREE.Object3D;
-  /** Team-painted body texture (old soldier only); people wear a team-coloured vest instead. */
-  maps: Record<Team, THREE.Texture> | null;
-  height: number;
-  minY: number;
-  /** The old soldier faces -z; the MakeHuman people already face +z like our fighters. */
-  flip: boolean;
-}
-/** Loaded body models; each new fighter takes the next one, so a match shows every face. */
-const HUMANS: HumanAsset[] = [];
-let nextHuman = Math.floor(Math.random() * 6);
-/** Height of a fighter in metres (top of the head). */
-const HUMAN_H = 1.8;
-/** Realistic people built with MakeHuman/MPFB (scripts/humans/gen_humans.py). */
-export const PEOPLE_URLS = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'].map((n) => `models/people/${n}.glb`);
+interface HumanAsset { scene: THREE.Object3D; maps: Record<Team, THREE.Texture>; height: number; minY: number }
+let HUMAN: HumanAsset | null = null;
+/** Height of the soldier in metres (helmet top). */
+const HUMAN_H = 1.84;
 
 /** Repaints the tan armour plates in the team colour, keeping scratches and shading. */
 function teamTexture(src: THREE.Texture, team: Team): THREE.Texture {
@@ -196,46 +184,8 @@ function teamTexture(src: THREE.Texture, team: Team): THREE.Texture {
   return t;
 }
 
-/** Plate-carrier fabric: Cordura weave with wear, tinted in the team colour. */
-let vestTex: Record<Team, THREE.Texture> | null = null;
-function vestTextures(): Record<Team, THREE.Texture> {
-  if (vestTex) return vestTex;
-  const make = (base: [number, number, number]) => {
-    const S = 256;
-    const c = document.createElement('canvas');
-    c.width = c.height = S;
-    const x = c.getContext('2d')!;
-    x.fillStyle = `rgb(${base.join(',')})`;
-    x.fillRect(0, 0, S, S);
-    // weave: fine crossing threads
-    for (let i = 0; i < S; i += 2) {
-      x.fillStyle = `rgba(0,0,0,${0.05 + (i % 4) * 0.02})`;
-      x.fillRect(0, i, S, 1);
-      x.fillStyle = 'rgba(255,255,255,0.035)';
-      x.fillRect(i, 0, 1, S);
-    }
-    // scuffs and dirt
-    let seed = 7;
-    const r = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-    for (let i = 0; i < 70; i++) {
-      const px = r() * S, py = r() * S, rad = 4 + r() * 22;
-      const g = x.createRadialGradient(px, py, 0, px, py, rad);
-      g.addColorStop(0, r() < 0.6 ? 'rgba(40,32,24,0.22)' : 'rgba(255,255,255,0.12)');
-      g.addColorStop(1, 'rgba(0,0,0,0)');
-      x.fillStyle = g;
-      x.fillRect(px - rad, py - rad, rad * 2, rad * 2);
-    }
-    const t = new THREE.CanvasTexture(c);
-    t.colorSpace = THREE.SRGBColorSpace;
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.repeat.set(3, 3);
-    return t;
-  };
-  vestTex = { blue: make([44, 86, 168]), red: make([168, 46, 38]) };
-  return vestTex;
-}
-
-async function loadAsset(url: string, flip: boolean, teamMaps: boolean): Promise<HumanAsset | null> {
+/** Loads the soldier once. Returns false (procedural fallback) if it cannot be loaded. */
+export async function loadHumans(url = 'models/soldier.glb'): Promise<boolean> {
   try {
     const gltf = await new GLTFLoader().loadAsync(url);
     const scene = gltf.scene;
@@ -244,36 +194,15 @@ async function loadAsset(url: string, flip: boolean, teamMaps: boolean): Promise
       const m = o as THREE.SkinnedMesh;
       if (m.isSkinnedMesh && !map) map = (m.material as THREE.MeshStandardMaterial).map;
     });
-    if (!map) return null;
+    if (!map) return false;
     scene.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(scene);
-    return {
-      scene, flip, height: box.max.y - box.min.y, minY: box.min.y,
-      maps: teamMaps ? { blue: teamTexture(map, 'blue'), red: teamTexture(map, 'red') } : null,
-    };
+    HUMAN = { scene, maps: { blue: teamTexture(map, 'blue'), red: teamTexture(map, 'red') }, height: box.max.y - box.min.y, minY: box.min.y };
+    return true;
   } catch (e) {
-    console.warn('model unavailable', url, e);
-    return null;
+    console.warn('soldier model unavailable, using the simple figure', e);
+    return false;
   }
-}
-
-/**
- * Loads the realistic people (in parallel). If none can be loaded, the old
- * soldier; if that fails too, the procedural figure. Returns false only then.
- */
-export async function loadHumans(urls = PEOPLE_URLS, fallback = 'models/soldier.glb'): Promise<boolean> {
-  HUMANS.length = 0;
-  for (const a of await Promise.all(urls.map((u) => loadAsset(u, false, false)))) if (a) HUMANS.push(a);
-  if (!HUMANS.length) {
-    const s = await loadAsset(fallback, true, true);
-    if (s) HUMANS.push(s);
-  }
-  return HUMANS.length > 0;
-}
-
-/** How many body models are loaded (0: procedural figure). */
-export function humanCount(): number {
-  return HUMANS.length;
 }
 
 /** Soldier bone (Mixamo name), our rig bone driving it, and the soldier bone it points at. */
@@ -407,10 +336,6 @@ export class CharacterView {
   private hiGeo!: THREE.BufferGeometry;
   private loGeo!: THREE.BufferGeometry;
   readonly marker: THREE.Sprite;
-  /** The team-coloured plate carrier (realistic people only). */
-  vestMat: THREE.MeshStandardMaterial | null = null;
-  /** Which body model this fighter wears (index into the loaded people), -1 for the procedural figure. */
-  variant = -1;
 
   constructor(readonly team: Team, showMarker: boolean) {
     const rim = new THREE.Color(team === 'blue' ? 0x3d7bff : 0xff4a3a).multiplyScalar(0.2);
@@ -426,48 +351,22 @@ export class CharacterView {
     }
     this.body.add(this.bones[0]);
     this.root.add(this.body);
-    if (HUMANS.length) this.variant = nextHuman++ % HUMANS.length;
-    const H = HUMANS.length ? HUMANS[this.variant] : null;
-    if (H) {
-      const model = SkeletonUtils.clone(H.scene);
+    if (HUMAN) {
+      const model = SkeletonUtils.clone(HUMAN.scene);
       const wrap = new THREE.Group();
-      const k = HUMAN_H / H.height;
+      const k = HUMAN_H / HUMAN.height;
       wrap.scale.setScalar(k);
-      wrap.position.y = -H.minY * k;
-      if (H.flip) wrap.rotation.y = Math.PI; // the old soldier faces -z, our fighters face +z
+      wrap.position.y = -HUMAN.minY * k;
+      wrap.rotation.y = Math.PI; // the model faces -z, our fighters face +z
       wrap.add(model);
       this.body.add(wrap);
       let main: THREE.SkinnedMesh | null = null;
       model.traverse((o) => {
         const m = o as THREE.SkinnedMesh;
         if (!m.isSkinnedMesh) return;
-        const src = m.material as THREE.MeshStandardMaterial;
-        const mat = src.clone();
-        const part = m.name.toLowerCase();
-        if (H.maps) {
-          if (!main) { main = m; mat.map = H.maps[team]; }
-          mat.roughness = 0.8;
-        } else if (part.startsWith('vest')) {
-          this.vestMat = mat;
-          // the team colour: a plate carrier over civilian clothes
-          mat.map = vestTextures()[team];
-          mat.color.setRGB(1, 1, 1);
-          mat.roughness = 0.9;
-          mat.metalness = 0;
-        } else if (part.startsWith('hair')) {
-          // eyebrows, eyelashes, beards: cut-out cards
-          // glTF BLEND materials arrive with depthWrite off: as cut-outs they must write depth,
-          // or the head drawn after them paints over the hair
-          mat.transparent = false;
-          mat.depthWrite = true;
-          mat.alphaTest = 0.45;
-          mat.side = THREE.DoubleSide;
-          mat.roughness = 0.75;
-        } else {
-          if (!main) main = m;
-          mat.roughness = 0.72;
-          mat.metalness = 0;
-        }
+        const mat = (m.material as THREE.MeshStandardMaterial).clone();
+        if (!main) { main = m; mat.map = HUMAN!.maps[team]; }
+        mat.roughness = 0.8;
         addRim(mat, rim);
         m.material = mat;
         m.castShadow = true;
@@ -475,7 +374,6 @@ export class CharacterView {
         this.mats.push(mat);
         this.meshes.push(m);
       });
-      if (!main) main = this.meshes[0] as THREE.SkinnedMesh;
       this.mesh = main!;
       this.mat = this.mats[0];
       this.hiGeo = this.loGeo = this.mesh.geometry;
@@ -484,11 +382,8 @@ export class CharacterView {
       const dir = new THREE.Vector3(), want = new THREE.Vector3(), rw = new THREE.Quaternion(), bw = new THREE.Quaternion();
       for (const [name, id, child] of RETARGET) {
         const bone = findBone(model, name), tip = findBone(model, child);
-        if (!bone) continue;
-        // MPFB's mixamo rig has no head-top bone: the head points straight up in the rest pose
-        if (tip) dir.copy(tip.getWorldPosition(_p)).sub(bone.getWorldPosition(want)).normalize();
-        else if (name === 'Head') dir.set(0, 1, 0);
-        else continue;
+        if (!bone || !tip) continue;
+        dir.copy(tip.getWorldPosition(_p)).sub(bone.getWorldPosition(want)).normalize();
         want.set(...RIG_DIR[id]!);
         const align = new THREE.Quaternion().setFromUnitVectors(dir, want);
         this.bones[id].getWorldQuaternion(rw);
