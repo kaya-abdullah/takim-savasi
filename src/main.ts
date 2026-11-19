@@ -1123,7 +1123,8 @@ class Game {
       // menu: slow cinematic orbit over the city
       this.menuT += dt * 0.05;
       const a = this.menuT + 0.6;
-      this.camera.position.set(Math.cos(a) * 62, 26 + Math.sin(this.menuT * 2) * 3, Math.sin(a) * 48);
+      // high enough to clear the tallest roofs of the centre (26 m plus water tanks and antennas)
+      this.camera.position.set(Math.cos(a) * 62, 36 + Math.sin(this.menuT * 2) * 3, Math.sin(a) * 48);
       this.camera.lookAt(0, 4, 0);
     }
     // shake
