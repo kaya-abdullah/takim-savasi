@@ -1,6 +1,64 @@
 import * as THREE from 'three';
-import type { WeaponDef } from '../data/weapons';
+import { getWeapon, type WeaponDef } from '../data/weapons';
 import { GeomBuilder } from './geomBuilder';
+import { heightToNormal, rng } from './textures';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+
+/**
+ * Real, textured gun models (MakeHuman equipment by JALdMIC, CC-BY; converted by
+ * scripts/humans/gen_guns.py: butt at z = 0, muzzle towards +z, magazine down).
+ * grip: pistol-grip position as a fraction of the length from the butt.
+ */
+const REAL_SPEC: Record<string, { url: string; grip: number; flipZ?: boolean; flipY?: boolean }> = {
+  pistol: { url: 'models/guns/pistol.glb', grip: 0.2 },
+  rifle: { url: 'models/guns/rifle.glb', grip: 0.14 },
+  sniper: { url: 'models/guns/sniper.glb', grip: 0.33 },
+};
+const REAL = new Map<string, { scene: THREE.Object3D; box: THREE.Box3 }>();
+
+/** Loads the real gun models; any that fail fall back to the built model. */
+export async function loadGuns(): Promise<void> {
+  await Promise.all(Object.entries(REAL_SPEC).map(async ([id, sp]) => {
+    try {
+      const g = await new GLTFLoader().loadAsync(sp.url);
+      g.scene.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        const mat = m.material as THREE.MeshStandardMaterial;
+        mat.metalness = 0.55;
+        mat.roughness = 0.42;
+        mat.envMapIntensity = 1.1;
+        m.castShadow = true;
+      });
+      g.scene.updateMatrixWorld(true);
+      REAL.set(id, { scene: g.scene, box: new THREE.Box3().setFromObject(g.scene) });
+    } catch (e) {
+      console.warn('gun model unavailable', id, e);
+    }
+  }));
+}
+
+/** A real gun laid out like the built ones: grip at the origin, bore near y = 0.04, muzzle at z = length. */
+function realGun(w: WeaponDef): THREE.Group | null {
+  const r = REAL.get(w.id), sp = REAL_SPEC[w.id];
+  if (!r || !sp) return null;
+  const len = r.box.max.z - r.box.min.z;
+  const gz = sp.grip;
+  // the model belongs to the id (like the built-geometry cache): size it from that weapon's own length
+  const L = getWeapon(w.id).length;
+  // scale so the muzzle lands at z = L
+  const k = L / ((1 - gz) * len);
+  const inner = r.scene.clone();
+  if (sp.flipZ) inner.rotation.y = Math.PI;
+  if (sp.flipY) inner.rotation.z = Math.PI;
+  inner.scale.setScalar(k);
+  inner.position.set(-(r.box.min.x + r.box.max.x) / 2 * k, -r.box.max.y * k + 0.07, -(r.box.min.z + gz * len) * k);
+  const grp = new THREE.Group();
+  grp.add(inner);
+  grp.userData.muzzle = new THREE.Vector3(0, 0.04, L);
+  grp.userData.real = true;
+  return grp;
+}
 
 /**
  * Detailed weapon models built from primitives. Parts are split by material
@@ -218,15 +276,68 @@ function buildGeo(w: WeaponDef): GunGeo {
   };
 }
 
+/**
+ * Surface detail for the built guns: worn gunmetal (fine scratches and polished
+ * edges of wear: rough/smooth patches, faint dents) and stippled polymer.
+ */
+function gunSurfaces() {
+  const S = 256;
+  const r = rng(91);
+  const mk = () => { const c = document.createElement('canvas'); c.width = c.height = S; return [c, c.getContext('2d')!] as const; };
+  // metal roughness: 0.3 base, smoother rubbed streaks, rougher grime spots
+  const [mr, mx] = mk();
+  mx.fillStyle = 'rgb(0,90,0)';
+  mx.fillRect(0, 0, S, S);
+  for (let i = 0; i < 220; i++) {
+    mx.strokeStyle = `rgba(0,${r() < 0.5 ? 40 : 150},0,${0.25 + r() * 0.4})`;
+    mx.lineWidth = 0.5 + r() * 1.2;
+    const x = r() * S, y = r() * S, a = r() * Math.PI, l = 6 + r() * 40;
+    mx.beginPath(); mx.moveTo(x, y); mx.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); mx.stroke();
+  }
+  for (let i = 0; i < 40; i++) {
+    const x = r() * S, y = r() * S, rad = 4 + r() * 18;
+    const g = mx.createRadialGradient(x, y, 0, x, y, rad);
+    g.addColorStop(0, `rgba(0,${r() < 0.5 ? 170 : 55},0,0.5)`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    mx.fillStyle = g; mx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  // metal height: scratches as tiny grooves
+  const [mh, mhx] = mk();
+  mhx.fillStyle = '#808080'; mhx.fillRect(0, 0, S, S);
+  for (let i = 0; i < 160; i++) {
+    mhx.strokeStyle = 'rgba(40,40,40,0.5)'; mhx.lineWidth = 0.7;
+    const x = r() * S, y = r() * S, a = r() * Math.PI, l = 5 + r() * 30;
+    mhx.beginPath(); mhx.moveTo(x, y); mhx.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); mhx.stroke();
+  }
+  // polymer: stipple bumps, roughness ~0.7
+  const [pr, px] = mk();
+  px.fillStyle = 'rgb(0,175,0)'; px.fillRect(0, 0, S, S);
+  for (let i = 0; i < 1500; i++) { px.fillStyle = `rgba(0,${r() < 0.5 ? 140 : 210},0,0.5)`; px.fillRect(r() * S, r() * S, 2, 2); }
+  const [ph, phx] = mk();
+  phx.fillStyle = '#808080'; phx.fillRect(0, 0, S, S);
+  for (let i = 0; i < 2600; i++) {
+    phx.fillStyle = r() < 0.5 ? 'rgba(200,200,200,0.6)' : 'rgba(60,60,60,0.6)';
+    phx.beginPath(); phx.arc(r() * S, r() * S, 0.8 + r() * 1.4, 0, Math.PI * 2); phx.fill();
+  }
+  const t = (c: HTMLCanvasElement) => { const x = new THREE.CanvasTexture(c); x.wrapS = x.wrapT = THREE.RepeatWrapping; return x; };
+  return { metalRough: t(mr), metalNormal: heightToNormal(mh, 1.2), polyRough: t(pr), polyNormal: heightToNormal(ph, 1.6) };
+}
+
 export function makeWeaponMesh(w: WeaponDef): THREE.Group {
+  const real = realGun(w);
+  if (real) {
+    real.scale.setScalar(GUN_SCALE);
+    return real;
+  }
   let g = geoCache.get(w.id);
   if (!g) geoCache.set(w.id, (g = buildGeo(w)));
   if (!mats) {
+    const wear = gunSurfaces();
     mats = {
       // gunmetal: very metallic, slightly rough so it catches the sky without mirroring it
-      metal: new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.9, roughness: 0.34, envMapIntensity: 1.2 }),
-      poly: new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.05, roughness: 0.62 }),
-      accent: new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.45, roughness: 0.4 }),
+      metal: new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.9, roughness: 1, roughnessMap: wear.metalRough, normalMap: wear.metalNormal, normalScale: new THREE.Vector2(0.6, 0.6), envMapIntensity: 1.2 }),
+      poly: new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.05, roughness: 1, roughnessMap: wear.polyRough, normalMap: wear.polyNormal, normalScale: new THREE.Vector2(0.8, 0.8) }),
+      accent: new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.45, roughness: 1, roughnessMap: wear.metalRough, normalMap: wear.polyNormal, normalScale: new THREE.Vector2(0.4, 0.4) }),
     };
   }
   const grp = new THREE.Group();

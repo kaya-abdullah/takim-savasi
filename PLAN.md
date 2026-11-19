@@ -323,3 +323,22 @@ Hedef: aynı görsel dilin (sinematik ışık, ıslak asfalt, gerçekçi bitki �
 - Ölçüm: masaüstünde 60 fps (Yüksek, 20 asker). Dünya kurulumu 1,8 sn → 2,7 sn.
 - Test: e2e/v5.spec.ts (derecelendirme, gökyüzü, sis, malzemeler, üç kalitede pozlama ve doygunluk, fps).
   Geliştirme için: scripts/shoot.mjs sabit noktalardan ekran görüntüsü alır.
+
+## 18. Sürüm 5.1 (2026-11-19)
+
+İstek: askerler ve silahlar gerçekçi olsun; sivil kıyafetli askerler, yüzleri görünsün, takımı yelek belli etsin.
+
+- İnsanlar: MakeHuman / MPFB 2 ile üretilen 6 farklı kişi (farklı yüz, ten, yaş, boy, saç, sakal, göz rengi).
+  Sivil kıyafet: ceket, kazak, polo, tişört, kamuflaj tişört, kot, kargo ve kumaş pantolon, ayakkabı/bot.
+  Üstlerine takım renginde plaka taşıyıcı yelek (göğüste üç şarjör cebi): mavi takım mavi, kırmızı takım kırmızı.
+  Her maçta 20 savaşçıya 6 kişi sırayla dağıtılır.
+- Teknik: Blender 5.3 (Flatpak) + MPFB 2.0.18, betik scripts/humans/gen_humans.py. Mixamo uyumlu iskelet, oyunun
+  mevcut animasyon aktarımı ve el IK'sı aynen çalışır. Her kişi 3 parça (ten+kıyafet atlası 1024 + normal 512,
+  saç/kaş/kirpik/sakal kesme atlası 512, yelek), 13-22 bin üçgen, ~1 MB. Yüz atlasta iki kat çözünürlükte.
+- Silahlar: Tabanca → Colt M1911A1, Kartal Tüfek → AKM, Şahin Keskin Nişancı → L1A1 (JALdMIC, CC-BY), dokulu,
+  4-8 bin üçgen (scripts/humans/gen_guns.py). Diğer silahlar aşınmış metal ve noktalı polimer yüzey
+  (pürüzlülük + normal haritası) aldı.
+- Lisans: tüm parçalar CC0 ya da CC-BY; emeği geçenler Ayarlar ekranında ve public/models/CREDITS.txt'te.
+- Yedek: modeller yüklenemezse eski asker, o da yüklenemezse basit figür.
+- Test: e2e/human.spec.ts (6 farklı kişi, takım başına tek yelek rengi, 3 parça, eller silahta, gerçek tabanca,
+  model yoksa basit figür).

@@ -607,6 +607,7 @@ export class UI {
       <div class="row">Nişan yardımı (dokunmatik) ${seg('aimAssist', [['1', 'Açık'], ['0', 'Kapalı']], st.aimAssist ? '1' : '0')}</div>
       <div class="row">Zorluk ${seg('difficulty', [['normal', 'Normal'], ['hard', 'Zor'], ['extreme', 'Çok Zor']], st.difficulty)}</div>
       <div class="btns"><button class="btn primary" data-a="close">TAMAM</button></div>
+      <div class="credits">Modeller: MakeHuman / MPFB (CC0); silahlar JALdMIC, kamuflaj tişört DredNicolson (CC-BY 4.0). Ayrıntı: models/CREDITS.txt</div>
       <div class="diag">${esc(this.diagText())}</div></div></div>`;
     s.onclick = (e) => {
       const t = e.target as HTMLElement;

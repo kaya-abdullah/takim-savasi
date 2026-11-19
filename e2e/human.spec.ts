@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// v4.4: realistic soldiers (rigged model driven by our animation rig, hands on the gun by IK).
+// v4.4/v5.1: realistic people (rigged MakeHuman models driven by our animation rig, hands on the gun by IK).
 type G = any;
 const shots = 'test-results/shots';
 const g = (page: Page, fn: string) => page.evaluate(`(() => { const g = window.__game; return ${fn}; })()`);
@@ -39,7 +39,7 @@ test('soldiers are the realistic model, hold the gun with both hands, in team co
     const l = gun.worldToLocal(hand('l'));
     const head = v.drive.find(d => d.bone.name.endsWith('Head')).bone.getWorldPosition(new V());
     return { driven: v.drive.length, meshes: v.meshes.length, right: hand('r').distanceTo(grip), lx: Math.abs(l.x), ly: Math.abs(l.y + 0.04), lz: l.z, mz, headY: head.y,
-      blue: g.match.player.view.mat.map.uuid, red: v.mat.map.uuid }; })()`) as Record<string, number | string>;
+      blue: g.match.player.view.vestMat.map.uuid, red: v.vestMat.map.uuid }; })()`) as Record<string, number | string>;
   console.log('soldier', JSON.stringify(r));
   expect(r.driven).toBe(12);
   expect(r.meshes).toBeGreaterThanOrEqual(1);
@@ -52,7 +52,7 @@ test('soldiers are the realistic model, hold the gun with both hands, in team co
   // a full-height person, not a crumpled one
   expect(r.headY as number).toBeGreaterThan(1.45);
   expect(r.headY as number).toBeLessThan(1.8);
-  // each team wears its own repainted texture
+  // each team wears its own vest colour
   expect(r.blue).not.toBe(r.red);
   await page.screenshot({ path: `${shots}/95-soldiers.png` });
   // crouched: the head comes down
@@ -64,8 +64,9 @@ test('soldiers are the realistic model, hold the gun with both hands, in team co
   expect(errors).toEqual([]);
 });
 
-test('without the model file the game falls back to the simple figure and still plays', async ({ page }) => {
+test('without the model files the game falls back to the simple figure and still plays', async ({ page }) => {
   await page.route('**/models/soldier.glb', (rt) => rt.abort());
+  await page.route('**/models/people/*.glb', (rt) => rt.abort());
   const errors = await boot(page);
   await stage(page);
   expect(await g(page, 'window.__r.view.drive.length')).toBe(0);
@@ -75,4 +76,30 @@ test('without the model file the game falls back to the simple figure and still 
   expect(await g(page, 'g.errors')).toEqual([]);
   // the only error is the blocked download itself
   expect(errors.filter((e) => !e.includes('Failed to load resource'))).toEqual([]);
+});
+
+test('six different people in civilian clothes, team shown by the vest; real guns', async ({ page }) => {
+  const errors = await boot(page);
+  const r = await g(page, `(() => {
+    const cs = g.match.combatants;
+    const variants = new Set(cs.map((c) => c.view.variant));
+    const vest = (t) => cs.filter((c) => c.team === t).map((c) => { const m = c.view.vestMat; return m && m.map ? m.map.uuid : null; });
+    const parts = cs[0].view.meshes.map((m) => m.name);
+    return { variants: variants.size, minVariant: Math.min(...variants), blue: [...new Set(vest('blue'))], red: [...new Set(vest('red'))], parts };
+  })()`) as G;
+  console.log('people', JSON.stringify(r));
+  expect(r.variants).toBe(6);
+  expect(r.minVariant).toBe(0);
+  // one vest texture per team, different between the teams
+  expect(r.blue.length).toBe(1);
+  expect(r.red.length).toBe(1);
+  expect(r.blue[0]).not.toBe(r.red[0]);
+  expect(r.blue[0]).not.toBeNull();
+  // body + hair cut-outs + vest, nothing else (draw calls)
+  expect(r.parts.length).toBe(3);
+  const real = await g(page, `(() => { const v = g.match.player.view; return { pistol: !!v.gun.userData.real, muzzle: v.gun.userData.muzzle.z }; })()`) as G;
+  expect(real.pistol).toBe(true);
+  await page.screenshot({ path: `${shots}/96-people.png` });
+  expect(await g(page, 'g.errors')).toEqual([]);
+  expect(errors).toEqual([]);
 });
