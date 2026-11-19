@@ -21,7 +21,7 @@ import type { Combatant } from './game/combatant';
 import { PlayerController } from './game/player';
 import { CharacterView, loadHumans } from './render/character';
 import { Effects } from './render/effects';
-import { makeEnvMap, makeLights, makeSky, updateSun, type Lights } from './render/env';
+import { ambient, makeEnvMap, makeLights, makeSky, setupToneMapping, updateSun, type Lights } from './render/env';
 import { renderWeaponIcons } from './render/icons';
 import { UI, type MenuExtras } from './ui/ui';
 import { PickupViews, PICKUP_NAMES } from './render/pickups';
@@ -49,6 +49,9 @@ class Game {
   readonly camera = new THREE.PerspectiveCamera(72, 1, 0.1, 900);
   composer: EffectComposer | null = null;
   bloom: UnrealBloomPass | null = null;
+  private finish: ShaderPass | null = null;
+  /** Ambient motion clock (clouds, leaves); tests freeze it. */
+  readonly ambient = ambient;
   lights!: Lights;
   effects = new Effects();
   input: Input;
@@ -114,8 +117,7 @@ class Game {
     // Native MSAA is the cheapest anti-aliasing on phones (used when post-processing is off).
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance', stencil: false });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    setupToneMapping(this.renderer);
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.input = new Input(document.getElementById('touch')!, this.canvas);
     this.ctrl = new PlayerController(this.camera);
@@ -315,6 +317,7 @@ class Game {
     this.composer?.dispose();
     this.composer = null;
     this.bloom = null;
+    this.finish = null;
     if (q === 'high') {
       const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
       this.composer = new EffectComposer(r, rt);
@@ -328,9 +331,24 @@ class Game {
             if (any(isnan(c)) || any(isinf(c))) c = vec4(0.0, 0.0, 0.0, 1.0);
             gl_FragColor = min(c, vec4(64.0)); }`,
       }));
-      this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.5, 0.88);
+      this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.45, 0.55, 0.9);
       this.composer.addPass(this.bloom);
       this.composer.addPass(new OutputPass());
+      // camera finish in display space: faint lens fringing towards the edges and fine film grain
+      this.finish = new ShaderPass({
+        uniforms: { tDiffuse: { value: null }, time: { value: 0 } },
+        vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: `uniform sampler2D tDiffuse; uniform float time; varying vec2 vUv;
+          float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+          void main(){
+            vec2 d = vUv - 0.5;
+            vec2 off = d * dot(d, d) * 0.006;
+            vec3 c = vec3(texture2D(tDiffuse, vUv + off).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - off).b);
+            float n = h(vUv * 1024.0 + fract(time) * 97.0) - 0.5;
+            c += n * 0.022 * (1.0 - dot(c, vec3(0.3)));
+            gl_FragColor = vec4(c, 1.0); }`,
+      });
+      this.composer.addPass(this.finish);
     }
     this.onResize();
   }
@@ -1150,6 +1168,7 @@ class Game {
   }
 
   private render(): void {
+    if (this.finish) this.finish.uniforms.time.value = ambient.frozen ? 0 : performance.now() / 1000;
     if (this.composer) this.composer.render();
     else this.renderer.render(this.scene, this.camera);
   }

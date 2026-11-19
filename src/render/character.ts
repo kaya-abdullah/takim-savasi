@@ -155,7 +155,8 @@ function teamTexture(src: THREE.Texture, team: Team): THREE.Texture {
   cx.drawImage(img, 0, 0);
   const d = cx.getImageData(0, 0, cv.width, cv.height);
   const px = d.data;
-  const armour = team === 'blue' ? [0.33, 0.5, 0.86] : [0.84, 0.27, 0.22];
+  // muted, military tones (navy / oxblood): still clearly two teams, no longer toy-like
+  const armour = team === 'blue' ? [0.26, 0.38, 0.62] : [0.66, 0.22, 0.17];
   const stripe = team === 'blue' ? [0.9, 0.94, 1.0] : [0.98, 0.86, 0.5];
   for (let i = 0; i < px.length; i += 4) {
     const r = px[i] / 255, g = px[i + 1] / 255, b = px[i + 2] / 255;
@@ -337,7 +338,7 @@ export class CharacterView {
   readonly marker: THREE.Sprite;
 
   constructor(readonly team: Team, showMarker: boolean) {
-    const rim = new THREE.Color(team === 'blue' ? 0x3d7bff : 0xff4a3a).multiplyScalar(0.55);
+    const rim = new THREE.Color(team === 'blue' ? 0x3d7bff : 0xff4a3a).multiplyScalar(0.2);
     // our animation rig (never drawn itself)
     for (const b of BONES) {
       const bone = new THREE.Bone();

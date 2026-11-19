@@ -296,3 +296,30 @@ tank biraz daha küçük bomba atsın.
 - Uçak bombası artık nişangâha doğru gitmez; uçağın tam altından dümdüz aşağı düşer (ilk hız 14 m/s, yerçekimi
   20 m/s²; 13 m'den 0,67 sn'de yere iner) ve uçağın hızını taşımaz. Patlama alanı (9 m) ve hasar (220) aynı.
 - Test: nişangâh ileri bakarken bile bomba yatay hızsız, uçağın x/z konumundan aşağı doğru çıkıyor.
+
+## 17. Sürüm 5.0 (2026-11-19)
+
+İstek: bütün grafikler gerçekçi olsun (GTA 6 gibi).
+
+Not: GTA 6 yüzlerce kişilik ekip ve konsol donanımıyla yapılıyor. Bu oyun telefon tarayıcısında (WebGL) çalışıyor.
+Hedef: aynı görsel dilin (sinematik ışık, ıslak asfalt, gerçekçi bitki örtüsü, eskimiş yüzeyler) telefonda 60 fps
+çalışan bir karşılığı.
+
+- Renk derecelendirme: ACES üstüne film eğrisi, soğuk gölge / sıcak parlak alan, hafif doygunluk. Her malzemenin
+  kendi gölgelendiricisinde çalışır (CustomToneMapping), telefonda ek geçiş maliyeti yok.
+- Gökyüzü: Rayleigh benzeri mavi geçiş, güneş çevresinde Mie parıltısı, güneş diski, yavaşça kayan hacimli bulutlar
+  (fbm, güneş tarafından aydınlatılmış). Ufuk sis rengine karışır, uzak binalar dikişsiz kaybolur.
+- Işık: ikindi güneşi (daha uzun gölge, sıcak ışık), ortam ışığının çoğu gökyüzü ortam haritasından; üstel sis.
+- Zemin: 16 piksel/m; beton kaldırım plakaları, eskimiş asfalt, lastik izleri, yamalar, çatlaklar, yağ lekeleri,
+  rögar kapakları, ızgaralar, aşınmış şerit boyası, meydanda granit parke halkaları. Su birikintileri ayrı
+  pürüzlülük haritasıyla ayna gibi, gökyüzünü yansıtır.
+- Cepheler: 1024 piksel dokular, normal haritası (gömme pencere, çıkıntılı çerçeve, denizlik, tuğla sırası),
+  cam yansıtır (pürüzlülük + metallik haritası), perde, jaluzi, klima, yağmur izi, zemin kiri.
+- Ağaçlar: eğik, incelen gövde ve dallar, kabuk dokusu, ağaç başına 120 yaprak kartı (alfa testi, gölge düşürür),
+  taç biçimli normaller ile hacimli ışık, rüzgârda salınım; saksılarda toprak ve çalı.
+- Kum torbaları: yastık biçimli, kumaş dokulu, her biri hafif yamuk.
+- Askerler: takım renkleri askeri tonlara çekildi (lacivert / bordo), parlak kenar ışığı azaltıldı.
+- Kamera: CSS vinyet (her kalitede), Yüksek'te ince film greni ve kenarlarda hafif renk sapması.
+- Ölçüm: masaüstünde 60 fps (Yüksek, 20 asker). Dünya kurulumu 1,8 sn → 2,7 sn.
+- Test: e2e/v5.spec.ts (derecelendirme, gökyüzü, sis, malzemeler, üç kalitede pozlama ve doygunluk, fps).
+  Geliştirme için: scripts/shoot.mjs sabit noktalardan ekran görüntüsü alır.

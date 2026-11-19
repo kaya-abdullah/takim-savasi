@@ -6,6 +6,8 @@ import {
 import type { Building, MapData, Prop } from './map';
 import type { PieceMat, Structures } from './structures';
 import type { BakeFn } from '../render/geomBuilder';
+import { ambientTime } from '../render/env';
+import { addShrub, addTree, makeBarkTexture, makeLeafMaterial, tickLeaves } from '../render/foliage';
 import { bakeLit, brickTex, concreteTex as concreteSet, fabricTex, graniteTex, metalTex, plasterTex, subwayTex, tileTex, woodTex, type TexSet } from '../render/materials';
 
 const tmpM = new THREE.Matrix4();
@@ -24,6 +26,10 @@ interface Builders {
   container: GeomBuilder;
   crate: GeomBuilder;
   foliage: GeomBuilder;
+  bark: GeomBuilder;
+  leaves: GeomBuilder;
+  soil: GeomBuilder;
+  sandbag: GeomBuilder;
   glow: GeomBuilder;
 }
 
@@ -40,6 +46,10 @@ export function buildWorld(m: MapData): THREE.Group {
     container: new GeomBuilder(),
     crate: new GeomBuilder(),
     foliage: new GeomBuilder(),
+    bark: new GeomBuilder(),
+    leaves: new GeomBuilder(),
+    soil: new GeomBuilder(),
+    sandbag: new GeomBuilder(),
     glow: new GeomBuilder(),
   };
   const r = rng(77);
@@ -56,8 +66,9 @@ export function buildWorld(m: MapData): THREE.Group {
   const concreteTex = makeConcrete(7, '#a19d95');
   const facadeMats = facades.map(
     (f) => new THREE.MeshStandardMaterial({
-      map: f.map, emissiveMap: f.emissive, emissive: new THREE.Color(0xffc488), emissiveIntensity: 0.45,
-      roughnessMap: f.rough, roughness: 1, metalness: 0.05, vertexColors: true, envMapIntensity: 0.9,
+      map: f.map, emissiveMap: f.emissive, emissive: new THREE.Color(0xffc488), emissiveIntensity: 0.35,
+      roughnessMap: f.rough, roughness: 1, metalnessMap: f.rough, metalness: 1, normalMap: f.normal, normalScale: new THREE.Vector2(1, 1),
+      vertexColors: true, envMapIntensity: 1.0,
     }),
   );
   const mats = {
@@ -96,6 +107,14 @@ export function buildWorld(m: MapData): THREE.Group {
   addMesh(B.container, mats.container, true, 'container');
   addMesh(B.crate, mats.crate, true, 'crate');
   addMesh(B.foliage, mats.foliage, true, 'foliage');
+  addMesh(B.bark, new THREE.MeshStandardMaterial({ map: makeBarkTexture(), roughness: 0.95, vertexColors: true }), true, 'bark');
+  addMesh(B.soil, new THREE.MeshStandardMaterial({ color: 0x3a2e24, roughness: 1 }), false, 'soil');
+  const burlap = fabricTex(41);
+  addMesh(B.sandbag, new THREE.MeshStandardMaterial({ map: burlap.map, normalMap: burlap.normalMap, roughness: 1, vertexColors: true }), true, 'sandbag');
+  const leafMat = makeLeafMaterial();
+  addMesh(B.leaves, leafMat, true, 'leaves');
+  const leafMesh = root.getObjectByName('leaves');
+  if (leafMesh) leafMesh.onBeforeRender = () => tickLeaves(leafMat, ambientTime());
   addMesh(B.glow, mats.glow, false, 'glow');
 
 
@@ -106,10 +125,12 @@ export function buildWorld(m: MapData): THREE.Group {
   const P = groundGeo.getAttribute('position'), U = groundGeo.getAttribute('uv');
   for (let i = 0; i < P.count; i++) U.setXY(i, (P.getX(i) - m.minX) / gw, (m.maxZ - P.getZ(i)) / gd);
   // asphalt/paving relief: the normal map tiles every 3 m on its own UV transform
+  // (the roughness map follows the painted ground: puddles, tyre tracks, paint)
   const relief = concreteSet(23);
-  for (const t of [relief.normalMap, relief.roughnessMap]) t.repeat.set(gw / 3, gd / 3);
+  relief.normalMap.repeat.set(gw / 3, gd / 3);
+  const gt = makeGround(m);
   const ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({
-    map: makeGround(m), roughness: 1, normalMap: relief.normalMap, roughnessMap: relief.roughnessMap, normalScale: new THREE.Vector2(0.7, 0.7),
+    map: gt.map, roughness: 1, roughnessMap: gt.rough, normalMap: relief.normalMap, normalScale: new THREE.Vector2(0.3, 0.3), envMapIntensity: 1.25,
   }));
   ground.receiveShadow = true;
   ground.name = 'ground';
@@ -345,6 +366,22 @@ function addBuilding(B: Builders, b: Building, r: () => number, detailed: boolea
   }
 }
 
+let BAG: THREE.BufferGeometry | null = null;
+/** One sandbag, 0.62 x 0.24 x 0.42 m: a sphere squashed into a pillow. */
+function sandbagGeometry(): THREE.BufferGeometry {
+  if (BAG) return BAG;
+  const g = new THREE.SphereGeometry(0.5, 16, 10);
+  const P = g.getAttribute('position');
+  for (let i = 0; i < P.count; i++) {
+    const x = P.getX(i), y = P.getY(i), z = P.getZ(i);
+    // flatten top/bottom (bags settle under weight), taper the tied ends
+    const fy = Math.sign(y) * Math.min(Math.abs(y), 0.3) * (1 - 0.35 * Math.abs(x * 2) ** 3);
+    P.setXYZ(i, x * 0.62, fy * 0.42, z * 0.42 * (1 - 0.2 * Math.abs(x * 2) ** 4));
+  }
+  g.computeVertexNormals();
+  return (BAG = g);
+}
+
 function addProp(B: Builders, p: Prop, r: () => number): void {
   const m = rotY(p.rot === 1 ? Math.PI / 2 : 0, p.x, p.z);
   switch (p.kind) {
@@ -355,16 +392,18 @@ function addProp(B: Builders, p: Prop, r: () => number): void {
       break;
     }
     case 'sandbag': {
-      const bag = new THREE.SphereGeometry(0.5, 8, 6);
-      bag.scale(0.62, 0.32, 0.5);
+      // pillow-shaped bags (squashed ends, flattened top and bottom), each laid a little askew
+      const bag = sandbagGeometry();
       for (let row = 0; row < 4; row++) {
         const off = row % 2 ? 0.3 : 0;
         for (let i = 0; i < 5; i++) {
           const bx = -1.2 + i * 0.6 + off;
           if (bx > 1.25) continue;
           for (const bz of [-0.24, 0.24]) {
-            tmpM.copy(m).multiply(new THREE.Matrix4().makeTranslation(bx, 0.16 + row * 0.27, bz));
-            B.painted.add(bag, row % 2 ? 0xa48c62 : 0xb39b70, tmpM);
+            const e = new THREE.Euler((r() - 0.5) * 0.08, (r() - 0.5) * 0.18, (r() - 0.5) * 0.06);
+            tmpM.copy(m).multiply(new THREE.Matrix4().makeRotationFromEuler(e).setPosition(bx, 0.13 + row * 0.24, bz));
+            const v = 0.85 + r() * 0.25;
+            B.sandbag.add(bag, new THREE.Color(0xb8a27a).multiplyScalar(v), tmpM);
           }
         }
       }
@@ -386,17 +425,11 @@ function addProp(B: Builders, p: Prop, r: () => number): void {
       break;
     }
     case 'tree': {
-      const trunk = new THREE.CylinderGeometry(0.14, 0.24, 3.2, 7);
-      tmpM.copy(m).multiply(new THREE.Matrix4().makeTranslation(0, 1.6, 0));
-      B.painted.add(trunk, 0x5a3d26, tmpM);
-      const greens = [0x3f7d3a, 0x4f8f3f, 0x2f6a35, 0x5c9a46];
-      for (let i = 0; i < 4; i++) {
-        const ico = new THREE.IcosahedronGeometry(1.1 + r() * 0.6, 1);
-        tmpM.copy(m).multiply(new THREE.Matrix4().makeTranslation((r() - 0.5) * 1.4, 3.6 + r() * 1.4, (r() - 0.5) * 1.4));
-        B.foliage.add(ico, greens[i % 4], tmpM);
-      }
-      // planter
-      B.concrete.box(0, 0.2, 0, 1.4, 0.4, 1.4, 0x8a857c, m);
+      addTree(B.bark, B.leaves, p.x, p.z, Math.round(p.x * 13 + p.z * 7));
+      // stone planter with soil and a low shrub
+      B.concrete.box(0, 0.2, 0, 1.4, 0.4, 1.4, 0x8a857c, m, { skipBottom: true });
+      B.soil.box(0, 0.405, 0, 1.2, 0.01, 1.2, 0xffffff, m, { onlyTop: true });
+      addShrub(B.leaves, p.x + 0.35, 0.55, p.z - 0.3, 0.4, Math.round(p.x + p.z * 3));
       break;
     }
     case 'lamp': {

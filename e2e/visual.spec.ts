@@ -102,6 +102,8 @@ for (const q of ['high', 'medium']) {
 
   test(`standing still: the picture is perfectly stable (${q})`, async ({ page }) => {
     const errors = await boot(page, q);
+    // drifting clouds, swaying leaves and film grain are intended motion, not flicker
+    await g(page, '(g.ambient.frozen = true, 0)');
     for (const [x, y, z] of [[-55, 0, 18], [-38, -4, 0.8], [-50, 3.5, 16], [-60, 0, -12]]) {
       const pct = await g(page, `(() => {
         const p = g.match.player; p.pos.set(${x}, ${y}, ${z}); p.yaw = Math.PI / 2; p.pitch = -0.05;
