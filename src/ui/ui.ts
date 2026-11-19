@@ -17,6 +17,7 @@ const ICON = {
   reload: '<svg viewBox="0 0 24 24"><path d="M12 4a8 8 0 0 1 7.7 6h-2.1A6 6 0 1 0 18 14h2.1A8 8 0 1 1 12 4zm5-1v6h-6l2.2-2.2A6 6 0 0 1 17 3z"/></svg>',
   swap: '<svg viewBox="0 0 24 24"><path d="M7 7h11l-3-3 1.4-1.4L21.8 8l-5.4 5.4L15 12l3-3H7zm10 10H6l3 3-1.4 1.4L2.2 16l5.4-5.4L9 12l-3 3h11z"/></svg>',
   grenade: '<svg viewBox="0 0 24 24"><path d="M10 2h4v2h2.5l1.5 2-1.6 1.2A7.5 7.5 0 1 1 7.6 7.2L6 6l1.5-2H10zm2 7a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zm-1 2h2v3h3v2h-3v3h-2v-3H8v-2h3z"/></svg>',
+  bag: '<svg viewBox="0 0 24 24"><path d="M9 2h6a2 2 0 0 1 2 2v1.2A5 5 0 0 1 20 10v9a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-9a5 5 0 0 1 3-4.8V4a2 2 0 0 1 2-2zm0 2v1h6V4zm-1.5 9a1 1 0 0 0-1 1v3a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1zm1.5 2h6v1H9z"/></svg>',
   knife: '<svg viewBox="0 0 24 24"><path d="M20.5 2.5c.6 3.8-1.4 8-5.3 11.9l-2.1-2.1zM11.7 13.7l2.1 2.1-1.4 1.4 1.1 1.1-2.8 2.8a1.5 1.5 0 0 1-2.1 0l-1.6-1.6a1.5 1.5 0 0 1 0-2.1l2.8-2.8 1.1 1.1z"/></svg>',
   shield: '<svg viewBox="0 0 24 24"><path d="M12 2l8 3v6c0 5.2-3.4 9.6-8 11-4.6-1.4-8-5.8-8-11V5z"/></svg>',
   tank: '<svg viewBox="0 0 24 24"><path d="M6 8h7l1.2-1.6H22V8h-7.2L14 9.4V11h3v2H4v-2h1zM3 14h18l-2 4.5H5zm3 1.3a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6zm4 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6zm4 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6zm4 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6z"/></svg>',
@@ -45,6 +46,16 @@ export interface UICallbacks {
   buyVehicle(kind: VehicleKind): void;
   sell(id: string): void;
   sellVehicle(kind: VehicleKind): void;
+  /** Backpack screen: put a weapon in the chosen slot / choose a slot / close it. */
+  bagPick(id: string): void;
+  bagSlot(i: number): void;
+  bagClose(): void;
+}
+
+export interface BagModel {
+  slots: ({ id: string; name: string; current: boolean } | null)[];
+  selected: number;
+  items: { id: string; name: string; temp: boolean; slot: number }[];
 }
 
 /** Vehicle state for the HUD (null fields = not owned / not driving). */
@@ -102,7 +113,7 @@ export class UI {
     death: HTMLElement; deathCd: HTMLElement; deathBy: HTMLElement; popups: HTMLElement; scope: HTMLElement;
     reload: HTMLElement; reloadI: HTMLElement; aimBtn: HTMLElement; switchBtn: HTMLElement; touch: HTMLElement[];
     keys: HTMLElement; gCount: HTMLElement; banner: HTMLElement; warn: HTMLElement; buffs: HTMLElement; nums: HTMLElement;
-    inv: HTMLElement; stam: HTMLElement;
+    inv: HTMLElement; stam: HTMLElement; bag: HTMLElement; knifeBtn: HTMLElement;
     crouchBtn: HTMLElement; tankBtn: HTMLElement; jetBtn: HTMLElement; venter: HTMLElement; vhp: HTMLElement;
     level: HTMLElement; target: HTMLElement; jumpBtn: HTMLElement;
   };
@@ -221,9 +232,9 @@ export class UI {
       <button class="tc aim" data-b="aim" aria-label="Nişan">${ICON.aim}</button>
       <button class="tc jump" data-b="jump" aria-label="Zıpla">${ICON.jump}</button>
       <button class="tc reload" data-b="reload" aria-label="Şarjör">${ICON.reload}</button>
-      <button class="tc switch" data-b="switch" aria-label="Silah değiştir">${ICON.swap}</button>
+      <button class="tc switch" data-b="switch" aria-label="Çanta: silah değiştir">${ICON.bag}</button>
       <button class="tc grenade" data-b="grenade" data-look="1" aria-label="El bombası">${ICON.grenade}<b class="badge" id="gc">3</b></button>
-      <button class="tc knife" data-b="knife" aria-label="Bıçak">${ICON.knife}</button>
+      <button class="tc knife" data-b="knife" data-look="1" aria-label="Bıçak (basılı tut: fırlat)">${ICON.knife}<b class="badge kb"></b></button>
       <button class="tc crouch" data-b="crouch" aria-label="Eğil">${ICON.crouch}</button>
       <button class="tc vcall tank" data-b="tank" aria-label="Tank çağır">${ICON.tank}<b class="cd"></b></button>
       <button class="tc vcall jet" data-b="jet" aria-label="Uçak çağır">${ICON.jet}<b class="cd"></b></button>
@@ -234,10 +245,11 @@ export class UI {
       <div class="banner"></div>
       <div class="buffs"></div>
       <div class="inv"></div>
+      <div class="bagui"></div>
       <div class="nums"></div>
       <div class="gwarn">${ICON.grenade}<span>BOMBA!</span></div>
       <button class="shop-btn" data-a="shop">${ICON.cart}MAĞAZA</button>
-      <div class="keys">WASD yürü · Fare nişan · Sol tık ateş · Sağ tık/E dürbün · R şarjör · G bomba (basılı tut) · V bıçak · Space zıpla · Shift koş · C eğil · 1-9/Q silah · T tank · Y uçak · X bin/in · B mağaza · Esc</div>
+      <div class="keys">WASD yürü · Fare nişan · Sol tık ateş · Sağ tık/E dürbün · R şarjör · G bomba (basılı tut) · V bıçak (basılı tut: fırlat) · Space zıpla · Shift koş · C eğil · 1-3 silah · Q/Tab çanta · T tank · Y uçak · X bin/in · B mağaza · Esc</div>
       <div class="death"><h2>ÖLDÜN!</h2><p id="dby"></p><div class="cd" id="dcd">3</div></div>`;
     s.prepend(this.minimap);
     const q = <T extends HTMLElement>(sel: string) => s.querySelector(sel) as T;
@@ -250,10 +262,20 @@ export class UI {
       reload: q('.reloadbar'), reloadI: q('.reloadbar i'), aimBtn: q('.tc.aim'), switchBtn: q('.tc.switch'),
       touch: Array.from(s.querySelectorAll('.tc, .joy-hint')) as HTMLElement[], keys: q('.keys'),
       gCount: q('#gc'), banner: q('.banner'), warn: q('.gwarn'), buffs: q('.buffs'), nums: q('.nums'),
-      inv: q('.inv'), stam: q('.stam i'),
+      inv: q('.inv'), stam: q('.stam i'), bag: q('.bagui'), knifeBtn: q('.tc.knife'),
       crouchBtn: q('.tc.crouch'), tankBtn: q('.vcall.tank'), jetBtn: q('.vcall.jet'), venter: q('.venter'), vhp: q('.vhp'),
       level: q('.lvl'), target: q('.tgt'), jumpBtn: q('.tc.jump'),
     };
+    this.hud.bag.addEventListener('pointerdown', (e) => {
+      const t = e.target as HTMLElement;
+      e.preventDefault();
+      e.stopPropagation();
+      const w = t.closest('[data-bw]') as HTMLElement | null;
+      const sl = t.closest('[data-bs]') as HTMLElement | null;
+      if (w) this.cb.bagPick(w.dataset.bw!);
+      else if (sl) this.cb.bagSlot(Number(sl.dataset.bs));
+      else if (t.closest('[data-bc]')) this.cb.bagClose();
+    });
     this.hud.inv.addEventListener('pointerdown', (e) => {
       const b = (e.target as HTMLElement).closest('[data-w]') as HTMLElement | null;
       if (!b) return;
@@ -317,7 +339,9 @@ export class UI {
   updateHud(d: {
     blue: number; red: number; limit: number; timeLeft: number; hp: number; maxHp: number; ammo: number; mag: number; weapon: string;
     reloadFrac: number; money: number; aiming: boolean; scope: boolean; enemyUnderCross: boolean; owned: number; dt: number;
-    grenades: number; grenadeWarn: boolean; dmgBuff: number; speedBuff: number; stamina: number;
+    grenades: number; grenadeWarn: boolean;
+    /** -1 = knife in hand, else seconds until it comes back. */
+    knife: number; dmgBuff: number; speedBuff: number; stamina: number;
     crouch: boolean; veh: VehicleHud; level: string; target: { name: string; hp: number; max: number } | null;
   }): void {
     const h = this.hud;
@@ -401,7 +425,11 @@ export class UI {
     this.set('aim', d.aiming, () => h.aimBtn.classList.toggle('active', d.aiming));
     this.set('scope', d.scope, () => { h.scope.classList.toggle('on', d.scope); h.cross.style.display = d.scope ? 'none' : ''; });
     this.set('enemy', d.enemyUnderCross, () => h.cross.classList.toggle('enemy', d.enemyUnderCross));
-    this.set('sw', d.owned > 1, () => (h.switchBtn.style.visibility = d.owned > 1 ? '' : 'hidden'));
+    const kn = d.knife < 0 ? -1 : Math.ceil(d.knife);
+    this.set('kn', kn, () => {
+      h.knifeBtn.classList.toggle('empty', kn >= 0);
+      (h.knifeBtn.querySelector('.kb') as HTMLElement).textContent = kn >= 0 ? String(kn) : '';
+    });
     const rel = d.reloadFrac > 0;
     this.set('rel', rel, () => (h.reload.style.display = rel ? 'block' : 'none'));
     if (rel) h.reloadI.style.width = `${Math.round(d.reloadFrac * 100)}%`;
@@ -432,12 +460,34 @@ export class UI {
   }
 
   /** Bottom inventory bar: owned weapons plus ones picked up this match. */
-  inventory(slots: InvSlot[]): void {
+  inventory(slots: InvSlot[], size = 3): void {
     const key = slots.map((x) => x.id + (x.current ? '*' : '') + (x.temp ? 't' : '')).join(',');
     this.set('inv', key, () => {
-      this.hud.inv.innerHTML = slots.map((x, i) => `<button class="slot ${x.current ? 'on' : ''} ${x.temp ? 'temp' : ''}" data-w="${x.id}" title="${esc(x.name)}">
-        <span class="k">${i + 1}</span>${this.icons[x.id] ? `<img src="${this.icons[x.id]}" alt="">` : esc(x.name)}${x.temp ? '<em>GEÇİCİ</em>' : ''}</button>`).join('');
+      const html = slots.map((x, i) => `<button class="slot ${x.current ? 'on' : ''} ${x.temp ? 'temp' : ''}" data-w="${x.id}" title="${esc(x.name)}">
+        <span class="k">${i + 1}</span>${this.icons[x.id] ? `<img src="${this.icons[x.id]}" alt="">` : esc(x.name)}${x.temp ? '<em>GEÇİCİ</em>' : ''}</button>`);
+      for (let i = slots.length; i < size; i++) html.push(`<div class="slot empty"><span class="k">${i + 1}</span>BOŞ</div>`);
+      this.hud.inv.innerHTML = html.join('');
     });
+  }
+
+  /** The backpack screen: three hand slots on top, every weapon in the bag below. */
+  openBag(b: BagModel): void {
+    const pic = (id: string, name: string) => (this.icons[id] ? `<img src="${this.icons[id]}" alt="">` : `<span>${esc(name)}</span>`);
+    const slots = b.slots.map((x, i) => `<button class="bslot ${i === b.selected ? 'sel' : ''} ${x?.current ? 'hand' : ''}" data-bs="${i}">
+      <span class="k">${i + 1}</span>${x ? pic(x.id, x.name) + `<b>${esc(x.name)}</b>` : '<em>BOŞ</em>'}${x?.current ? '<i>ELİNDE</i>' : ''}</button>`).join('');
+    const items = b.items.map((x) => `<button class="bitem ${x.slot >= 0 ? 'in' : ''}" data-bw="${x.id}">
+      ${pic(x.id, x.name)}<b>${esc(x.name)}</b>${x.slot >= 0 ? `<i>SLOT ${x.slot + 1}</i>` : x.temp ? '<i class="t">BULUNDU</i>' : ''}</button>`).join('');
+    this.hud.bag.innerHTML = `<div class="bagpanel">
+      <div class="bhead">${ICON.bag}<h3>ÇANTA</h3><small>${b.items.length} silah</small><button class="bclose" data-bc="1" aria-label="Kapat">✕</button></div>
+      <div class="bslots">${slots}</div>
+      <div class="bhint">Bir slot seç, sonra çantadan silaha dokun: o slota girer ve eline alırsın.</div>
+      <div class="bitems">${items}</div>
+      <button class="btn primary bdone" data-bc="1">KAPAT</button></div>`;
+    this.hud.bag.classList.add('on');
+  }
+
+  closeBag(): void {
+    this.hud?.bag.classList.remove('on');
   }
 
   /** Short line in the kill feed (events like supply drops). */

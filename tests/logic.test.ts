@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { canSpin, spinWheel, WHEEL, buyUpgrade, buyWeapon, equipWeapon, grenadeCount, KILL_REWARD, killReward, matchBonus, maxHp, streakReward } from '../src/game/economy';
 import { defaultSave, sanitize } from '../src/core/save';
 import { SHOP_WEAPONS, STARTER, getWeapon } from '../src/data/weapons';
-import { createMap, mapColliders, propBox, buildingBox } from '../src/world/map';
+import { buildPhysics, createMap, mapColliders, propBox, buildingBox } from '../src/world/map';
 import { CollisionWorld, rayBox, rayCharacter } from '../src/world/collision';
 import { NavGrid } from '../src/world/navgrid';
 
@@ -127,10 +127,14 @@ describe('map', () => {
   const overlap = (a: typeof boxes[0], b: typeof boxes[0]) =>
     a.minX < b.maxX && a.maxX > b.minX && a.minZ < b.maxZ && a.maxZ > b.minZ;
 
-  it('has 10 spawns per team and many buildings', () => {
-    expect(m.spawns.blue).toHaveLength(10);
-    expect(m.spawns.red).toHaveLength(10);
-    expect(m.buildings.length).toBeGreaterThanOrEqual(20);
+  it('is four times the old area with many buildings and a city-wide spawn pool', () => {
+    expect((m.maxX - m.minX) * (m.maxZ - m.minZ)).toBe(4 * 140 * 100);
+    expect(m.buildings.length + m.structures.houses.length).toBeGreaterThanOrEqual(40);
+    buildPhysics(m);
+    expect(m.spawns.length).toBeGreaterThan(300);
+    // spawn points cover every part of the city, not one base per team
+    for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]])
+      expect(m.spawns.filter((p) => Math.sign(p.x) === sx && Math.sign(p.z) === sz).length).toBeGreaterThan(50);
   });
   it('no building overlaps another building or a prop', () => {
     const bb = m.buildings.map(buildingBox);
@@ -142,19 +146,21 @@ describe('map', () => {
     for (let i = 0; i < pb.length; i++)
       for (let j = i + 1; j < pb.length; j++) expect(overlap(pb[i], pb[j]), `p${i} p${j}`).toBe(false);
   });
-  it('every spawn and POI is reachable from the blue base', () => {
+  it('every spawn and POI is reachable from the west of the city', () => {
     const nav = new NavGrid(m.minX, m.minZ, m.maxX, m.maxZ, boxes);
-    const s = m.spawns.blue[0];
-    for (const p of [...m.spawns.blue, ...m.spawns.red, ...m.pois]) {
+    buildPhysics(m);
+    const s = { x: -66, z: 0 };
+    const pts = [...m.spawns.filter((_, i) => i % 7 === 0), ...m.pois];
+    for (const p of pts) {
       expect(nav.walkableAt(p.x, p.z), `walkable ${p.x},${p.z}`).toBe(true);
-      const path = nav.findPath(s.x, s.z, p.x, p.z, 20000);
+      const path = nav.findPath(s.x, s.z, p.x, p.z, 60000);
       expect(path, `path to ${p.x},${p.z}`).not.toBeNull();
     }
   });
   it('smoothed path segments never cross obstacles', () => {
     const nav = new NavGrid(m.minX, m.minZ, m.maxX, m.maxZ, boxes);
     const world = new CollisionWorld(boxes, m.minX, m.minZ, m.maxX, m.maxZ);
-    const path = nav.findPath(-65, 0, 65, 0, 20000)!;
+    const path = nav.findPath(-130, 0, 130, 0, 60000)!;
     for (let i = 1; i < path.length; i++) {
       expect(world.segmentClear(path[i - 1].x, 0.5, path[i - 1].z, path[i].x, 0.5, path[i].z)).toBe(true);
     }

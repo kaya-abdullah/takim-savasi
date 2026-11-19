@@ -196,6 +196,12 @@ export class Audio {
     if (!this.ok()) return;
     this.noiseBurst(this.out(0.35, 0), 2500, 0.18, 0.7, 'bandpass');
   }
+  /** Backpack zip: a quick train of short raspy ticks. */
+  zip(): void {
+    if (!this.ok()) return;
+    const d = this.out(0.3, 0);
+    for (let i = 0; i < 7; i++) setTimeout(() => this.ok() && this.noiseBurst(d, 4200 + i * 250, 0.025, 0.55, 'bandpass'), i * 32);
+  }
   stab(): void {
     if (!this.ok()) return;
     const d = this.out(0.5, 0);

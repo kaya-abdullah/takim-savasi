@@ -391,3 +391,43 @@ button { border: none; color: var(--text); }
 /* v4.1: selling */
 .card .sell { margin-top: 6px; width: 100%; padding: 6px 8px; border-radius: 9px; font-weight: 800; font-size: 12px; letter-spacing: 1px; background: rgba(255,255,255,.08); color: #ffd27a; border: 1px solid rgba(255,210,122,.45); pointer-events: auto; }
 .card .sell.armed { background: linear-gradient(180deg, #ff7a3d, #e0480f); color: #fff; border-color: #ffb08a; }
+
+/* ---- v6: three hand slots, the backpack screen, knife throw */
+.slot.empty { opacity: .55; border-style: dashed; color: var(--muted); font-size: 9px; letter-spacing: .5px; }
+.tc.knife .kb:empty { display: none; }
+.tc.knife.empty { opacity: .45; }
+.tc.knife .kb { background: #c7d0da; color: #1b2430; }
+.bagui { position: absolute; inset: 0; display: none; align-items: center; justify-content: flex-end; pointer-events: auto; background: linear-gradient(90deg, rgba(5,10,18,0) 0%, rgba(5,10,18,.35) 35%, rgba(5,10,18,.7) 100%); z-index: 30; }
+.bagui.on { display: flex; animation: bagin .18s ease-out; }
+@keyframes bagin { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+.bagpanel { width: min(560px, 62vw); max-height: calc(100% - 24px); margin-right: calc(16px + var(--safe-r)); display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 16px;
+  background: linear-gradient(180deg, rgba(62,70,48,.96), rgba(38,43,30,.97)); border: 2px solid rgba(200,190,140,.45); box-shadow: 0 12px 40px rgba(0,0,0,.55), inset 0 0 0 3px rgba(0,0,0,.18); }
+.bhead { display: flex; align-items: center; gap: 10px; }
+.bhead svg { width: 28px; height: 28px; fill: #e9dfb4; }
+.bhead h3 { margin: 0; font-size: 22px; letter-spacing: 2px; color: #f3ebc6; }
+.bhead small { color: #c9c09a; font-weight: 700; }
+.bclose { margin-left: auto; width: 38px; height: 38px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); background: rgba(0,0,0,.25); color: #fff; font-size: 18px; }
+.bslots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.bslot { position: relative; height: 78px; border-radius: 12px; border: 2px solid rgba(255,255,255,.2); background: rgba(10,14,8,.45); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: #fff; padding: 4px; }
+.bslot img { max-width: 86%; max-height: 40px; pointer-events: none; }
+.bslot b { font-size: 11px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.bslot em { font-style: normal; color: #b9b39a; font-weight: 800; letter-spacing: 1px; pointer-events: none; }
+.bslot .k { position: absolute; left: 7px; top: 4px; font-size: 12px; font-weight: 900; color: #e9dfb4; pointer-events: none; }
+.bslot i { position: absolute; right: 6px; top: 4px; font-style: normal; font-size: 9px; font-weight: 900; color: #3a2400; background: var(--gold); border-radius: 6px; padding: 1px 5px; pointer-events: none; }
+.bslot.sel { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(255,204,51,.35), 0 0 16px rgba(255,204,51,.35); background: rgba(255,204,51,.12); }
+.bhint { font-size: 12px; color: #d9d1ad; }
+.bitems { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; overflow-y: auto; min-height: 0; padding: 2px; }
+.bitem { position: relative; height: 74px; border-radius: 10px; border: 2px solid rgba(255,255,255,.14); background: rgba(0,0,0,.28); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #fff; padding: 4px; }
+.bitem img { max-width: 88%; max-height: 38px; pointer-events: none; }
+.bitem b { font-size: 10.5px; pointer-events: none; text-align: center; line-height: 1.1; }
+.bitem i { position: absolute; right: 5px; top: 4px; font-style: normal; font-size: 8.5px; font-weight: 900; background: rgba(255,255,255,.18); border-radius: 5px; padding: 1px 4px; pointer-events: none; }
+.bitem i.t { background: #2f7a32; }
+.bitem.in { border-color: rgba(255,204,51,.55); }
+.bitem:active, .bslot:active { transform: scale(.96); }
+.bdone { align-self: stretch; }
+@media (max-height: 430px) {
+  .bagpanel { width: min(520px, 66vw); padding: 10px; gap: 7px; }
+  .bslot { height: 60px; } .bslot img { max-height: 28px; }
+  .bitem { height: 58px; } .bitem img { max-height: 26px; }
+  .bhint { display: none; } .bhead h3 { font-size: 18px; }
+}

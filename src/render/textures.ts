@@ -354,7 +354,9 @@ export interface GroundSet { map: THREE.CanvasTexture; rough: THREE.CanvasTextur
  * so they reflect the sky.
  */
 export function makeGround(m: MapData): GroundSet {
-  const PPM = 16; // pixels per metre
+  // pixels per metre: the city is 280 x 200 m, so this keeps the canvas under
+  // 4096 px (the texture limit of many phones) and its memory reasonable
+  const PPM = Math.min(16, Math.floor(3200 / Math.max(m.maxX - m.minX, m.maxZ - m.minZ)));
   const RK = 0.5; // roughness map resolution relative to colour
   const W = (m.maxX - m.minX) * PPM, H = (m.maxZ - m.minZ) * PPM;
   const [c, ctx] = canvas(W, H);
@@ -384,9 +386,10 @@ export function makeGround(m: MapData): GroundSet {
         ctx.fill();
       }
     }
-  speckle(ctx, W, H, 90000, 0.07, r, 2);
+  speckle(ctx, W, H, 90000 * Math.min(2.5, (W * H) / 3.6e6), 0.07, r, 2);
   // large-scale grime: darker towards walls, lighter in the middle of open space
-  for (let i = 0; i < 260; i++) {
+  const areaK = ((m.maxX - m.minX) * (m.maxZ - m.minZ)) / 14000;
+  for (let i = 0; i < 260 * areaK; i++) {
     const x = r() * W, y = r() * H, rad = (2 + r() * 7) * PPM;
     const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
     g.addColorStop(0, `rgba(30,28,24,${0.05 + r() * 0.07})`);
@@ -400,6 +403,55 @@ export function makeGround(m: MapData): GroundSet {
       const e = (k + 1) * 0.35 * PPM;
       ctx.fillStyle = 'rgba(25,22,18,0.16)';
       ctx.fillRect(X(b.x0) - e, Z(b.z0) - e, (b.x1 - b.x0) * PPM + 2 * e, (b.z1 - b.z0) * PPM + 2 * e);
+    }
+  }
+
+  // ---- district grounds: lawns, gravel yards, marked car parks
+  for (const zn of m.zones) {
+    const x0 = X(zn.x0), y0 = Z(zn.z0), w = (zn.x1 - zn.x0) * PPM, h = (zn.z1 - zn.z0) * PPM;
+    if (zn.kind === 'grass') {
+      ctx.fillStyle = '#4f6a34';
+      ctx.fillRect(x0, y0, w, h);
+      for (let i = 0; i < (w * h) / 9; i++) {
+        const g = 70 + r() * 70;
+        ctx.fillStyle = `rgba(${g * 0.55},${g},${g * 0.35},${0.25 + r() * 0.35})`;
+        ctx.fillRect(x0 + r() * w, y0 + r() * h, 1.5, 1.5 + r() * 2.5);
+      }
+      for (let i = 0; i < (w * h) / (PPM * PPM * 10); i++) {
+        const x = x0 + r() * w, y = y0 + r() * h, rad = (1 + r() * 3) * PPM;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
+        g.addColorStop(0, r() < 0.5 ? 'rgba(110,95,60,0.25)' : 'rgba(40,70,25,0.3)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+      }
+      rx.fillStyle = rough(0.95);
+      rx.fillRect(x0, y0, w, h);
+    } else if (zn.kind === 'gravel') {
+      ctx.fillStyle = '#7d766a';
+      ctx.fillRect(x0, y0, w, h);
+      for (let i = 0; i < (w * h) / 10; i++) {
+        const v = 80 + r() * 90;
+        ctx.fillStyle = `rgba(${v},${v - 6},${v - 14},${0.35 + r() * 0.4})`;
+        ctx.fillRect(x0 + r() * w, y0 + r() * h, 1 + r() * 1.5, 1 + r() * 1.5);
+      }
+      rx.fillStyle = rough(0.97);
+      rx.fillRect(x0, y0, w, h);
+    } else {
+      ctx.fillStyle = '#3a3b3e';
+      ctx.fillRect(x0, y0, w, h);
+      for (let i = 0; i < (w * h) * 0.04; i++) {
+        const v = r() < 0.55 ? 22 : 100 + r() * 40;
+        ctx.fillStyle = `rgba(${v},${v},${v + 4},${0.2 + 0.3 * r()})`;
+        ctx.fillRect(x0 + r() * w, y0 + r() * h, 1 + r(), 1 + r());
+      }
+      // parking bays: white lines every 2.6 m along the long side
+      const along = w >= h;
+      ctx.fillStyle = 'rgba(230,228,220,0.75)';
+      if (along) for (let x = x0 + 1.3 * PPM; x < x0 + w; x += 2.6 * PPM) { ctx.fillRect(x, y0 + 0.5 * PPM, 0.12 * PPM, 4.8 * PPM); ctx.fillRect(x, y0 + h - 5.3 * PPM, 0.12 * PPM, 4.8 * PPM); }
+      else for (let y = y0 + 1.3 * PPM; y < y0 + h; y += 2.6 * PPM) { ctx.fillRect(x0 + 0.5 * PPM, y, 4.8 * PPM, 0.12 * PPM); ctx.fillRect(x0 + w - 5.3 * PPM, y, 4.8 * PPM, 0.12 * PPM); }
+      rx.fillStyle = rough(0.8);
+      rx.fillRect(x0, y0, w, h);
     }
   }
 
@@ -539,18 +591,35 @@ export function makeGround(m: MapData): GroundSet {
     rx.fillRect(x, y, w, h);
   };
   const plazaR = (m.plaza.x1 - m.plaza.x0) / 2;
-  for (let x = m.minX; x < m.maxX; x += 6) if (Math.abs(x + 1.5) > plazaR + 1) paint(X(x), Z(0) - 0.07 * PPM, 3 * PPM, 0.14 * PPM, [236, 233, 222]);
-  for (const cx of [-31, 31, 0])
-    for (let z = m.minZ; z < m.maxZ; z += 6) {
-      if (Math.abs(z + 1.5) < 7.5 || (cx === 0 && Math.abs(z + 1.5) < plazaR + 1)) continue;
+  const horiz = m.roads.filter((rd) => rd.x1 - rd.x0 > rd.z1 - rd.z0);
+  const vert = m.roads.filter((rd) => rd.x1 - rd.x0 <= rd.z1 - rd.z0);
+  const inPlaza = (x: number, z: number) => Math.hypot(x, z) < plazaR + 1;
+  // centre lines: white dashes on the east-west roads, yellow on the north-south ones,
+  // broken at every junction
+  for (const rd of horiz) {
+    const cz = (rd.z0 + rd.z1) / 2;
+    for (let x = rd.x0; x < rd.x1 - 3; x += 6) {
+      if (vert.some((v) => x + 3 > v.x0 - 1 && x < v.x1 + 1) || inPlaza(x + 1.5, cz)) continue;
+      paint(X(x), Z(cz) - 0.07 * PPM, 3 * PPM, 0.14 * PPM, [236, 233, 222]);
+    }
+  }
+  for (const rd of vert) {
+    const cx = (rd.x0 + rd.x1) / 2;
+    for (let z = rd.z0; z < rd.z1 - 3; z += 6) {
+      if (horiz.some((h) => z + 3 > h.z0 - 1.5 && z < h.z1 + 1.5) || inPlaza(cx, z + 1.5)) continue;
       paint(X(cx) - 0.07 * PPM, Z(z), 0.14 * PPM, 3 * PPM, [222, 188, 70]);
     }
-  // stop lines and crosswalks
-  for (const cx of [-31, 31]) {
+  }
+  // zebra crossings and stop lines where a north-south road meets an east-west one
+  for (const v of vert) for (const h of horiz) {
+    if (v.x0 < m.plaza.x1 && v.x1 > m.plaza.x0 && h.z0 < m.plaza.z1 && h.z1 > m.plaza.z0) continue;
+    const cx = (v.x0 + v.x1) / 2, half = (v.x1 - v.x0) / 2 - 0.5;
     for (const side of [-1, 1]) {
-      const z0 = side * 7.6;
-      for (let i = -3.5; i <= 3.5; i += 1) paint(X(cx + i) - 0.25 * PPM, Z(z0) - 0.9 * PPM, 0.5 * PPM, 1.8 * PPM, [240, 238, 230]);
-      paint(X(cx - 4), Z(z0 + side * 1.4) - 0.1 * PPM, 8 * PPM, 0.2 * PPM, [240, 238, 230]);
+      const zEdge = side < 0 ? h.z0 : h.z1;
+      if (zEdge <= v.z0 + 2 || zEdge >= v.z1 - 2) continue;
+      const z0 = zEdge + side * 1.6;
+      for (let i = -half; i <= half; i += 1) paint(X(cx + i) - 0.25 * PPM, Z(z0) - 0.9 * PPM, 0.5 * PPM, 1.8 * PPM, [240, 238, 230]);
+      paint(X(cx - half - 0.5), Z(z0 + side * 1.4) - 0.1 * PPM, (2 * half + 1) * PPM, 0.2 * PPM, [240, 238, 230]);
     }
   }
 
@@ -583,7 +652,7 @@ export function makeGround(m: MapData): GroundSet {
   ctx.beginPath(); ctx.arc(pc.x, pc.y, pr - 0.25 * PPM, 0, Math.PI * 2); ctx.stroke();
 
   // ---- puddles: irregular blobs, mostly on roads and in the gutters
-  for (let i = 0; i < 70; i++) {
+  for (let i = 0; i < 70 * areaK; i++) {
     let x = 0, z = 0;
     for (let t = 0; t < 10; t++) {
       x = m.minX + 2 + r() * (m.maxX - m.minX - 4);
@@ -605,22 +674,6 @@ export function makeGround(m: MapData): GroundSet {
     for (const [px, py, pr2] of pts) { rx.beginPath(); rx.arc(px, py, pr2, 0, Math.PI * 2); rx.fill(); }
   }
 
-  // ---- team base zones: painted hatching rather than a glowing wash
-  const zone = (x0: number, x1: number, col: string) => {
-    const g = ctx.createLinearGradient(X(x0), 0, X(x1), 0);
-    g.addColorStop(x0 < 0 ? 0 : 1, col);
-    g.addColorStop(x0 < 0 ? 1 : 0, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(X(x0), Z(-26), (x1 - x0) * PPM, 52 * PPM);
-  };
-  zone(-70, -56, 'rgba(40,100,220,0.32)');
-  zone(56, 70, 'rgba(220,50,40,0.32)');
-  ctx.strokeStyle = 'rgba(235,235,225,0.6)';
-  ctx.lineWidth = 0.2 * PPM;
-  ctx.setLineDash([1.2 * PPM, 0.8 * PPM]);
-  ctx.strokeRect(X(-69), Z(-25), 13 * PPM, 50 * PPM);
-  ctx.strokeRect(X(56), Z(-25), 13 * PPM, 50 * PPM);
-  ctx.setLineDash([]);
   const t = tex(c, true, false);
   t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
   const tr = tex(cr, false, false);

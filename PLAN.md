@@ -329,3 +329,31 @@ Hedef: aynı görsel dilin (sinematik ışık, ıslak asfalt, gerçekçi bitki �
 Kullanıcı v5.1'in insanlarını, yeleklerini, silahlarını ve duruşlarını beğenmedi. v5.0 görünümüne dönüldü
 (Android sürüm kodu geri gidemediği için 5.2 adıyla). v5.1 çalışması `v6-people` dalında duruyor; yeni sürümde
 gerçek hareket yakalama animasyonları, takım renginde kıyafet ve tutarlı gerçekçi silah seti hedefleniyor.
+
+## 20. Sürüm 5.3 (2026-11-19)
+
+İstekler: insanlar farklı yerlerde doğsun; harita 4 kat büyüsün ama her yer aynı olmasın; içine girilip
+çıkılabilen uzun binalar; envanterde sadece 3 silah, sırtta çanta (silah değiştirirken çanta öne alınır, açılır,
+ekranda bütün silahlar görünür); el bombası ve bıçak tuşu yerinde kalsın; bıçak fırlatılabilsin.
+
+- Harita: 140 x 100 m → 280 x 200 m (4 kat alan). Eski şehir merkezi (metro, 6 bina) ortada aynen duruyor.
+  Çevresinde çevre yolları ve 24 yeni blok var; her blok farklı türde ve kendi tohumuyla yerleşiyor: gökdelen
+  meydanı, park (çim), liman (konteyner sıraları, çakıl), pazar (tezgâh sıraları), mahalle (farklı boy ve renkte
+  evler), otopark (çizgili), sanayi (depo + avlu), spor sahası, akaryakıt deposu, han (3 katlı bina). Yan yana iki
+  blok aynı türde değil. Zemin dokusu (çim, çakıl, otopark çizgisi, her kavşakta yaya geçidi) haritadan üretiliyor.
+- Uzun binalar: 4, 5, 5, 5, 6 ve 7 katlı altı gökdelen ve 3 katlı iki han; hepsine girilir, her kata zikzak merdivenle
+  çıkılır, çatıya kadar. Katlar daire, açık ofis veya depo olarak döşeli. Botlar her kata gider (kat başına nav).
+- Doğma: sabit üs yok. İlk doğuşta her takım kendi yarısına dağılır, her maç başka yerler. Yeniden doğuş şehrin
+  herhangi bir açık noktası: canlı düşmana en az 30 m, mümkünse düşmanın göremediği, çatışmaya çok uzak olmayan yer.
+- Envanter: 3 el slotu (alt çubuk, 1-2-3 tuşları veya dokunma). Diğer silahlar sırttaki çantada. Silah tuşu
+  (Q/Tab): asker çantayı omzunun üstünden öne alır, açar, kamera öne döner; sağda ÇANTA ekranı: üstte 3 slot,
+  altta bütün silahlar. Slot seç, silaha dokun: o slota girer ve eline alırsın. Çanta açıkken ateş edilemez,
+  yürünemez. Kapatınca çanta sırta döner. Maçta bulunan silahlar boş slota, yoksa çantaya girer; ikmal silahı
+  eldeki slota. Slot düzeni kaydedilir.
+- Bıçak: dokun = bıçakla vur (aynı). Basılı tut = bıçak elde kalkar, uçuş yayı görünür; bırak = fırlat. 75 hasar,
+  kafaya isabet öldürür, öldürünce bıçak ödülü. Bıçak düştüğü yerden alınır ya da 8 sn sonra yenisi gelir; o
+  sürede tuşta geri sayım var. Botlar da 4-13 m'de bıçak fırlatır.
+- Mini harita oyuncuyu ortalayıp 120 m'lik pencere gösteriyor; ikmal haritanın dışındaysa kenarda.
+- Testler: tests/v6.test.ts (blok çeşitliliği, şehre yayılan doğuş noktaları, güvenli yeniden doğuş, slot/çanta
+  kuralları, çanta açıkken ateş yok, bıçak isabeti, kafadan öldürme, bıçağı geri alma); her binanın her katı
+  merdivenden erişilebilir; e2e'de çanta ekranı ve bıçak fırlatma.

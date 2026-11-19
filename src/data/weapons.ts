@@ -157,6 +157,12 @@ export const KNIFE: WeaponDef = {
   ...STARTER, id: 'knife', name: 'Bıçak', desc: 'Yakın dövüş. Arkadan tek vuruş.', damage: 55, range: 2.3,
   sound: { freq: 300, noise: 5000, decay: 0.08, gain: 0.3 },
 };
+/** The knife thrown: flies almost flat, hits hard, a head hit kills. */
+export const THROWN_KNIFE: WeaponDef = { ...KNIFE, name: 'Fırlatılan Bıçak', desc: 'Basılı tut, nişan al, bırak: bıçak uçar.', damage: 75, range: 30 };
+export const KNIFE_SPEED = 27;
+export const KNIFE_GRAVITY = 9;
+/** Seconds until a thrown knife that was not picked up comes back. */
+export const KNIFE_RETURN = 8;
 export const GRENADE_FUSE = 2.2;
 export const GRENADE_RADIUS = 5.5;
 export const GRENADE_SPEED = 19;

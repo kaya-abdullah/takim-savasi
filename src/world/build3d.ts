@@ -138,7 +138,7 @@ export function buildWorld(m: MapData): THREE.Group {
   const outerTex = makeConcrete(13, '#55534f');
   outerTex.repeat.set(1 / 7.5, 1 / 7.5);
   // a ring around the city, so it never covers the stairwells
-  const outerGeo = rectWithHoles(-450, 450, -450, 450, [{ x0: m.minX, x1: m.maxX, z0: m.minZ, z1: m.maxZ }]);
+  const outerGeo = rectWithHoles(-600, 600, -600, 600, [{ x0: m.minX, x1: m.maxX, z0: m.minZ, z1: m.maxZ }]);
   const outer = new THREE.Mesh(outerGeo, new THREE.MeshStandardMaterial({ map: outerTex, roughness: 1 }));
   outer.position.y = -0.02;
   outer.name = 'outerGround';
@@ -178,11 +178,32 @@ function makeMetroSign(): THREE.CanvasTexture {
 
 /** Baked light per vertex from the structures' rooms (AO, less sky) and ceiling lamps. */
 export function structureBake(st: Structures): BakeFn {
-  const rooms = st.rooms, lamps = st.lamps;
   const sm = (t: number) => { const c = Math.max(0, Math.min(1, t)); return c * c * (3 - 2 * c); };
+  // rooms and lamps bucketed on an 8 m grid: each vertex only tests the few nearby
+  // (the big city has hundreds of lamps; testing all of them per vertex took seconds)
+  const G = 8;
+  const key = (ix: number, iz: number) => ix * 65536 + iz;
+  const grid = <T,>(items: T[], rect: (t: T) => [number, number, number, number]) => {
+    const g = new Map<number, T[]>();
+    for (const it of items) {
+      const [x0, x1, z0, z1] = rect(it);
+      for (let ix = Math.floor(x0 / G); ix <= Math.floor(x1 / G); ix++)
+        for (let iz = Math.floor(z0 / G); iz <= Math.floor(z1 / G); iz++) {
+          const k = key(ix, iz);
+          let a = g.get(k);
+          if (!a) g.set(k, (a = []));
+          a.push(it);
+        }
+    }
+    return g;
+  };
+  const roomGrid = grid(st.rooms, (r) => [r.x0 - 0.35, r.x1 + 0.35, r.z0 - 0.35, r.z1 + 0.35]);
+  const lampGrid = grid(st.lamps, (l) => [l.x - l.reach, l.x + l.reach, l.z - l.reach, l.z + l.reach]);
+  const none: never[] = [];
   return (x, y, z, nx, ny, nz) => {
     let ao = 1, lamp = 0;
-    for (const r of rooms) {
+    const k = key(Math.floor(x / G), Math.floor(z / G));
+    for (const r of roomGrid.get(k) ?? none) {
       if (x < r.x0 - 0.35 || x > r.x1 + 0.35 || z < r.z0 - 0.35 || z > r.z1 + 0.35 || y < r.y0 - 0.06 || y > r.y1 + 0.3) continue;
       const dWall = Math.max(0, Math.min(x - r.x0, r.x1 - x, z - r.z0, r.z1 - z));
       // distance to the nearest surface the vertex does not lie on: corners get darker
@@ -191,7 +212,7 @@ export function structureBake(st: Structures): BakeFn {
       ao = (0.45 + 0.55 * sm(d / 1.1)) * 0.55;
       break;
     }
-    for (const l of lamps) {
+    for (const l of lampGrid.get(k) ?? none) {
       if (y < l.y0 || y > l.y1) continue;
       const dx = l.x - x, dy = l.y - y, dz = l.z - z;
       const d = Math.hypot(dx, dy, dz);
@@ -209,16 +230,45 @@ const UV: Partial<Record<PieceMat, number>> = {
   brick: 1.6, plaster: 3, wood: 1.4, tile: 2.4, subway: 1.2, granite: 2.4, concrete: 3, fabric: 1.0, metal: 2, darkwood: 1.0,
 };
 /** Large surfaces get subdivided so the baked lamp light falls off smoothly. */
-const SUBDIV: Partial<Record<PieceMat, number>> = { plaster: 1.0, wood: 1.0, tile: 1.0, subway: 1.0, granite: 1.0, concrete: 1.2 };
+const SUBDIV: Partial<Record<PieceMat, number>> = { plaster: 1.6, wood: 1.6, tile: 1.6, subway: 1.2, granite: 1.2, concrete: 1.6 };
+
+/** Materials only seen from inside (or from close by): far buildings skip them. */
+const INTERIOR = new Set<PieceMat>(['plaster', 'wood', 'tile', 'fabric', 'darkwood', 'crate', 'screen', 'poster', 'glow', 'metal']);
+/** Interiors further than this from the camera are not drawn (windows show the dark rooms only up close). */
+export const INTERIOR_DIST = 70;
+
+/**
+ * Shows each building's interior only when the camera is near it. Cheap: one
+ * distance test per building per frame.
+ */
+export function updateInteriors(world: THREE.Object3D, cam: THREE.Vector3): void {
+  const st = world.getObjectByName('structures');
+  if (!st) return;
+  for (const ch of st.children) {
+    const l = ch.userData.lod as { x: number; z: number } | undefined;
+    if (l) ch.visible = Math.hypot(cam.x - l.x, cam.z - l.z) < INTERIOR_DIST;
+  }
+}
 
 /** Walk-in buildings and the metro: textured, normal-mapped, with baked lamp light and AO. */
 function buildStructureMeshes(m: MapData): THREE.Group {
   const g = new THREE.Group();
   g.name = 'structures';
   const bake = structureBake(m.structures);
-  const builders = new Map<PieceMat, GeomBuilder>();
+  // interiors get one bucket per building so far buildings can drop them (and the view
+  // and shadow frusta cull them); everything else shares one bucket per material
+  const houses = m.structures.houses;
+  const clusterOf = (b: { minX: number; maxX: number; minZ: number; maxZ: number }) => {
+    const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
+    return houses.findIndex((h) => cx > h.x0 - 1.3 && cx < h.x1 + 1.3 && cz > h.z0 - 1.3 && cz < h.z1 + 1.3);
+  };
+  const buckets = new Map<number, Map<PieceMat, GeomBuilder>>();
   for (const p of m.structures.pieces) {
     if (p.mat === 'hidden') continue;
+    // outsides are all merged together (always drawn); only interiors are split per building
+    const k = INTERIOR.has(p.mat) ? clusterOf(p.box) : -1;
+    let builders = buckets.get(k);
+    if (!builders) buckets.set(k, (builders = new Map()));
     let gb = builders.get(p.mat);
     if (!gb) builders.set(p.mat, (gb = new GeomBuilder(false, bake)));
     const b = p.box;
@@ -249,17 +299,28 @@ function buildStructureMeshes(m: MapData): THREE.Group {
     poster: bakeLit(new THREE.MeshStandardMaterial({ map: makePoster(), roughness: 0.6, vertexColors: true })),
     hidden: new THREE.MeshBasicMaterial(),
   };
-  for (const [mat, gb] of builders) {
-    if (gb.vertexCount === 0) continue;
-    const mesh = new THREE.Mesh(gb.build(), mats[mat]);
-    mesh.name = 'st-' + mat;
-    const lightless = mat === 'glow' || mat === 'sign' || mat === 'screen' || mat === 'glass';
-    mesh.castShadow = !lightless;
-    mesh.receiveShadow = !lightless;
-    if (mat === 'glass') mesh.renderOrder = 2;
-    mesh.matrixAutoUpdate = false;
-    mesh.updateMatrix();
-    g.add(mesh);
+  for (const [k, builders] of buckets) {
+    const outer = new THREE.Group(), inner = new THREE.Group();
+    outer.name = k < 0 ? 'st-shared' : 'st-house' + k;
+    inner.name = outer.name + '-in';
+    for (const [mat, gb] of builders) {
+      if (gb.vertexCount === 0) continue;
+      const mesh = new THREE.Mesh(gb.build(), mats[mat]);
+      mesh.name = 'st-' + mat;
+      const lightless = mat === 'glow' || mat === 'sign' || mat === 'screen' || mat === 'glass';
+      mesh.castShadow = !lightless;
+      mesh.receiveShadow = !lightless;
+      if (mat === 'glass') mesh.renderOrder = 2;
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
+      (k >= 0 && INTERIOR.has(mat) ? inner : outer).add(mesh);
+    }
+    g.add(outer);
+    if (inner.children.length) {
+      const h = houses[k];
+      inner.userData.lod = { x: (h.x0 + h.x1) / 2, z: (h.z0 + h.z1) / 2 };
+      g.add(inner);
+    }
   }
   return g;
 }
@@ -370,7 +431,8 @@ let BAG: THREE.BufferGeometry | null = null;
 /** One sandbag, 0.62 x 0.24 x 0.42 m: a sphere squashed into a pillow. */
 function sandbagGeometry(): THREE.BufferGeometry {
   if (BAG) return BAG;
-  const g = new THREE.SphereGeometry(0.5, 16, 10);
+  // few segments: a city has dozens of sandbag walls (36 bags each) and the pillow shape survives
+  const g = new THREE.SphereGeometry(0.5, 9, 6);
   const P = g.getAttribute('position');
   for (let i = 0; i < P.count; i++) {
     const x = P.getX(i), y = P.getY(i), z = P.getZ(i);
@@ -487,15 +549,24 @@ function addStreetFurniture(B: Builders, m: MapData): void {
     put(B.painted, bollard, 0x2a2c30, x, 0.425, z);
     put(B.glow, cyl(0.092, 0.05, 10), 0xffffff, x, 0.7, z);
   }
-  // traffic lights at the corners where the cross streets meet the avenue
-  for (const cx of [-31, 0, 31]) for (const sz of [-1, 1]) {
-    const x = cx + (cx === 0 ? 5 : 5) * sz, z = 6.9 * sz;
-    if (blocked(x, z, -1.5)) continue;
-    put(B.metal, pole, 0x2a2e33, x, 2.1, z);
-    B.painted.box(x, 4.0, z, 0.32, 0.9, 0.28, 0x1b1d20);
-    for (const [k, col] of [[0.28, 0x551010], [0, 0x553f10], [-0.28, 0xffffff]] as [number, number][]) {
-      const lit = k < 0;
-      (lit ? B.glow : B.painted).box(x, 4.0 + k, z - sz * 0.15, 0.18, 0.18, 0.02, lit ? 0xffffff : col);
+  // traffic lights on two opposite corners of every junction
+  const horiz = m.roads.filter((rd) => rd.x1 - rd.x0 > rd.z1 - rd.z0);
+  const vert = m.roads.filter((rd) => rd.x1 - rd.x0 <= rd.z1 - rd.z0);
+  const onRoad = (x: number, z: number) => m.roads.some((rd) => x > rd.x0 - 0.3 && x < rd.x1 + 0.3 && z > rd.z0 - 0.3 && z < rd.z1 + 0.3);
+  const solid = (x: number, z: number) => m.buildings.some((b) => x > b.x0 - 0.6 && x < b.x1 + 0.6 && z > b.z0 - 0.6 && z < b.z1 + 0.6)
+    || m.structures.houses.some((b) => x > b.x0 - 0.6 && x < b.x1 + 0.6 && z > b.z0 - 0.6 && z < b.z1 + 0.6);
+  for (const v of vert) for (const h of horiz) {
+    if (h.z1 <= v.z0 || h.z0 >= v.z1) continue;
+    for (const sz of [-1, 1]) {
+      const x = sz < 0 ? v.x0 - 0.9 : v.x1 + 0.9, z = sz < 0 ? h.z0 - 0.9 : h.z1 + 0.9;
+      if (x < m.minX + 1 || x > m.maxX - 1 || z < m.minZ + 1 || z > m.maxZ - 1) continue;
+      if (blocked(x, z, -1.5) || onRoad(x, z) || solid(x, z) || Math.hypot(x, z) < 13) continue;
+      put(B.metal, pole, 0x2a2e33, x, 2.1, z);
+      B.painted.box(x, 4.0, z, 0.32, 0.9, 0.28, 0x1b1d20);
+      for (const [k, col] of [[0.28, 0x551010], [0, 0x553f10], [-0.28, 0xffffff]] as [number, number][]) {
+        const lit = k < 0;
+        (lit ? B.glow : B.painted).box(x, 4.0 + k, z - sz * 0.15, 0.18, 0.18, 0.02, lit ? 0xffffff : col);
+      }
     }
   }
 }
@@ -522,11 +593,11 @@ function addPerimeter(B: Builders, m: MapData): void {
 function addBackground(B: Builders, m: MapData, r: () => number): void {
   const cols = [0x9aa3ad, 0xb7a58c, 0x8d7f73, 0xa9b4bf, 0xc2b8a3, 0x7a8590];
   // A ring of skyline blocks outside the playable area, hidden partly by fog.
-  for (let i = 0; i < 70; i++) {
+  for (let i = 0; i < 110; i++) {
     let x = 0, z = 0;
     for (let tries = 0; tries < 20; tries++) {
-      x = (r() * 2 - 1) * 170;
-      z = (r() * 2 - 1) * 140;
+      x = (r() * 2 - 1) * (m.maxX + 45);
+      z = (r() * 2 - 1) * (m.maxZ + 55);
       if (x < m.minX - 14 || x > m.maxX + 14 || z < m.minZ - 14 || z > m.maxZ + 14) break;
     }
     const w = 10 + r() * 16, d = 10 + r() * 16, h = 12 + r() * 45;

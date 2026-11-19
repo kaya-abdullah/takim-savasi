@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Input } from '../core/input';
 import type { Settings } from '../core/save';
-import { GRENADE_SPEED, getWeapon } from '../data/weapons';
+import { GRENADE_SPEED, KNIFE_GRAVITY, KNIFE_SPEED, getWeapon } from '../data/weapons';
 import { WeaponState, type Combatant } from './combatant';
 import { stepGrenade, type Match } from './match';
 
@@ -16,9 +16,18 @@ const _want = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 
 /** Drives the human player's combatant and the third-person camera. */
+/** Holding the knife button longer than this aims a throw instead of stabbing. */
+export const KNIFE_HOLD = 0.2;
+
 export class PlayerController {
   private states = new Map<string, WeaponState>();
+  /** Weapons in the three hand slots (the rest are in the backpack). */
   owned: string[] = [];
+  /** Knife button: pressed and for how long; aiming a throw once held long enough. */
+  private knifeDown = false;
+  private knifeDownT = 0;
+  knifeAiming = false;
+  knifeThrown = false;
   private camDist = 3.3;
   private restT = 0;
   /** Footstep phase for step sounds. */
@@ -37,6 +46,8 @@ export class PlayerController {
   rocket = false;
   /** Seconds since the player last dragged the view (cars swing the camera back behind). */
   private lookIdle = 0;
+  /** 0 normal camera .. 1 swung round to the front to watch the backpack being opened. */
+  private bagCam = 0;
 
   constructor(readonly camera: THREE.PerspectiveCamera) {}
 
@@ -79,7 +90,7 @@ export class PlayerController {
   }
 
   update(dt: number, c: Combatant, input: Input, m: Match, settings: Settings): void {
-    this.jumped = this.reloaded = this.threw = this.slashed = this.rocket = false;
+    this.jumped = this.reloaded = this.threw = this.slashed = this.rocket = this.knifeThrown = false;
     const def = c.weapon.def;
     // ---- look
     const look = input.takeLook();
@@ -99,6 +110,21 @@ export class PlayerController {
     if (!c.alive) {
       c.trigger = false;
       this.grenadeAiming = false;
+      this.knifeAiming = this.knifeDown = false;
+      this.updateCamera(dt, c, m);
+      return;
+    }
+
+    // backpack in hand: stand still, no shooting; the view can still turn
+    if (c.inBag) {
+      c.trigger = c.aiming = c.sprinting = false;
+      this.grenadeAiming = this.knifeAiming = this.knifeDown = false;
+      for (const b of ['fire', 'reload', 'jump', 'crouch', 'grenade', 'knife'] as const) input.consume(b);
+      input.poll();
+      const k = Math.min(1, dt * 10);
+      c.vx -= c.vx * k;
+      c.vz -= c.vz * k;
+      m.move(c, c.vx * dt, c.vz * dt, dt);
       this.updateCamera(dt, c, m);
       return;
     }
@@ -162,10 +188,23 @@ export class PlayerController {
     c.aimOrigin.copy(cam.position).addScaledVector(_dir, ahead + 0.3);
     c.aimDir.copy(_dir);
 
-    // knife: instant swing
-    if (input.consume('knife')) {
-      m.melee(c);
-      this.slashed = true;
+    // knife: a tap stabs, holding aims a throw (arc preview), releasing throws
+    if (input.consume('knife')) { this.knifeDown = true; this.knifeDownT = 0; }
+    if (this.knifeDown) {
+      if (input.isHeld('knife')) {
+        this.knifeDownT += dt;
+        if (this.knifeDownT > KNIFE_HOLD && c.hasKnife) { this.knifeAiming = true; c.trigger = false; }
+      } else {
+        if (this.knifeAiming) {
+          const keep = c.aimDir.clone();
+          if (m.throwKnife(c, this.knifeDir(c, c.aimDir))) this.knifeThrown = true;
+          c.aimDir.copy(keep);
+        } else if (c.hasKnife) {
+          m.melee(c);
+          this.slashed = true;
+        }
+        this.knifeDown = this.knifeAiming = false;
+      }
     }
     // grenade: hold to aim (arc preview), release to throw
     const held = input.isHeld('grenade');
@@ -229,6 +268,29 @@ export class PlayerController {
     return out.set(Math.sin(c.yaw) * Math.cos(p), Math.sin(p), Math.cos(c.yaw) * Math.cos(p));
   }
 
+  /** Knife throw direction: along the view, lifted a touch for the drop. */
+  knifeDir(c: Combatant, out: THREE.Vector3): THREE.Vector3 {
+    const p = Math.min(1.2, c.pitch + 0.04);
+    return out.set(Math.sin(c.yaw) * Math.cos(p), Math.sin(p), Math.cos(c.yaw) * Math.cos(p));
+  }
+
+  /** The knife's flight for the preview: straight-ish until it hits something. */
+  knifeArc(c: Combatant, m: Match, out: THREE.Vector3[]): number {
+    const pos = new THREE.Vector3(c.pos.x + Math.sin(c.yaw) * 0.35, c.pos.y + 1.5 - 0.4 * c.crouchK, c.pos.z + Math.cos(c.yaw) * 0.35);
+    const vel = this.knifeDir(c, new THREE.Vector3()).multiplyScalar(KNIFE_SPEED);
+    let n = 0;
+    const step = 1 / 60;
+    for (let i = 0; i < 150 && n < out.length; i++) {
+      vel.y -= KNIFE_GRAVITY * step;
+      const h = m.world.raycast(pos.x, pos.y, pos.z, vel.x * step, vel.y * step, vel.z * step, 1);
+      if (h) { pos.addScaledVector(vel, step * h.t); break; }
+      pos.addScaledVector(vel, step);
+      if (i % 3 === 0) out[n++].copy(pos);
+    }
+    if (n < out.length) out[n++].copy(pos);
+    return n;
+  }
+
   /** Simulates the throw to draw the preview arc. Returns number of points written. */
   grenadeArc(c: Combatant, m: Match, out: THREE.Vector3[]): number {
     const g = {
@@ -288,14 +350,17 @@ export class PlayerController {
     const v = c.alive ? c.vehicle : null;
     this.bob += dt * speed * 2.2;
     const bobY = c.onGround && !v ? Math.sin(this.bob) * 0.025 * Math.min(1, speed / 4) : 0;
-    const yaw = c.yaw, pitch = c.alive ? c.pitch : Math.max(c.pitch, -0.6);
+    this.bagCam += ((c.inBag && c.alive ? 1 : 0) - this.bagCam) * Math.min(1, dt * 4);
+    const bc = this.bagCam;
+    const yaw = c.yaw + 2.45 * bc, pitch = (c.alive ? c.pitch : Math.max(c.pitch, -0.6)) * (1 - bc) - 0.32 * bc;
     const cp = Math.cos(pitch);
     _dir.set(Math.sin(yaw) * cp, Math.sin(pitch), Math.cos(yaw) * cp);
     _r.set(-Math.cos(yaw), 0, Math.sin(yaw));
     // pivot above the right shoulder (or above the vehicle, further back)
-    let dist = aiming ? 1.7 : c.alive ? 3.3 : 5.5;
-    let shoulder = aiming ? 0.62 : 0.95;
-    let pivotY = 1.62 - 0.5 * c.crouchK;
+    let dist = (aiming ? 1.7 : c.alive ? 3.3 : 5.5) * (1 - bc) + 2.6 * bc;
+    // with the bag open the fighter stands left of centre, clear of the bag screen on the right
+    let shoulder = (aiming ? 0.62 : 0.95) * (1 - bc) + 1.15 * bc;
+    let pivotY = (1.62 - 0.5 * c.crouchK) * (1 - bc) + 1.3 * bc;
     if (v) {
       dist = v.kind === 'jet' ? 13 : 8;
       shoulder = 0;

@@ -7,19 +7,19 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { audio } from './core/audio';
 import { Input } from './core/input';
-import { loadSave, writeSave, type SaveData, type Settings } from './core/save';
+import { LOADOUT_SIZE, loadSave, writeSave, type SaveData, type Settings } from './core/save';
 import { ALL_WEAPONS, getWeapon } from './data/weapons';
 import { makeWeaponMesh } from './render/weaponModel';
-import { canSpin, spinWheel, applyMatchResult, buyUpgrade, buyVehicle, buyWeapon, sellVehicle, sellWeapon, equipWeapon, formatTL, grenadeCount, killReward, maxHp, streakReward, UPGRADES, type UpgradeId } from './game/economy';
-import { Match, type Drop, type Grenade, type HitInfo, type Projectile } from './game/match';
+import { canSpin, spinWheel, applyMatchResult, putInLoadout, buyUpgrade, buyVehicle, buyWeapon, sellVehicle, sellWeapon, equipWeapon, formatTL, grenadeCount, killReward, maxHp, streakReward, UPGRADES, type UpgradeId } from './game/economy';
+import { Match, type Drop, type Grenade, type HitInfo, type Projectile, type ThrownKnife } from './game/match';
 import { HEAVY_CD, VEHICLE_DEFS, type VehicleKind } from './data/vehicles';
 import type { WeaponDef } from './data/weapons';
 import type { Vehicle } from './game/vehicle';
 import { VehicleView } from './render/vehicleModel';
-import { FLOOR1_Y, ROOF_Y, TUNNEL } from './world/structures';
+import { TUNNEL } from './world/structures';
 import type { Combatant } from './game/combatant';
 import { PlayerController } from './game/player';
-import { CharacterView, loadHumans } from './render/character';
+import { CharacterView, loadHumans, makeKnife } from './render/character';
 import { Effects } from './render/effects';
 import { ambient, makeEnvMap, makeLights, makeSky, setupToneMapping, updateSun, type Lights } from './render/env';
 import { renderWeaponIcons } from './render/icons';
@@ -28,7 +28,7 @@ import { PickupViews, PICKUP_NAMES } from './render/pickups';
 import { APK_URL, SITE_URL, VERSION, VERSION_CODE } from './version';
 import { Capacitor } from '@capacitor/core';
 import { Minimap } from './ui/minimap';
-import { buildWorld } from './world/build3d';
+import { buildWorld, updateInteriors } from './world/build3d';
 import type { CollisionWorld } from './world/collision';
 import { buildPhysics, createMap, type MapData } from './world/map';
 import type { NavWorld } from './world/navworld';
@@ -78,8 +78,16 @@ class Game {
   private vehicleViews = new Map<Vehicle, VehicleView>();
   /** Last enemy the player hurt, for the target health bar. */
   private target: { c: Combatant; t: number } | null = null;
-  /** Weapons picked up during the current match (lost when it ends). */
+  /** Weapons picked up during the current match (lost when it ends): they sit in the backpack. */
   private matchInv: string[] = [];
+  /** The three hand slots in this match (may hold picked-up weapons). */
+  private loadout: string[] = [];
+  /** Backpack: being taken off / open on screen / being put back. */
+  bagState: 'opening' | 'open' | 'closing' | null = null;
+  /** Slot the next weapon chosen in the backpack goes into. */
+  private bagSlot = 0;
+  private knifeMeshes = new Map<ThrownKnife, THREE.Group>();
+  private worldRoot: THREE.Object3D | null = null;
   private update: MenuExtras['update'];
   private readonly native = Capacitor.isNativePlatform();
   private killMoney = 0;
@@ -133,7 +141,10 @@ class Game {
       pause: () => this.pause(),
       resume: () => this.resume(),
       quit: () => this.quit(),
-      switchWeapon: () => this.switchWeapon(),
+      switchWeapon: () => this.toggleBag(),
+      bagPick: (id) => this.bagPick(id),
+      bagSlot: (i) => this.bagSelectSlot(i),
+      bagClose: () => this.closeBag(),
       spin: () => {
         const i = spinWheel(this.save);
         if (i >= 0) { writeSave(this.save); audio.unlock(); audio.siren(); setTimeout(() => audio.buy(), 4300); }
@@ -160,7 +171,8 @@ class Game {
     await step();
     this.scene.add(makeSky());
     this.lights = makeLights(this.scene);
-    this.scene.add(buildWorld(this.map));
+    this.worldRoot = buildWorld(this.map);
+    this.scene.add(this.worldRoot);
     this.scene.add(this.effects.group);
     this.arcDots = new THREE.InstancedMesh(new THREE.SphereGeometry(0.045, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 2.4, 0.6), toneMapped: false }), this.arcPts.length);
     this.arcDots.frustumCulled = false;
@@ -230,16 +242,21 @@ class Game {
     window.addEventListener('keydown', (e) => {
       if (this.state === 'playing' && e.code === 'KeyB') this.openShop();
       else if (e.code === 'Escape' && this.state === 'paused' && !this.ui.root.querySelector('#shop.on')) this.resume();
-      if (this.state === 'playing' && e.code === 'KeyQ') this.switchWeapon();
+      if (this.state === 'playing' && (e.code === 'KeyQ' || e.code === 'Tab')) { e.preventDefault(); this.toggleBag(); }
+      else if (this.state === 'playing' && e.code === 'Escape' && this.bagState) this.closeBag();
       if (this.state === 'playing' && /^Digit[1-9]$/.test(e.code)) {
-        const id = this.inventoryIds()[Number(e.code.slice(5)) - 1];
-        if (id) this.selectWeapon(id);
+        const n = Number(e.code.slice(5)) - 1;
+        if (this.bagState === 'open') this.bagSelectSlot(n);
+        else {
+          const id = this.inventoryIds()[n];
+          if (id) this.selectWeapon(id);
+        }
       }
     });
     document.addEventListener('pointerlockchange', () => {
       const locked = document.pointerLockElement === this.canvas;
       if (locked) this.hadLock = true;
-      else if (this.hadLock && this.state === 'playing') this.pause();
+      else if (this.hadLock && this.state === 'playing' && !this.bagState) this.pause();
     });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) {
@@ -393,6 +410,9 @@ class Game {
     this.projMeshes.clear();
     for (const g of this.grenadeMeshes.values()) this.scene.remove(g);
     this.grenadeMeshes.clear();
+    for (const g of this.knifeMeshes.values()) this.scene.remove(g);
+    this.knifeMeshes.clear();
+    this.forceCloseBag();
     this.arcDots.visible = this.arcRing.visible = false;
     this.pickupViews.clear();
     for (const g of this.dropViews.values()) this.scene.remove(g);
@@ -418,12 +438,32 @@ class Game {
       },
       pickedUp: (c, p, w) => this.onPickup(c, p.kind, w),
       weaponFound: (c, d) => {
-        const have = this.inventoryIds().includes(d.def.id);
+        const have = this.bagIds().includes(d.def.id);
         const better = d.def.price > c.weapon.def.price;
-        this.addToInventory(d.def.id, !have && better);
+        const where = this.addToInventory(d.def.id, !have && better);
         this.ctrl.refill(d.def.id);
         audio.pickupGun();
-        this.ui.popup(have ? `${d.def.name}: mermi doldu` : `+ ${d.def.name}`, 'kill');
+        this.ui.popup(have ? `${d.def.name}: mermi doldu` : where === 'bag' ? `+ ${d.def.name} · ÇANTADA` : `+ ${d.def.name}`, 'kill');
+      },
+      knifeThrown: (k) => {
+        k.owner.view?.knifeThrowAnim();
+        const s = this.listenerPan(k.pos);
+        if (s.dist < 25) audio.whoosh();
+      },
+      knifeLanded: (k, v) => {
+        const s = this.listenerPan(k.pos);
+        if (v) {
+          if (s.dist < 30) audio.stab();
+          this.effects.sparkBurst(_v.set(k.pos.x, v.pos.y + 1.2, k.pos.z), null, v.team === 'blue' ? 0x6fb0ff : 0xff6a4a, 10, 3);
+        } else {
+          audio.clink(s.dist, s.pan);
+          this.effects.sparkBurst(k.pos, null, 0xffe0a0, 6, 2);
+        }
+      },
+      knifeBack: (c, picked) => {
+        if (!c.isPlayer) return;
+        if (picked) { audio.pickupGun(); this.ui.popup('BIÇAĞINI ALDIN', 'kill'); }
+        else this.ui.popup('YENİ BIÇAK', 'kill');
       },
       grenadeThrown: (g) => { g.owner.view?.throwAnim(); const s = this.listenerPan(g.pos); if (s.dist < 25) audio.whoosh(); },
       grenadeBounce: (g) => { const s = this.listenerPan(g.pos); audio.clink(s.dist, s.pan); },
@@ -435,6 +475,7 @@ class Game {
       kill: (e) => this.onKill(e),
       respawn: (c) => {
         if (!c.isPlayer) return;
+        this.forceCloseBag();
         this.ui.death(false);
         this.ctrl.refillAll();
       },
@@ -474,6 +515,13 @@ class Game {
       this.scene.add(c.view.root);
     }
     this.matchInv = [];
+    this.loadout = this.save.loadout.filter((id) => this.save.owned.includes(id)).slice(0, LOADOUT_SIZE);
+    if (!this.loadout.includes(this.save.equipped)) {
+      if (this.loadout.length < LOADOUT_SIZE) this.loadout.push(this.save.equipped);
+      else this.loadout[0] = this.save.equipped;
+    }
+    this.bagState = null;
+    this.bagSlot = 0;
     this.ctrl.attach(m.player, this.inventoryIds());
     this.killMoney = 0;
     this.state = 'playing';
@@ -523,8 +571,10 @@ class Game {
       this.ui.toast(`${getWeapon(id).name} satıldı: +${formatTL(got)}`);
       if (this.match) {
         const p = this.match.player;
+        this.loadout = this.loadout.filter((x) => x !== id);
+        if (!this.loadout.length) this.loadout = [this.save.loadout[0]];
         this.ctrl.owned = this.inventoryIds();
-        if (p.weapon.def.id === id && !this.ctrl.owned.includes(id)) this.ctrl.equip(p, this.save.equipped);
+        if (p.weapon.def.id === id) this.ctrl.equip(p, this.loadout[0]);
       }
     }
     this.ui.renderShop(this.save);
@@ -658,8 +708,13 @@ class Game {
     return getWeapon(id);
   }
 
-  /** Owned weapons in shop order, then this match's pick-ups. */
+  /** The hand slots (at most three weapons). */
   inventoryIds(): string[] {
+    return this.match ? [...this.loadout] : [...this.save.loadout];
+  }
+
+  /** Everything in the backpack: owned weapons in shop order, then this match's pick-ups. */
+  bagIds(): string[] {
     const owned = ALL_WEAPONS.filter((w) => this.save.owned.includes(w.id)).map((w) => w.id);
     return [...owned, ...this.matchInv.filter((id) => !owned.includes(id))];
   }
@@ -672,24 +727,145 @@ class Game {
     audio.click();
   }
 
-  private addToInventory(id: string, autoEquip: boolean): void {
+  /**
+   * A weapon found in the match goes into a free hand slot, else into the
+   * backpack. `toHand` (supply drops) puts it in the hand slot in use instead.
+   */
+  private addToInventory(id: string, autoEquip: boolean, toHand = false): 'slot' | 'bag' {
     const m = this.match!;
-    if (!this.inventoryIds().includes(id)) this.matchInv.push(id);
+    if (!this.bagIds().includes(id)) this.matchInv.push(id);
+    let where: 'slot' | 'bag' = 'bag';
+    if (this.loadout.includes(id)) where = 'slot';
+    else if (this.loadout.length < LOADOUT_SIZE) { this.loadout.push(id); where = 'slot'; }
+    else if (toHand) {
+      this.loadout[Math.max(0, this.loadout.indexOf(m.player.weapon.def.id))] = id;
+      where = 'slot';
+    }
     this.ctrl.owned = this.inventoryIds();
-    if (autoEquip) this.ctrl.equip(m.player, id);
+    if (where === 'slot' && (autoEquip || toHand)) this.ctrl.equip(m.player, id);
+    if (this.bagState === 'open') this.renderBag();
+    return where;
   }
 
+  /** Shop purchase or KUŞAN during a match: the hand slots follow the saved ones. */
   private applyEquip(id: string): void {
     if (!this.match) return;
+    const temps = this.loadout.filter((x) => !this.save.owned.includes(x));
+    this.loadout = [...this.save.loadout];
+    for (const t of temps) if (this.loadout.length < LOADOUT_SIZE) this.loadout.push(t);
     this.ctrl.owned = this.inventoryIds();
     this.ctrl.equip(this.match.player, id);
   }
 
+  /** Quick switch to the next hand slot. */
   switchWeapon(): void {
-    if (this.state !== 'playing' || !this.match) return;
+    if (this.state !== 'playing' || !this.match || this.bagState) return;
     const id = this.ctrl.cycle(this.match.player);
     audio.click();
     this.ui.popup(getWeapon(id).name, 'kill');
+  }
+
+  // ------------------------------------------------------------------ backpack
+  /** The weapon button: take the backpack off and open it, or close it again. */
+  toggleBag(): void {
+    if (this.bagState === 'open' || this.bagState === 'opening') this.closeBag();
+    else this.openBag();
+  }
+
+  openBag(): void {
+    const m = this.match;
+    if (!m || this.state !== 'playing' || m.over) return;
+    const p = m.player;
+    if (!p.alive || p.vehicle || this.bagState === 'opening' || this.bagState === 'open') return;
+    p.inBag = true;
+    p.view?.setBag(true);
+    this.bagState = 'opening';
+    this.bagSlot = Math.max(0, this.loadout.indexOf(p.weapon.def.id));
+    audio.zip();
+  }
+
+  closeBag(): void {
+    const m = this.match;
+    if (!m || !this.bagState || this.bagState === 'closing') return;
+    this.ui.closeBag();
+    m.player.view?.setBag(false);
+    this.bagState = 'closing';
+    audio.zip();
+    this.input.requestPointerLock();
+  }
+
+  /** Instantly back to normal (death, respawn, leaving the match). */
+  private forceCloseBag(): void {
+    this.ui.closeBag();
+    this.bagState = null;
+    const p = this.match?.player;
+    if (p) { p.inBag = false; p.view?.setBag(false); }
+  }
+
+  /** Advances the backpack animation and shows / hides the bag screen at its ends. */
+  private updateBag(m: Match): void {
+    const p = m.player;
+    if (!this.bagState) return;
+    if (!p.alive || m.over) { this.forceCloseBag(); return; }
+    const k = p.view?.bagProgress ?? (this.bagState === 'closing' ? 0 : 1);
+    if (this.bagState === 'opening' && k >= 0.999) {
+      this.bagState = 'open';
+      this.input.exitPointerLock();
+      this.renderBag();
+    } else if (this.bagState === 'closing' && k <= 0.001) {
+      this.bagState = null;
+      p.inBag = false;
+    }
+  }
+
+  private renderBag(): void {
+    const m = this.match;
+    if (!m) return;
+    const p = m.player;
+    this.ui.openBag({
+      slots: Array.from({ length: LOADOUT_SIZE }, (_, i) => {
+        const id = this.loadout[i];
+        return id ? { id, name: getWeapon(id).name, current: p.weapon.def.id === id } : null;
+      }),
+      selected: this.bagSlot,
+      items: this.bagIds().map((id) => ({ id, name: getWeapon(id).name, temp: !this.save.owned.includes(id), slot: this.loadout.indexOf(id) })),
+    });
+  }
+
+  /** Chooses the hand slot to fill, and takes its weapon in hand. */
+  bagSelectSlot(i: number): void {
+    if (this.bagState !== 'open' || i < 0 || i >= LOADOUT_SIZE) return;
+    this.bagSlot = i;
+    const id = this.loadout[i];
+    if (id && this.match) this.ctrl.equip(this.match.player, id);
+    audio.click();
+    this.renderBag();
+  }
+
+  /** Puts a weapon from the backpack into the chosen slot (swapping if it is in another one) and takes it in hand. */
+  bagPick(id: string): void {
+    const m = this.match;
+    if (!m || this.bagState !== 'open' || !this.bagIds().includes(id)) return;
+    const lo = this.loadout;
+    const slot = Math.min(this.bagSlot, lo.length);
+    const at = lo.indexOf(id);
+    if (at >= 0 && at !== slot && slot < lo.length) [lo[at], lo[slot]] = [lo[slot], lo[at]];
+    else if (at < 0) {
+      if (slot < lo.length) lo[slot] = id;
+      else lo.push(id);
+    }
+    this.bagSlot = lo.indexOf(id);
+    this.ctrl.owned = this.inventoryIds();
+    this.ctrl.equip(m.player, id);
+    // the saved hand slots follow, for weapons the player owns
+    if (this.save.owned.includes(id)) {
+      const keep = lo.filter((x) => this.save.owned.includes(x));
+      this.save.loadout = keep.length ? keep : [this.save.owned[0]];
+      putInLoadout(this.save, id);
+      writeSave(this.save);
+    }
+    audio.pickupGun();
+    this.renderBag();
   }
 
   changeSettings(s: Partial<Settings>): void {
@@ -826,7 +1002,7 @@ class Game {
     if (c.isPlayer) {
       audio.powerup();
       if (kind === 'airdrop' && w) {
-        this.addToInventory(w.id, true);
+        this.addToInventory(w.id, true, true);
         c.weapon.refill();
         this.ui.banner(w.name.toUpperCase() + '!', 'Süper silah · bu maç boyunca envanterinde');
       } else this.ui.banner(PICKUP_NAMES[kind]);
@@ -927,6 +1103,7 @@ class Game {
       if (this.input.consume('jet')) this.vehicleAction('jet');
       if (this.input.consume('vehicle')) this.vehicleAction('toggle');
       // after the match ends (end screen pending) this still drives the camera
+      this.updateBag(m);
       this.ctrl.update(dt, m.player, this.input, m, this.save.settings);
       const pv = m.player.vehicle;
       audio.engine(pv && !m.over ? pv.kind : null, pv ? (pv.kind === 'tank' ? Math.abs(pv.speed) / 12 : 0.3 + pv.vel.length() / 25) : 0);
@@ -938,6 +1115,7 @@ class Game {
     if (m && this.state !== 'menu') {
       this.syncViews(dt, m);
       this.syncGrenades(m);
+      this.syncKnives(m, dt);
       this.syncDrops(m, dt);
       this.pickupViews.sync(m.pickups, dt, (pos) => this.effects.puff(_v.set(pos.x + (Math.random() - 0.5), 0.3, pos.z + (Math.random() - 0.5)), 0.9, 0xff4a3a, 2.2, 1.6));
       if (this.state === 'playing') this.updateHud(dt, m);
@@ -968,6 +1146,7 @@ class Game {
       updateSun(this.lights, focus);
       if (this.shadowEvery > 1) this.lights.sun.shadow.needsUpdate = true;
     }
+    if (this.worldRoot) updateInteriors(this.worldRoot, this.camera.position);
     this.render();
     this.measureFps();
   }
@@ -984,6 +1163,7 @@ class Game {
       f.set(Math.sin(c.yaw), 0, Math.cos(c.yaw));
       r.set(-Math.cos(c.yaw), 0, Math.sin(c.yaw));
       v.setShield(c.shieldT);
+      if (c.isPlayer) v.setKnifeReady(this.ctrl.knifeAiming && c.alive);
       v.setDistance(c.isPlayer ? 0 : this.camera.position.distanceTo(c.pos));
       v.update(dt, {
         speed,
@@ -1068,6 +1248,40 @@ class Game {
     }
   }
 
+  /** Thrown knives: spinning end over end in flight, lying flat once down. */
+  private syncKnives(m: Match, dt: number): void {
+    for (const k of m.knives) {
+      let g = this.knifeMeshes.get(k);
+      if (!g) {
+        g = new THREE.Group();
+        const kn = makeKnife();
+        kn.visible = true;
+        kn.scale.setScalar(1.6); // reads better at a distance
+        kn.traverse((o) => { o.castShadow = true; });
+        g.add(kn);
+        this.scene.add(g);
+        this.knifeMeshes.set(k, g);
+      }
+      g.position.copy(k.pos);
+      if (k.flying) {
+        g.rotation.set(0, Math.atan2(k.vel.x, k.vel.z), 0);
+        g.children[0].rotation.set(k.spin, 0, 0);
+      } else {
+        g.children[0].rotation.set(Math.PI / 2, 0, 0.4);
+        g.rotation.y += dt * 0.8;
+      }
+    }
+    for (const [k, g] of this.knifeMeshes) {
+      if (k.alive && m.knives.includes(k)) continue;
+      this.scene.remove(g);
+      g.traverse((o) => {
+        const mm = o as THREE.Mesh;
+        if (mm.isMesh) { mm.geometry.dispose(); (mm.material as THREE.Material).dispose(); }
+      });
+      this.knifeMeshes.delete(k);
+    }
+  }
+
   private syncGrenades(m: Match): void {
     for (const g of m.grenades) {
       let mesh = this.grenadeMeshes.get(g);
@@ -1095,10 +1309,12 @@ class Game {
     }
     // aiming arc
     const p = m.player;
-    const show = this.ctrl.grenadeAiming && p.alive && this.state === 'playing';
-    this.arcDots.visible = this.arcRing.visible = show;
+    const knife = this.ctrl.knifeAiming && p.alive && this.state === 'playing';
+    const show = (this.ctrl.grenadeAiming || knife) && p.alive && this.state === 'playing';
+    this.arcDots.visible = show;
+    this.arcRing.visible = show && !knife;
     if (show) {
-      const n = this.ctrl.grenadeArc(p, m, this.arcPts);
+      const n = knife ? this.ctrl.knifeArc(p, m, this.arcPts) : this.ctrl.grenadeArc(p, m, this.arcPts);
       const mat = new THREE.Matrix4();
       for (let i = 0; i < this.arcPts.length; i++) {
         const q = this.arcPts[Math.min(i, n - 1)];
@@ -1129,6 +1345,7 @@ class Game {
       money: this.save.money, aiming: p.aiming, scope: p.alive && p.aiming && w.def.zoom < 0.5,
       enemyUnderCross: this.enemyUnderCross, owned: this.save.owned.length, dt,
       grenades: p.grenades,
+      knife: p.hasKnife ? -1 : Math.max(0, p.knifeBackT),
       dmgBuff: p.dmgBuffT, speedBuff: p.speedBuffT, stamina: p.stamina,
       grenadeWarn: p.alive && m.grenades.some((g) => g.owner.team !== p.team && g.pos.distanceTo(p.pos) < 7),
       crouch: p.crouch,
@@ -1144,7 +1361,7 @@ class Game {
       level: p.alive ? this.levelLabel(m, p) : '',
       target: this.targetInfo(),
     });
-    this.ui.inventory(this.ctrl.owned.map((id) => ({ id, name: getWeapon(id).name, temp: !this.save.owned.includes(id), current: p.weapon.def.id === id })));
+    this.ui.inventory(this.ctrl.owned.map((id) => ({ id, name: getWeapon(id).name, temp: !this.save.owned.includes(id), current: p.weapon.def.id === id })), LOADOUT_SIZE);
     if (!p.alive) this.ui.death(true, p.lastAttacker?.name ?? '', p.respawnT);
     else this.ui.death(false);
     this.minimap.draw(m, dt);
@@ -1155,8 +1372,9 @@ class Game {
     if (p.vehicle) return p.vehicle.kind === 'jet' ? `İRTİFA ${Math.round(p.pos.y)} m` : '';
     const name = m.nav.levelName(p.pos.x, p.pos.y, p.pos.z);
     if (name === TUNNEL) return 'METRO';
-    if (p.pos.y >= ROOF_Y - 0.5 && name.endsWith('-roof')) return 'ÇATI';
-    if (p.pos.y >= FLOOR1_Y - 0.5 && name.endsWith('-1')) return '1. KAT';
+    if (name.endsWith('-roof') || name.endsWith('-roofm')) return p.pos.y > 1 ? 'ÇATI' : '';
+    const k = /-(\d+)m?$/.exec(name);
+    if (k && p.pos.y > 1) return `${k[1]}. KAT`;
     if (this.map.structures.houses.some((h) => p.pos.x > h.x0 && p.pos.x < h.x1 && p.pos.z > h.z0 && p.pos.z < h.z1)) return 'ZEMİN KAT';
     return '';
   }

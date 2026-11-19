@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GRENADE, GRENADE_FUSE, GRENADE_RADIUS, KNIFE, SHOP_WEAPONS, START_GRENADES, STARTER, getWeapon, type WeaponDef } from '../data/weapons';
+import { GRENADE, GRENADE_FUSE, GRENADE_RADIUS, KNIFE, KNIFE_GRAVITY, KNIFE_RETURN, KNIFE_SPEED, SHOP_WEAPONS, START_GRENADES, STARTER, THROWN_KNIFE, getWeapon, type WeaponDef } from '../data/weapons';
 import type { Team } from '../render/character';
 import { CollisionWorld, WORLD_FLOOR, rayCharacter } from '../world/collision';
 import type { MapData, V2 } from '../world/map';
@@ -15,6 +15,8 @@ export const KILL_LIMIT = 60;
 export const MATCH_TIME = 300;
 export const RESPAWN_TIME = 3;
 export const SHIELD_TIME = 2;
+/** Nobody respawns closer than this to a living enemy. */
+export const SPAWN_SAFE = 30;
 
 const BLUE_NAMES = ['Kartal', 'Aslan', 'Pars', 'Doğan', 'Yıldız', 'Bora', 'Tuna', 'Efe', 'Atlas'];
 const RED_NAMES = ['Kurt', 'Kobra', 'Akrep', 'Kara', 'Fırtına', 'Yılan', 'Çakal', 'Duman', 'Kaya', 'Volkan'];
@@ -35,6 +37,18 @@ export interface Grenade {
   fuse: number;
   alive: boolean;
   resting: boolean;
+}
+
+/** A thrown knife: flying, then lying where it landed until its owner picks it up. */
+export interface ThrownKnife {
+  owner: Combatant;
+  pos: THREE.Vector3;
+  vel: THREE.Vector3;
+  /** Spin angle for the view. */
+  spin: number;
+  flying: boolean;
+  alive: boolean;
+  age: number;
 }
 
 export type PickupKind = 'health' | 'damage' | 'speed' | 'airdrop';
@@ -117,6 +131,11 @@ export interface MatchEvents {
   weaponFound?(c: Combatant, d: Drop): void;
   grenadeBounce?(g: Grenade): void;
   melee?(c: Combatant, victim: Combatant | null, backstab: boolean): void;
+  knifeThrown?(k: ThrownKnife): void;
+  /** Landed in a wall or the floor (victim null) or hit a fighter. */
+  knifeLanded?(k: ThrownKnife, victim: Combatant | null): void;
+  /** The owner has a knife again (picked up, or it came back). */
+  knifeBack?(c: Combatant, pickedUp: boolean): void;
   shot?(c: Combatant, hit: HitInfo, def: WeaponDef): void;
   projectileFired?(p: Projectile): void;
   explosion?(pos: THREE.Vector3, radius: number, owner: Combatant): void;
@@ -146,6 +165,7 @@ export class Match {
   winner: Team | 'draw' | null = null;
   readonly projectiles: Projectile[] = [];
   readonly grenades: Grenade[] = [];
+  readonly knives: ThrownKnife[] = [];
   readonly pickups: Pickup[] = [];
   readonly drops: Drop[] = [];
   readonly vehicles: Vehicle[] = [];
@@ -183,13 +203,15 @@ export class Match {
     this.combatants.push(this.player);
     for (const n of BLUE_NAMES.slice(0, TEAM_SIZE - 1)) this.addBot(id++, n, 'blue');
     for (const n of RED_NAMES.slice(0, TEAM_SIZE)) this.addBot(id++, n, 'red');
-    const used = new Set<number>();
+    // first spawn: each team scattered over its own half of the city, a different
+    // spot every match (no fixed base)
+    const taken: V2[] = [];
     for (const c of this.combatants) {
-      const list = this.spawnList(c.team);
-      let i = 0;
-      while (used.has((c.team === 'blue' ? 0 : 100) + i)) i++;
-      used.add((c.team === 'blue' ? 0 : 100) + i);
-      const p = list[i % list.length];
+      const half = this.map.spawns.filter((p) => (c.team === 'blue' ? p.x < -25 : p.x > 25));
+      const list = half.length ? half : this.map.spawns;
+      let p = list[Math.floor(this.rand() * list.length)];
+      for (let tries = 0; tries < 40 && taken.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 7); tries++) p = list[Math.floor(this.rand() * list.length)];
+      taken.push(p);
       this.placeAt(c, p);
       c.shieldT = SHIELD_TIME;
       c.grenades = c.maxGrenades;
@@ -221,8 +243,9 @@ export class Match {
     return this.rand();
   }
 
-  spawnList(team: Team): V2[] {
-    return team === 'blue' ? this.map.spawns.blue : this.map.spawns.red;
+  /** Every spawn point (the city-wide pool; teams have no fixed base). */
+  spawnList(_team?: Team): V2[] {
+    return this.map.spawns;
   }
 
   enemiesOf(c: Combatant): Combatant[] {
@@ -231,7 +254,11 @@ export class Match {
 
   private placeAt(c: Combatant, p: V2): void {
     c.pos.set(p.x, 0, p.z);
-    c.yaw = c.team === 'blue' ? Math.PI / 2 : -Math.PI / 2; // face the enemy base
+    // face the enemy team's centre (or the middle of the city)
+    let ex = 0, ez = 0, n = 0;
+    for (const o of this.combatants) if (o.team !== c.team && o.alive && o.pos.lengthSq() > 0) { ex += o.pos.x; ez += o.pos.z; n++; }
+    if (n) { ex /= n; ez /= n; }
+    c.yaw = Math.atan2(ex - p.x, ez - p.z);
     c.pitch = 0;
     c.vx = c.vz = c.velY = 0;
     c.onGround = true;
@@ -239,21 +266,40 @@ export class Match {
     c.crouchK = 0;
   }
 
-  private respawn(c: Combatant): void {
+  /**
+   * A random spot somewhere in the city: never close to or in sight of an
+   * enemy, but not so far away that the fighter walks for a minute.
+   */
+  pickSpawn(c: Combatant): V2 {
     const list = this.spawnList(c.team);
     const enemies = this.combatants.filter((o) => o.alive && o.team !== c.team);
     let best = list[0], bestScore = -Infinity;
-    for (const p of list) {
+    for (let k = 0; k < 48; k++) {
+      const p = list[Math.floor(this.rand() * list.length)];
       let minD = 999;
       for (const e of enemies) minD = Math.min(minD, Math.hypot(e.pos.x - p.x, e.pos.z - p.z));
-      const crowd = this.combatants.some((o) => o !== c && o.alive && Math.hypot(o.pos.x - p.x, o.pos.z - p.z) < 1.2);
-      const score = minD + this.rand() * 10 - (crowd ? 100 : 0);
+      const crowd = this.combatants.some((o) => o !== c && o.alive && Math.hypot(o.pos.x - p.x, o.pos.z - p.z) < 1.5);
+      let score = this.rand() * 25 - (crowd ? 200 : 0);
+      if (minD < SPAWN_SAFE) score -= 300 - minD;
+      else score -= Math.max(0, minD - 75) * 0.6; // prefer the edge of the action
+      if (score > bestScore - 60) {
+        // seen by an enemy on arrival: a last resort only
+        const seen = enemies.some((e) => Math.hypot(e.pos.x - p.x, e.pos.z - p.z) < 70
+          && this.world.segmentClear(e.pos.x, e.pos.y + e.eyeY(), e.pos.z, p.x, 1.5, p.z));
+        if (seen) score -= 120;
+      }
       if (score > bestScore) { bestScore = score; best = p; }
     }
-    this.placeAt(c, best);
+    return best;
+  }
+
+  private respawn(c: Combatant): void {
+    this.placeAt(c, this.pickSpawn(c));
     c.hp = c.maxHp;
     c.alive = true;
     c.grenades = c.maxGrenades;
+    this.returnKnife(c, false);
+    c.inBag = false;
     c.streak = 0;
     c.shieldT = SHIELD_TIME;
     c.lastAttacker = null;
@@ -290,6 +336,7 @@ export class Match {
     }
     this.updateProjectiles(dt);
     this.updateGrenades(dt);
+    this.updateKnives(dt);
     this.updatePickups(dt);
     this.updateDrops(dt);
     if (this.score.blue >= this.killLimit || this.score.red >= this.killLimit || this.time >= this.duration) this.finish();
@@ -566,7 +613,7 @@ export class Match {
 
   /** Knife swing. Backstabs kill instantly. Returns the victim, if any. */
   melee(c: Combatant): Combatant | null {
-    if (!c.alive || c.meleeCd > 0 || this.over) return null;
+    if (!c.alive || c.meleeCd > 0 || this.over || !c.hasKnife) return null;
     c.meleeCd = 0.6;
     c.shieldT = 0;
     const fx = Math.sin(c.yaw), fz = Math.cos(c.yaw);
@@ -589,6 +636,77 @@ export class Match {
     }
     this.events.melee?.(c, best, backstab);
     return best;
+  }
+
+  /** Throws the knife along c.aimDir (lifted a little). Returns false without a knife. */
+  throwKnife(c: Combatant, dir: THREE.Vector3 = c.aimDir): ThrownKnife | null {
+    if (!c.alive || !c.hasKnife || c.meleeCd > 0 || c.vehicle || this.over) return null;
+    c.hasKnife = false;
+    c.knifeBackT = KNIFE_RETURN;
+    c.meleeCd = 0.5;
+    c.shieldT = 0;
+    const k: ThrownKnife = {
+      owner: c,
+      pos: new THREE.Vector3(c.pos.x + Math.sin(c.yaw) * 0.35, c.pos.y + 1.5 - 0.4 * c.crouchK, c.pos.z + Math.cos(c.yaw) * 0.35),
+      vel: dir.clone().normalize().multiplyScalar(KNIFE_SPEED),
+      spin: 0, flying: true, alive: true, age: 0,
+    };
+    if (this.world.blocked(k.pos.x, k.pos.z, 0.05, k.pos.y - 0.1, 0.2)) k.pos.set(c.pos.x, c.pos.y + 1.5, c.pos.z);
+    k.vel.x += c.vx * 0.3;
+    k.vel.z += c.vz * 0.3;
+    this.knives.push(k);
+    this.events.knifeThrown?.(k);
+    return k;
+  }
+
+  /** Gives the fighter a knife again and removes the thrown one. */
+  returnKnife(c: Combatant, pickedUp: boolean): void {
+    for (const k of this.knives) if (k.owner === c) k.alive = false;
+    const had = c.hasKnife;
+    c.hasKnife = true;
+    c.knifeBackT = 0;
+    if (!had) this.events.knifeBack?.(c, pickedUp);
+  }
+
+  private updateKnives(dt: number): void {
+    for (const k of this.knives) {
+      if (!k.alive) continue;
+      k.age += dt;
+      if (k.flying) {
+        k.vel.y -= KNIFE_GRAVITY * dt;
+        k.spin += dt * 22;
+        const sx = k.vel.x * dt, sy = k.vel.y * dt, sz = k.vel.z * dt;
+        const wh = this.world.raycast(k.pos.x, k.pos.y, k.pos.z, sx, sy, sz, 1);
+        const tr = this.traceTargets(k.owner, k.pos.x, k.pos.y, k.pos.z, sx, sy, sz, wh ? wh.t : 1, 0.06);
+        if (tr.victim || tr.vehicle || wh) {
+          k.pos.x += sx * tr.t; k.pos.y += sy * tr.t; k.pos.z += sz * tr.t;
+          k.flying = false;
+          if (tr.vehicle) this.damageVehicle(tr.vehicle, k.owner, THROWN_KNIFE.damage * 0.5);
+          else if (tr.victim) this.damage(tr.victim, k.owner, THROWN_KNIFE.damage * (tr.head ? 2 : 1), tr.head, THROWN_KNIFE);
+          // it drops to the floor below the hit (or stays stuck in the wall)
+          if (tr.victim || tr.vehicle || (wh && wh.ny > 0.5)) {
+            const victim = tr.victim;
+            k.pos.y = this.world.groundHeight(k.pos.x, k.pos.z, 0.05, k.pos.y + 0.2) + 0.03;
+            this.events.knifeLanded?.(k, victim);
+          } else this.events.knifeLanded?.(k, null);
+        } else {
+          k.pos.x += sx; k.pos.y += sy; k.pos.z += sz;
+          if (k.age > 4) k.flying = false;
+        }
+      }
+      const o = k.owner;
+      // the owner walks over it: picked up
+      if (!k.flying && o.alive && !o.vehicle && Math.hypot(o.pos.x - k.pos.x, o.pos.z - k.pos.z) < 1.4 && Math.abs(o.pos.y - k.pos.y) < 2.4) {
+        this.returnKnife(o, true);
+        continue;
+      }
+    }
+    for (const c of this.combatants) {
+      if (c.hasKnife || !c.alive) continue;
+      c.knifeBackT -= dt;
+      if (c.knifeBackT <= 0) this.returnKnife(c, false);
+    }
+    for (let i = this.knives.length - 1; i >= 0; i--) if (!this.knives[i].alive) this.knives.splice(i, 1);
   }
 
   damage(victim: Combatant, attacker: Combatant, amount: number, head: boolean, def: WeaponDef): void {
@@ -664,7 +782,7 @@ export class Match {
     } else c.onGround = c.pos.y - g < 0.05;
     // safety net: never fall out of the world
     if (c.pos.y < WORLD_FLOOR) {
-      const p = this.nav.street.nearestWalkable(c.pos.x, c.pos.z, 20) ?? this.spawnList(c.team)[0];
+      const p = this.nav.street.nearestWalkable(c.pos.x, c.pos.z, 20) ?? this.spawnList()[0];
       c.pos.set(p.x, 0, p.z);
       c.velY = 0;
     }

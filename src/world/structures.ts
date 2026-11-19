@@ -174,7 +174,16 @@ function windowSpots(s: number, e: number, skip?: number): number[] {
 
 const win = (x: number, base: number): Opening => ({ a: x - WIN_W / 2, b: x + WIN_W / 2, bottom: base + WIN_SILL, top: base + WIN_TOP });
 
-export interface HouseSpec { x0: number; x1: number; z0: number; z1: number; color: number }
+export interface HouseSpec {
+  x0: number; x1: number; z0: number; z1: number; color: number;
+  /** Storeys below the roof (default 2). Towers have more. */
+  floors?: number;
+  /** Seed for the furniture mix on the upper floors. */
+  seed?: number;
+}
+
+/** Height of one storey. */
+export const STOREY = FLOOR1_Y;
 
 // ------------------------------------------------------------------ furniture
 /** Furniture placed in a room's own frame (u along x from ix0, v along z from iz0, y up from the floor). */
@@ -288,25 +297,35 @@ class Room3 {
   }
 }
 
+/** Level name of storey k of a building (0 = street, the top one is the roof). */
+export function floorName(name: string, k: number, floors: number): string {
+  return k === 0 ? STREET : k === floors ? name + '-roof' : name + '-' + k;
+}
+
 /**
- * Two storeys and a flat roof. Stairs run along the inside of the z0 wall in
- * a switchback (ground -> 1st floor -> roof). Doors on the z1 and x1 walls.
+ * A walk-in building: `floors` storeys and a flat roof. Stairs run along the
+ * inside of the z0 wall in a switchback: even flights in band r1 climb toward
+ * +x, odd flights in band r2 climb back toward -x. Every slab has a hole over
+ * the flight arriving from below. Doors on the z1 and x1 walls.
  */
 export function buildHouse(o: Out, h: HouseSpec, name: string, res: Res): void {
   const { x0, x1, z0, z1, color } = h;
+  const N = Math.max(2, h.floors ?? 2);
+  const fy = (k: number) => k * STOREY;
+  const roofY = fy(N);
   const ix0 = x0 + T, ix1 = x1 - T, iz0 = z0 + T, iz1 = z1 - T;
   const W = ix1 - ix0, D = iz1 - iz0;
   const xa = ix0 + STAIR_GAP, L = STEPS * TREAD, xb = xa + L;
   const r1: [number, number] = [iz0, iz0 + SW];
   const r2: [number, number] = [iz0 + SW, iz0 + 2 * SW];
   const zm1 = (r1[0] + r1[1]) / 2, zm2 = (r2[0] + r2[1]) / 2;
-  const top = ROOF_Y + PARAPET;
+  const top = roofY + PARAPET;
   const brick: [PieceMat, number] = ['brick', color];
-  const plasterIn = (f: number): [PieceMat, number] => ['plaster', f === 0 ? 0xefe6d2 : 0xdfe7ea];
+  const plasterIn = (f: number): [PieceMat, number] => ['plaster', [0xefe6d2, 0xdfe7ea, 0xe9e2f0, 0xe4ecdc][f % 4]];
   // ---- outer walls (each storey separately so the inner paint differs)
   const doorX = (ix0 + ix1) / 2, doorZ = (iz0 + iz1) / 2;
-  for (const [f, base] of [[0, 0], [1, FLOOR1_Y]]) {
-    const yTop = f === 0 ? FLOOR1_Y : ROOF_Y;
+  for (let f = 0; f < N; f++) {
+    const base = fy(f), yTop = fy(f + 1);
     o.wall('x', z0, iz0, true, x0, x1, base, yTop, [], brick, plasterIn(f));
     const dz1: Opening[] = f === 0 ? [{ a: doorX - DOOR_W / 2, b: doorX + DOOR_W / 2, bottom: 0, top: DOOR_H, door: true }] : [];
     o.wall('x', iz1, z1, false, x0, x1, base, yTop, [...dz1, ...windowSpots(x0, x1, f === 0 ? doorX : undefined).map((x) => win(x, base))], brick, plasterIn(f));
@@ -316,10 +335,10 @@ export function buildHouse(o: Out, h: HouseSpec, name: string, res: Res): void {
     o.wall('z', x0, ix0, true, iz0, iz1, base, yTop, windowSpots(r2[1] + 0.2, iz1).map((z) => win(z, base)), brick, plasterIn(f));
   }
   // parapet: brick both sides with a stone cap
-  o.wall('x', z0, iz0, true, x0, x1, ROOF_Y, top, [], brick, null);
-  o.wall('x', iz1, z1, false, x0, x1, ROOF_Y, top, [], brick, null);
-  o.wall('z', x0, ix0, true, iz0, iz1, ROOF_Y, top, [], brick, null);
-  o.wall('z', ix1, x1, false, iz0, iz1, ROOF_Y, top, [], brick, null);
+  o.wall('x', z0, iz0, true, x0, x1, roofY, top, [], brick, null);
+  o.wall('x', iz1, z1, false, x0, x1, roofY, top, [], brick, null);
+  o.wall('z', x0, ix0, true, iz0, iz1, roofY, top, [], brick, null);
+  o.wall('z', ix1, x1, false, iz0, iz1, roofY, top, [], brick, null);
   // a ring of four boxes (never one slab across the building, which would cut through the rooms)
   const ring = (ox: number, ix: number, y0: number, y1: number) => {
     o.add(box(x0 - ox, x1 + ox, y0, y1, z0 - ox, z0 + ix), 'concrete', 0xd8d3c8, false);
@@ -328,7 +347,7 @@ export function buildHouse(o: Out, h: HouseSpec, name: string, res: Res): void {
     o.add(box(x1 - ix, x1 + ox, y0, y1, z0 + ix, z1 - ix), 'concrete', 0xd8d3c8, false);
   };
   ring(0.06, T + 0.06, top, top + 0.1); // parapet cap
-  ring(0.12, 0, FLOOR1_Y - 0.14, FLOOR1_Y + 0.1); // cornice between the storeys
+  for (let k = 1; k < N; k++) ring(0.12, 0, fy(k) - 0.14, fy(k) + 0.1); // cornice between the storeys
   const plinth = (axis: 'x' | 'z', f0: number, f1: number, s: number, e: number, gap?: number) => {
     const ops: Opening[] = gap !== undefined ? [{ a: gap - DOOR_W / 2 - 0.08, b: gap + DOOR_W / 2 + 0.08, bottom: 0, top: 1 }] : [];
     o.slab(axis, f0, f1, s, e, 0, 0.55, ops, 'concrete', 0x8f8a80, false);
@@ -344,53 +363,60 @@ export function buildHouse(o: Out, h: HouseSpec, name: string, res: Res): void {
   o.add(box(x1 + 0.05, x1 + 1.0, DOOR_H + 0.15, DOOR_H + 0.25, doorZ - 1.9, doorZ + 1.9), 'fabric', 0xb8322a, false);
   // ---- floors and ceilings (visual layers over hidden collision slabs)
   const inner: Rect = { x0: ix0, x1: ix1, z0: iz0, z1: iz1 };
-  const hole1: Rect = { x0: xa, x1: xb, z0: r1[0], z1: r1[1] };
-  const hole2: Rect = { x0: xa, x1: xb, z0: r2[0], z1: r2[1] };
+  /** Flight k (floor k -> k+1): its band and the end it starts from. */
+  const band = (k: number) => (k % 2 === 0 ? r1 : r2);
+  const holeOf = (k: number): Rect => { const b = band(k - 1); return { x0: xa, x1: xb, z0: b[0], z1: b[1] }; };
   o.add(box(ix0, ix1, 0, 0.02, iz0, iz1), 'tile', 0xffffff, false);
-  for (const r of subtract(inner, hole1)) {
-    o.add(box(r.x0, r.x1, FLOOR1_Y - SLAB, FLOOR1_Y, r.z0, r.z1), 'hidden', 0);
-    o.add(box(r.x0, r.x1, FLOOR1_Y - SLAB, FLOOR1_Y - 0.03, r.z0, r.z1), 'plaster', 0xf4f1ea, false);
-    o.add(box(r.x0, r.x1, FLOOR1_Y - 0.03, FLOOR1_Y, r.z0, r.z1), 'wood', 0xffffff, false);
-  }
-  for (const r of subtract(inner, hole2)) {
-    o.add(box(r.x0, r.x1, ROOF_Y - SLAB, ROOF_Y, r.z0, r.z1), 'hidden', 0);
-    o.add(box(r.x0, r.x1, ROOF_Y - SLAB, ROOF_Y - 0.03, r.z0, r.z1), 'plaster', 0xf4f1ea, false);
-    o.add(box(r.x0, r.x1, ROOF_Y - 0.03, ROOF_Y, r.z0, r.z1), 'concrete', 0x77736c, false);
+  for (let k = 1; k <= N; k++) {
+    const y = fy(k);
+    for (const r of subtract(inner, holeOf(k))) {
+      o.add(box(r.x0, r.x1, y - SLAB, y, r.z0, r.z1), 'hidden', 0);
+      o.add(box(r.x0, r.x1, y - SLAB, y - 0.03, r.z0, r.z1), 'plaster', 0xf4f1ea, false);
+      o.add(box(r.x0, r.x1, y - 0.03, y, r.z0, r.z1), k === N ? 'concrete' : 'wood', k === N ? 0x77736c : 0xffffff, false);
+    }
   }
   // baseboards along the inner walls (proud of the plaster), skipping doors
-  for (const [f, base] of [[0, 0], [1, FLOOR1_Y]]) {
+  for (let f = 0; f < N; f++) {
+    const base = fy(f);
     const y0 = base + (f === 0 ? 0.02 : 0), y1 = y0 + 0.12;
     o.slab('x', iz1 - 0.02, iz1, ix0, ix1, y0, y1, f === 0 ? [{ a: doorX - DOOR_W / 2, b: doorX + DOOR_W / 2, bottom: y0, top: y1 }] : [], 'darkwood', 0x3b2618, false);
     o.slab('z', ix1 - 0.02, ix1, iz0, iz1, y0, y1, f === 0 ? [{ a: doorZ - DOOR_W / 2, b: doorZ + DOOR_W / 2, bottom: y0, top: y1 }] : [], 'darkwood', 0x3b2618, false);
     o.add(box(ix0, ix0 + 0.02, y0, y1, r2[1], iz1), 'darkwood', 0x3b2618, false);
-    if (f === 1) o.add(box(ix0, xa, y0, y1, iz0, iz0 + 0.02), 'darkwood', 0x3b2618, false);
+    if (f > 0) o.add(box(ix0, xa, y0, y1, iz0, iz0 + 0.02), 'darkwood', 0x3b2618, false);
     o.add(box(xb, ix1, y0, y1, iz0, iz0 + 0.02), 'darkwood', 0x3b2618, false);
   }
   // ---- stairs (solid down to their floor so nobody walks underneath)
-  for (let i = 0; i < STEPS; i++) {
-    o.add(box(xa + i * TREAD, xa + (i + 1) * TREAD, 0, (i + 1) * RISE, r1[0], r1[1]), 'concrete', 0xb5b0a6);
-    o.add(box(xb - (i + 1) * TREAD, xb - i * TREAD, FLOOR1_Y, FLOOR1_Y + (i + 1) * RISE, r2[0], r2[1]), 'concrete', 0xb5b0a6);
-    // dark nosing strip on each tread edge (slightly proud)
-    o.add(box(xa + i * TREAD - 0.005, xa + i * TREAD + 0.05, (i + 1) * RISE - 0.03, (i + 1) * RISE + 0.004, r1[0] + 0.02, r1[1] - 0.02), 'metal', 0x2a2c30, false);
-    o.add(box(xb - i * TREAD - 0.05, xb - i * TREAD + 0.005, FLOOR1_Y + (i + 1) * RISE - 0.03, FLOOR1_Y + (i + 1) * RISE + 0.004, r2[0] + 0.02, r2[1] - 0.02), 'metal', 0x2a2c30, false);
+  for (let k = 0; k < N; k++) {
+    const base = fy(k), [b0, b1] = band(k), up = k % 2 === 0;
+    for (let i = 0; i < STEPS; i++) {
+      const sx0 = up ? xa + i * TREAD : xb - (i + 1) * TREAD, sx1 = up ? xa + (i + 1) * TREAD : xb - i * TREAD;
+      o.add(box(sx0, sx1, base, base + (i + 1) * RISE, b0, b1), 'concrete', 0xb5b0a6);
+      // dark nosing strip on each tread edge (slightly proud)
+      const ne = up ? xa + i * TREAD : xb - i * TREAD;
+      o.add(box(up ? ne - 0.005 : ne - 0.05, up ? ne + 0.05 : ne + 0.005, base + (i + 1) * RISE - 0.03, base + (i + 1) * RISE + 0.004, b0 + 0.02, b1 - 0.02), 'metal', 0x2a2c30, false);
+    }
+    // handrail on the room side of each flight (visual: posts + rail)
+    const rz = b1 - 0.06;
+    for (let i = 1; i < STEPS; i += 3) {
+      const px = up ? xa + (i + 0.5) * TREAD : xb - (i + 0.5) * TREAD, py = base + (i + 1) * RISE;
+      o.add(box(px - 0.025, px + 0.025, py, py + 0.95, rz, rz + 0.05), 'metal', 0x2c3036, false);
+    }
+    for (let i = 0; i < STEPS; i++) {
+      const px = up ? xa + i * TREAD : xb - (i + 1) * TREAD, py = base + (i + 1) * RISE + 0.92;
+      o.add(box(px, px + TREAD + 0.01, py, py + 0.05, rz, rz + 0.05), 'darkwood', 0x4a3020, false);
+    }
   }
-  // handrail on the open side of the ground-floor flight (visual: posts + rail)
-  for (let i = 1; i < STEPS; i += 3) {
-    const px = xa + (i + 0.5) * TREAD, py = (i + 1) * RISE;
-    o.add(box(px - 0.025, px + 0.025, py, py + 0.95, r1[1] - 0.06, r1[1] - 0.01), 'metal', 0x2c3036, false);
-  }
-  for (let i = 0; i < STEPS; i++) {
-    const px = xa + i * TREAD, py = (i + 1) * RISE + 0.92;
-    o.add(box(px, px + TREAD + 0.01, py, py + 0.05, r1[1] - 0.06, r1[1] - 0.01), 'darkwood', 0x4a3020, false);
-  }
-  // ---- railings round the stairwells (the exit end stays open)
+  // ---- railings round each stairwell (the arrival end stays open)
   const rt = 0.05, rh = 1.0, rc = 0x2c3036;
-  railing(o, box(xa, xb, FLOOR1_Y, FLOOR1_Y + rh, r1[1] - rt, r1[1] + rt), rc);
-  railing(o, box(xa - rt, xa + rt, FLOOR1_Y, FLOOR1_Y + rh, r1[0], r1[1]), rc);
-  railing(o, box(xa, xb, ROOF_Y, ROOF_Y + rh, r2[0] - rt, r2[0] + rt), rc);
-  railing(o, box(xa, xb, ROOF_Y, ROOF_Y + rh, r2[1] - rt, r2[1] + rt), rc);
-  railing(o, box(xb - rt, xb + rt, ROOF_Y, ROOF_Y + rh, r2[0], r2[1]), rc);
-  // ---- furniture: ground floor is a café/shop, upstairs a flat
+  for (let k = 1; k <= N; k++) {
+    const y = fy(k), arrivedUp = (k - 1) % 2 === 0, [h0, h1] = band(k - 1);
+    railing(o, box(xa, xb, y, y + rh, r1[1] - rt, r1[1] + rt), rc);
+    if (!arrivedUp) railing(o, box(xa, xb, y, y + rh, r2[1] - rt, r2[1] + rt), rc);
+    // the closed end: where the arriving flight started
+    if (arrivedUp) railing(o, box(xa - rt, xa + rt, y, y + rh, h0, h1), rc);
+    else railing(o, box(xb - rt, xb + rt, y, y + rh, h0, h1), rc);
+  }
+  // ---- furniture: ground floor is a café/shop, the floors above vary
   const g = new Room3(o, ix0, iz0, 0.02);
   g.table(2.4, D - 2.0);
   g.chair(1.35, D - 2.0, 1, 'u', 0x2f4f6f);
@@ -401,22 +427,21 @@ export function buildHouse(o: Out, h: HouseSpec, name: string, res: Res): void {
   g.rug(3.2, W - 3.2, 4.6, D - 3.2, 0x8c2f2a);
   g.plant(0.45, D - 0.45);
   g.pictureV(0.02, 1, 7.6, 1.4, 1.1, 0.8, 0x3b6fa8);
-  g.lamp(W * 0.35, D * 0.62, FLOOR1_Y - SLAB - 0.02);
-  g.lamp(W * 0.72, D * 0.62, FLOOR1_Y - SLAB - 0.02);
-  const u = new Room3(o, ix0, iz0, FLOOR1_Y);
-  u.desk(2.2, D - 1.0);
-  u.chair(2.2, D - 1.75, 1, 'v', 0x1d1f22);
-  u.sofa(W / 2 + 2.3, Math.min(W / 2 + 4.3, W - 0.3), D - 0.95, D - 0.1, true);
-  u.table(W / 2 + 3.3, D - 1.9, 1.0, 0.55, 0x3b2618);
-  u.bed(0.1, 2.1, 4.4, 6.4);
-  u.shelf(W - 0.45, W - 0.05, 3.2, Math.min(D / 2 - 2.3, 4.0), 1.8);
-  u.rug(W / 2 + 2.0, W - 0.5, D - 3.0, D - 1.3, 0x2f5f6f);
-  u.plant(W - 0.45, D - 0.45);
-  u.pictureU(0.02, 1, 7.4, 1.5, 1.0, 0.7, 0xa8743b);
-  u.lamp(W * 0.35, D * 0.62, ROOF_Y - FLOOR1_Y - SLAB - 0.02);
-  u.lamp(W * 0.72, D * 0.62, ROOF_Y - FLOOR1_Y - SLAB - 0.02);
+  const seed = h.seed ?? 0;
+  for (let f = 1; f < N; f++) {
+    const u = new Room3(o, ix0, iz0, fy(f));
+    const kind = N === 2 ? 0 : (f + seed) % 3;
+    if (kind === 0) furnishFlat(u, W, D);
+    else if (kind === 1) furnishOffice(u, W, D, xb - ix0);
+    else furnishStore(u, W, D, xb - ix0);
+  }
+  for (let f = 0; f < N; f++) {
+    const lamp = new Room3(o, ix0, iz0, f === 0 ? 0.02 : fy(f));
+    const h2 = STOREY - SLAB - 0.02;
+    for (const k of [0.35, 0.72]) lamp.lamp(W * k, D * 0.62, h2);
+  }
   // ---- roof: AC units, water tank, vents, antenna
-  const rf = new Room3(o, ix0, iz0, ROOF_Y);
+  const rf = new Room3(o, ix0, iz0, roofY);
   for (const [cu, cv] of [[W - 1.6, D - 1.4], [W / 2 - 0.4, D - 1.2]]) {
     rf.solid(cu - 0.8, cu + 0.8, 1.0, cv - 0.55, cv + 0.55);
     rf.b(cu - 0.8, cu + 0.8, 0, 1.0, cv - 0.55, cv + 0.55, 'metal', 0xb9bcc0);
@@ -429,20 +454,59 @@ export function buildHouse(o: Out, h: HouseSpec, name: string, res: Res): void {
   rf.b(4.6, 4.75, 0, 3.5, D - 0.35, D - 0.2, 'metal', 0x9aa0a8);
   rf.b(4.0, 5.4, 3.0, 3.06, D - 0.3, D - 0.25, 'metal', 0x9aa0a8);
   // ---- baked lights and rooms
-  for (const base of [0, FLOOR1_Y]) {
-    const ly = base + FLOOR1_Y - SLAB - 0.5;
-    for (const k of [0.35, 0.72]) res.lamps.push({ x: ix0 + W * k, y: ly, z: iz0 + D * 0.62, reach: 6, y0: base - 0.05, y1: base + FLOOR1_Y - 0.2, power: 1.15 });
-    res.rooms.push({ x0: ix0, x1: ix1, z0: iz0, z1: iz1, y0: base, y1: base + FLOOR1_Y - SLAB });
+  for (let f = 0; f < N; f++) {
+    const base = fy(f);
+    const ly = base + STOREY - SLAB - 0.5;
+    for (const k of [0.35, 0.72]) res.lamps.push({ x: ix0 + W * k, y: ly, z: iz0 + D * 0.62, reach: 6, y0: base - 0.05, y1: base + STOREY - 0.2, power: 1.15 });
+    res.rooms.push({ x0: ix0, x1: ix1, z0: iz0, z1: iz1, y0: base, y1: base + STOREY - SLAB });
   }
   // ---- navigation
-  const f1 = name + '-1', roof = name + '-roof';
-  res.levels.push({ name: f1, y: FLOOR1_Y, rect: inner, allow: [], block: [hole1] });
-  res.levels.push({ name: roof, y: ROOF_Y, rect: inner, allow: [], block: [hole2] });
-  res.links.push({ a: STREET, b: f1, pts: [{ x: xa - 0.8, y: 0, z: zm1 }, { x: xb + 0.8, y: FLOOR1_Y, z: zm1 }] });
-  res.links.push({ a: f1, b: roof, pts: [{ x: xb + 0.8, y: FLOOR1_Y, z: zm2 }, { x: xa - 0.8, y: ROOF_Y, z: zm2 }] });
-  res.spots.push({ name: f1, label: '1. KAT', p: { x: (xb + ix1) / 2, y: FLOOR1_Y, z: (iz0 + iz1) / 2 + 0.5 } });
-  res.spots.push({ name: roof, label: 'ÇATI', p: { x: ix0 + W * 0.45, y: ROOF_Y, z: (iz0 + iz1) / 2 } });
+  for (let k = 1; k <= N; k++) res.levels.push({ name: floorName(name, k, N), y: fy(k), rect: inner, allow: [], block: [holeOf(k)] });
+  for (let k = 0; k < N; k++) {
+    const a = floorName(name, k, N), b = floorName(name, k + 1, N);
+    if (k % 2 === 0) res.links.push({ a, b, pts: [{ x: xa - 0.8, y: fy(k), z: zm1 }, { x: xb + 0.8, y: fy(k + 1), z: zm1 }] });
+    else res.links.push({ a, b, pts: [{ x: xb + 0.8, y: fy(k), z: zm2 }, { x: xa - 0.8, y: fy(k + 1), z: zm2 }] });
+  }
+  for (let k = 1; k < N; k++) res.spots.push({ name: floorName(name, k, N), label: k + '. KAT', p: { x: (xb + ix1) / 2, y: fy(k), z: (iz0 + iz1) / 2 + 0.5 } });
+  res.spots.push({ name: floorName(name, N, N), label: 'ÇATI', p: { x: ix0 + W * 0.45, y: roofY, z: (iz0 + iz1) / 2 } });
   res.houses.push({ x0, x1, z0, z1 });
+}
+
+/** A flat: desk, sofa, bed, shelf (the original upstairs). */
+function furnishFlat(u: Room3, W: number, D: number): void {
+  u.desk(2.2, D - 1.0);
+  u.chair(2.2, D - 1.75, 1, 'v', 0x1d1f22);
+  u.sofa(W / 2 + 2.3, Math.min(W / 2 + 4.3, W - 0.3), D - 0.95, D - 0.1, true);
+  u.table(W / 2 + 3.3, D - 1.9, 1.0, 0.55, 0x3b2618);
+  // a 1.6 m strip in front of the stairs stays free (upstairs flights can arrive at either end)
+  u.bed(0.1, 2.1, 5.0, 7.0);
+  u.shelf(W - 0.45, W - 0.05, 3.2, Math.min(D / 2 - 2.3, 4.0), 1.8);
+  u.rug(W / 2 + 2.0, W - 0.5, D - 3.0, D - 1.3, 0x2f5f6f);
+  u.plant(W - 0.45, D - 0.45);
+  u.pictureU(0.02, 1, 7.4, 1.5, 1.0, 0.7, 0xa8743b);
+}
+
+/** Open-plan office: rows of desks with monitors, a meeting table, plants. */
+function furnishOffice(u: Room3, W: number, D: number, stairEnd: number): void {
+  // aisles stay at least 1.6 m wide so people (and bots) can walk between the desks
+  for (let v = 5.6; v < D - 1.2; v += 3.4)
+    for (let x = 1.6; x < W - 1.4; x += 3.6) {
+      u.desk(x, v);
+      u.chair(x, v - 0.75, 1, 'v', 0x23262b);
+    }
+  u.table(Math.max(stairEnd + 2.2, W - 2.4), 1.7, 2.2, 1.0, 0x6b4628);
+  u.plant(W - 0.45, 0.45);
+  u.plant(0.45, D - 0.45);
+  u.pictureU(0.02, 1, D - 2.5, 1.4, 1.2, 0.8, 0x3b6fa8);
+}
+
+/** Storage floor: crate stacks and shelving (plenty of cover). */
+function furnishStore(u: Room3, W: number, D: number, stairEnd: number): void {
+  for (let v = 5.8; v < D - 1.0; v += 4.0)
+    for (let x = 1.6; x < W - 1.0; x += 4.2) u.crates(x, v);
+  if (W - stairEnd > 3) u.shelf(W - 0.45, W - 0.05, 0.4, Math.min(D - 1, 4.0));
+  u.shelf(0.05, 0.5, 6.0, Math.min(D - 0.6, 9));
+  u.rug(stairEnd + 0.6, W - 0.6, 3.0, 3.8, 0x5a5a5a);
 }
 
 // ------------------------------------------------------------------ tunnel
@@ -656,9 +720,10 @@ function mirrorBox(b: AABB): AABB {
 
 /**
  * Builds every structure. `half` lists the walk-in buildings of one half of
- * the point-symmetric map; they and the tunnel half are mirrored to (-x, -z).
+ * the point-symmetric city centre; they and the tunnel half are mirrored to
+ * (-x, -z). `extra` are the outer districts' buildings, built as they are.
  */
-export function buildStructures(half: HouseSpec[]): Structures {
+export function buildStructures(half: HouseSpec[], extra: HouseSpec[] = []): Structures {
   const o = new Out();
   const res: Res = { levels: [], links: [], spots: [], houses: [], tunnel: [], lamps: [], rooms: [] };
   const pits: Rect[] = [];
@@ -676,6 +741,8 @@ export function buildStructures(half: HouseSpec[]): Structures {
   for (const p of [...pits]) pits.push(mirrorRect(p));
   for (const l of [...res.lamps]) res.lamps.push({ ...l, x: -l.x, z: -l.z });
   for (const r of [...res.rooms]) res.rooms.push({ ...r, ...mirrorRect(r) });
+  // the outer districts are not mirrored: each tower is built once
+  extra.forEach((h, i) => buildHouse(o, h, 't' + i, res));
   // shared centre pieces: hall ceiling, floor and lights, plus the tunnel level
   o.add(box(-10.3, 10.3, -CEIL, 0, -6.3, 6.3), 'concrete', 0x8f8b84);
   o.add(box(-46, 46, TB, TY, -12, 12), 'hidden', 0); // collision floor under everything

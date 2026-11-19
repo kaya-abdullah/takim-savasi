@@ -1,6 +1,7 @@
 import { CollisionWorld, type AABB, type Rect } from './collision';
 import { NavWorld } from './navworld';
 import { buildStructures, type Structures } from './structures';
+import { buildDistricts, type BlockSpec, type DistrictKind } from './districts';
 
 export interface Building {
   x0: number; x1: number; z0: number; z1: number; h: number;
@@ -21,14 +22,24 @@ export interface Prop {
 
 export interface V2 { x: number; z: number; }
 
+/** Painted ground area of a district: grass, gravel yard or a marked car park. */
+export interface Zone { kind: 'grass' | 'gravel' | 'lot'; x0: number; x1: number; z0: number; z1: number }
+
 export interface MapData {
   minX: number; maxX: number; minZ: number; maxZ: number;
   buildings: Building[];
   props: Prop[];
-  spawns: { blue: V2[]; red: V2[] };
+  /**
+   * Spawn pool: open street points all over the city. Fighters spawn at a
+   * random one away from enemies (filled in by buildPhysics from the nav grid).
+   */
+  spawns: V2[];
   pois: V2[];
-  roads: { x0: number; x1: number; z0: number; z1: number }[];
-  plaza: { x0: number; x1: number; z0: number; z1: number };
+  roads: Rect[];
+  plaza: Rect;
+  zones: Zone[];
+  /** District name per block (minimap labels, tests). */
+  districts: { name: string; x0: number; x1: number; z0: number; z1: number }[];
   structures: Structures;
 }
 
@@ -124,31 +135,73 @@ function mirrorP(p: Prop): Prop {
   return { ...p, x: -p.x, z: -p.z };
 }
 
+/** City centre half extents (the original hand-built core with the metro). */
+export const CORE = { x: 70, z: 50 };
+
+/**
+ * Street grid of the whole city. The centre keeps its avenue and three cross
+ * streets (now running to the city edge); ring roads frame the centre and two
+ * outer roads split the east and west districts.
+ */
+export const ROADS: Rect[] = [
+  { x0: -140, x1: 140, z0: -6, z1: 6 }, // avenue
+  { x0: -140, x1: 140, z0: 50, z1: 58 }, // north ring
+  { x0: -140, x1: 140, z0: -58, z1: -50 }, // south ring
+  { x0: -35, x1: -27, z0: -100, z1: 100 },
+  { x0: 27, x1: 35, z0: -100, z1: 100 },
+  { x0: -4, x1: 4, z0: -100, z1: 100 },
+  { x0: -78, x1: -70, z0: -100, z1: 100 }, // west ring
+  { x0: 70, x1: 78, z0: -100, z1: 100 }, // east ring
+  { x0: -116, x1: -108, z0: -100, z1: 100 },
+  { x0: 108, x1: 116, z0: -100, z1: 100 },
+];
+
+/** Every outer block and what it holds. Seeds fix each layout; kinds never repeat side by side. */
+const BLOCKS: BlockSpec[] = (() => {
+  const xs: [number, number][] = [[-140, -116], [-108, -78], [-70, -35], [-27, -4], [4, 27], [35, 70], [78, 108], [116, 140]];
+  const north: DistrictKind[] = ['housing', 'park', 'downtown', 'market', 'housing', 'industry', 'downtown', 'lowrise'];
+  const south: DistrictKind[] = ['depot', 'downtown', 'port', 'housing', 'park', 'downtown', 'parking', 'housing'];
+  const floorsN = [0, 0, 6, 0, 0, 0, 4, 0], floorsS = [0, 5, 0, 0, 0, 7, 0, 0];
+  const out: BlockSpec[] = [];
+  xs.forEach(([x0, x1], i) => {
+    out.push({ kind: north[i], rect: { x0, x1, z0: 58, z1: 100 }, floors: floorsN[i] || undefined, seed: 100 + i });
+    out.push({ kind: south[i], rect: { x0, x1, z0: -100, z1: -58 }, floors: floorsS[i] || undefined, seed: 200 + i });
+  });
+  // west and east of the centre, split by the avenue and the outer road
+  const side: [DistrictKind, Rect, number?][] = [
+    ['parking', { x0: -140, x1: -116, z0: 6, z1: 50 }],
+    ['downtown', { x0: -108, x1: -78, z0: 6, z1: 50 }, 5],
+    ['field', { x0: -140, x1: -116, z0: -50, z1: -6 }],
+    ['port', { x0: -108, x1: -78, z0: -50, z1: -6 }],
+    ['park', { x0: 116, x1: 140, z0: 6, z1: 50 }],
+    ['industry', { x0: 78, x1: 108, z0: 6, z1: 50 }],
+    ['lowrise', { x0: 116, x1: 140, z0: -50, z1: -6 }],
+    ['downtown', { x0: 78, x1: 108, z0: -50, z1: -6 }, 5],
+  ];
+  side.forEach(([kind, rect, floors], i) => out.push({ kind, rect, floors, seed: 300 + i }));
+  return out;
+})();
+
 export function createMap(): MapData {
-  const buildings = [...HALF_BUILDINGS, ...HALF_BUILDINGS.map(mirrorB)];
-  const props = [...HALF_PROPS, ...HALF_PROPS.map(mirrorP), ...CENTER_PROPS];
-  const blue: V2[] = [];
-  for (const x of [-66, -63]) for (const z of [-16, -8, 0, 8, 16]) blue.push({ x, z });
-  const red = blue.map((p) => ({ x: -p.x, z: -p.z }));
+  const dist = buildDistricts(BLOCKS);
+  const buildings = [...HALF_BUILDINGS, ...HALF_BUILDINGS.map(mirrorB), ...dist.buildings];
+  const props = [...HALF_PROPS, ...HALF_PROPS.map(mirrorP), ...CENTER_PROPS, ...dist.props];
   const halfPois: V2[] = [
     { x: -31, z: 30 }, { x: 0, z: 30 }, { x: -51.5, z: 0 }, { x: -18, z: 11 },
     { x: -42, z: 25 }, { x: 31, z: 30 }, { x: 0, z: 42 }, { x: 52, z: 26 }, { x: -12, z: 0 },
   ];
-  const pois = [{ x: 6, z: 3 }, ...halfPois, ...halfPois.map((p) => ({ x: -p.x, z: -p.z }))];
+  const pois = [{ x: 6, z: 3 }, ...halfPois, ...halfPois.map((p) => ({ x: -p.x, z: -p.z })), ...dist.pois];
   return {
-    minX: -70, maxX: 70, minZ: -50, maxZ: 50,
+    minX: -140, maxX: 140, minZ: -100, maxZ: 100,
     buildings,
     props,
-    spawns: { blue, red },
+    spawns: [],
     pois,
-    roads: [
-      { x0: -70, x1: 70, z0: -6, z1: 6 },
-      { x0: -35, x1: -27, z0: -50, z1: 50 },
-      { x0: 27, x1: 35, z0: -50, z1: 50 },
-      { x0: -4, x1: 4, z0: -50, z1: 50 },
-    ],
+    roads: ROADS,
     plaza: { x0: -12, x1: 12, z0: -12, z1: 12 },
-    structures: buildStructures(HALF_BUILDINGS.filter((b) => b.enter)),
+    zones: dist.zones,
+    districts: [{ name: 'MERKEZ', x0: -CORE.x, x1: CORE.x, z0: -CORE.z, z1: CORE.z }, ...dist.districts],
+    structures: buildStructures(HALF_BUILDINGS.filter((b) => b.enter), dist.towers),
   };
 }
 
@@ -168,5 +221,27 @@ export function mapPits(m: MapData): Rect[] {
 export function buildPhysics(m: MapData): { boxes: AABB[]; world: CollisionWorld; nav: NavWorld } {
   const boxes = mapColliders(m);
   const world = new CollisionWorld(boxes, m.minX, m.minZ, m.maxX, m.maxZ, mapPits(m));
-  return { boxes, world, nav: new NavWorld(m, boxes) };
+  const nav = new NavWorld(m, boxes);
+  // points of interest sit on walkable street (a district may have put cover on one)
+  for (let i = 0; i < m.pois.length; i++) m.pois[i] = nav.street.nearestWalkable(m.pois[i].x, m.pois[i].z, 8) ?? m.pois[i];
+  if (!m.spawns.length) m.spawns.push(...spawnPool(m, nav, world));
+  return { boxes, world, nav };
+}
+
+/**
+ * Open street points all over the city, 5 m apart: walkable, under open sky,
+ * with room to stand (no cover right on top). Fighters spawn at one of these.
+ */
+export function spawnPool(m: MapData, nav: NavWorld, world: CollisionWorld): V2[] {
+  const out: V2[] = [];
+  const g = nav.street;
+  const inside = (r: Rect, x: number, z: number, e = 0) => x > r.x0 - e && x < r.x1 + e && z > r.z0 - e && z < r.z1 + e;
+  for (let z = m.minZ + 4; z < m.maxZ - 3; z += 5)
+    for (let x = m.minX + 4; x < m.maxX - 3; x += 5) {
+      if (!g.walkableAt(x, z) || !g.walkableAt(x + 1, z) || !g.walkableAt(x - 1, z) || !g.walkableAt(x, z + 1) || !g.walkableAt(x, z - 1)) continue;
+      if (m.structures.houses.some((h) => inside(h, x, z, 1)) || m.structures.pits.some((p) => inside(p, x, z, 2))) continue;
+      if (!world.segmentClear(x, 0.5, z, x, 30, z)) continue;
+      out.push({ x, z });
+    }
+  return out;
 }

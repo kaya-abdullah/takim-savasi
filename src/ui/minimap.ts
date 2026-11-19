@@ -1,30 +1,39 @@
 import type { Match } from '../game/match';
 import type { MapData } from '../world/map';
 
-/** Top-down minimap: static layer pre-rendered once, dots drawn each frame. */
+/** Background resolution (pixels per metre of the pre-rendered city). */
+const S = 2;
+/** Metres of city shown across the minimap's width (it follows the player). */
+const VIEW = 120;
+
+/** Top-down minimap: static layer pre-rendered once, a window round the player drawn each frame. */
 export class Minimap {
   private bg: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
-  private sx: number;
-  private sz: number;
+  private sx = S;
+  private sz = S;
   private acc = 0;
+  /** Screen pixels per metre and the window centre (world) for this frame. */
+  private k: number;
+  private cx = 0;
+  private cz = 0;
 
-  constructor(canvas: HTMLCanvasElement, private map: MapData) {
+  constructor(private canvas: HTMLCanvasElement, private map: MapData) {
     this.ctx = canvas.getContext('2d')!;
-    this.sx = canvas.width / (map.maxX - map.minX);
-    this.sz = canvas.height / (map.maxZ - map.minZ);
+    this.k = canvas.width / VIEW;
     this.bg = document.createElement('canvas');
-    this.bg.width = canvas.width;
-    this.bg.height = canvas.height;
+    this.bg.width = Math.ceil((map.maxX - map.minX) * S);
+    this.bg.height = Math.ceil((map.maxZ - map.minZ) * S);
     const g = this.bg.getContext('2d')!;
     g.fillStyle = '#26303d';
-    g.fillRect(0, 0, canvas.width, canvas.height);
+    g.fillRect(0, 0, this.bg.width, this.bg.height);
+    const zc: Record<string, string> = { grass: '#2f4a2c', gravel: '#3d3a35', lot: '#30343b' };
+    for (const z of map.zones) {
+      g.fillStyle = zc[z.kind];
+      g.fillRect(this.X(z.x0), this.Z(z.z0), (z.x1 - z.x0) * this.sx, (z.z1 - z.z0) * this.sz);
+    }
     g.fillStyle = '#3a4352';
     for (const r of map.roads) g.fillRect(this.X(r.x0), this.Z(r.z0), (r.x1 - r.x0) * this.sx, (r.z1 - r.z0) * this.sz);
-    g.fillStyle = 'rgba(61,139,255,0.35)';
-    g.fillRect(this.X(-70), this.Z(-25), 14 * this.sx, 50 * this.sz);
-    g.fillStyle = 'rgba(255,77,77,0.35)';
-    g.fillRect(this.X(56), this.Z(-25), 14 * this.sx, 50 * this.sz);
     // metro tunnel under the street (dashed outline), drawn below the buildings
     g.save();
     g.strokeStyle = 'rgba(90,209,255,.7)';
@@ -61,21 +70,42 @@ export class Minimap {
       if (p.kind === 'tree' || p.kind === 'lamp') continue;
       g.fillRect(this.X(p.x) - 2, this.Z(p.z) - 2, 4, 4);
     }
+    // walk-in buildings: storey count on the footprint
+    g.fillStyle = '#ffe2a8';
+    g.font = 'bold 12px sans-serif';
+    for (const h of map.structures.houses) {
+      const roof = map.structures.levels.filter((l) => l.name.endsWith('-roof') && l.rect.x0 > h.x0 - 0.5 && l.rect.x1 < h.x1 + 0.5 && l.rect.z0 > h.z0 - 0.5 && l.rect.z1 < h.z1 + 0.5);
+      const floors = roof.length ? Math.round(roof[0].y / 3.5) : 2;
+      if (floors > 2) g.fillText(String(floors), this.X((h.x0 + h.x1) / 2), this.Z((h.z0 + h.z1) / 2));
+    }
   }
 
+  /** Background-canvas pixel of a world point. */
   private X(x: number): number { return (x - this.map.minX) * this.sx; }
   private Z(z: number): number { return (z - this.map.minZ) * this.sz; }
+  /** Minimap pixel of a world point (window centred on the player). */
+  private U(x: number): number { return (x - this.cx) * this.k + this.canvas.width / 2; }
+  private V(z: number): number { return (z - this.cz) * this.k + this.canvas.height / 2; }
 
   draw(m: Match, dt: number): void {
     this.acc += dt;
     if (this.acc < 1 / 20) return; // 20 Hz is plenty
     this.acc = 0;
     const g = this.ctx;
-    g.drawImage(this.bg, 0, 0);
     const p = m.player;
+    const W = this.canvas.width, H = this.canvas.height;
+    this.cx = p.pos.x;
+    this.cz = p.pos.z;
+    g.fillStyle = '#1b222c';
+    g.fillRect(0, 0, W, H);
+    const sw = (W / this.k) * S, sh = (H / this.k) * S;
+    g.drawImage(this.bg, this.X(this.cx) - sw / 2, this.Z(this.cz) - sh / 2, sw, sh, 0, 0, W, H);
     const pc: Record<string, string> = { health: '#3dff7a', damage: '#ff3b3b', speed: '#3dd8ff', airdrop: '#ffc533' };
     for (const q of m.pickups) {
-      const x = this.X(q.pos.x), y = this.Z(q.pos.z);
+      let x = this.U(q.pos.x), y = this.V(q.pos.z);
+      // the supply drop stays on the edge of the map when it is out of view
+      if (q.kind === 'airdrop') { x = Math.min(W - 12, Math.max(12, x)); y = Math.min(H - 12, Math.max(12, y)); }
+      else if (x < -8 || y < -8 || x > W + 8 || y > H + 8) continue;
       g.fillStyle = pc[q.kind];
       g.strokeStyle = '#000';
       g.lineWidth = 2;
@@ -100,11 +130,11 @@ export class Minimap {
       g.strokeStyle = '#000';
       g.lineWidth = 2;
       g.beginPath();
-      g.arc(this.X(v.pos.x), this.Z(v.pos.z), 6, 0, Math.PI * 2);
+      g.arc(this.U(v.pos.x), this.V(v.pos.z), 6, 0, Math.PI * 2);
       g.stroke();
       g.fill();
       g.fillStyle = '#000';
-      g.fillText(v.kind === 'tank' ? 'T' : 'U', this.X(v.pos.x), this.Z(v.pos.z) + 0.5);
+      g.fillText(v.kind === 'tank' ? 'T' : 'U', this.U(v.pos.x), this.V(v.pos.z) + 0.5);
     }
     for (const c of m.combatants) {
       if (!c.alive || c === p) continue;
@@ -113,11 +143,11 @@ export class Minimap {
       if (!ally && m.time - c.lastShotT > 1.2) continue;
       g.fillStyle = ally ? '#4fa3ff' : '#ff4a3d';
       g.beginPath();
-      g.arc(this.X(c.pos.x), this.Z(c.pos.z), ally ? 5 : 6, 0, Math.PI * 2);
+      g.arc(this.U(c.pos.x), this.V(c.pos.z), ally ? 5 : 6, 0, Math.PI * 2);
       g.fill();
     }
     if (p.alive) {
-      const x = this.X(p.pos.x), y = this.Z(p.pos.z);
+      const x = this.U(p.pos.x), y = this.V(p.pos.z);
       // yaw: forward = (sin, cos) in (x, z)
       const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw);
       g.save();

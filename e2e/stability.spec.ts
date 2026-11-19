@@ -8,11 +8,14 @@ test('replaying many matches does not leak GPU textures', async ({ page }) => {
   await page.waitForFunction(() => (window as G).__game?.state === 'menu', null, { timeout: 90_000 });
   const counts: number[] = [];
   for (let i = 0; i < 6; i++) {
-    await g(page, 'g.startMatch()');
+    // bots frozen: since v5.3 they spawn close enough to fight at once, and battle effects
+    // (sparks, explosions) come and go; only textures that pile up across matches are a leak
+    await g(page, `(g.startMatch(), g.match.brains.clear(), g.match.combatants.forEach((c, k) => { c.pos.set(-60 + (k % 5) * 2, 0, -20 + Math.floor(k / 5) * 2); c.yaw = Math.PI / 2; }), 0)`);
     await page.waitForTimeout(700);
     counts.push(await g(page, 'g.renderer.info.memory.textures'));
   }
   // after the first match the texture count must stay flat
+  console.log('textures per match', counts.join(' '));
   expect(Math.max(...counts.slice(1)) - counts[1]).toBeLessThanOrEqual(2);
 });
 

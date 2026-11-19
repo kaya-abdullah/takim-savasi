@@ -18,6 +18,8 @@ export interface SaveData {
   money: number;
   owned: string[];
   equipped: string;
+  /** The (up to) three weapons carried in hand slots; everything else waits in the backpack. */
+  loadout: string[];
   totalKills: number;
   matches: number;
   wins: number;
@@ -34,6 +36,9 @@ export interface SaveData {
 
 const KEY = 'takim-savasi-save-v1';
 
+/** Hand slots: only three weapons are carried at once (the rest stay in the backpack). */
+export const LOADOUT_SIZE = 3;
+
 export function defaultQuality(): Quality {
   if (typeof navigator === 'undefined') return 'high';
   // Phones get 'medium' (sharp, no post-processing); desktops get bloom.
@@ -46,6 +51,7 @@ export function defaultSave(): SaveData {
     money: 0,
     owned: [STARTER.id],
     equipped: STARTER.id,
+    loadout: [STARTER.id],
     totalKills: 0,
     matches: 0,
     wins: 0,
@@ -73,6 +79,13 @@ export function sanitize(raw: unknown): SaveData {
     d.owned = Array.from(new Set([STARTER.id, ...owned]));
   }
   if (typeof r.equipped === 'string' && d.owned.includes(r.equipped)) d.equipped = r.equipped;
+  // hand slots: owned weapons only, no repeats, at most three; the equipped one is always carried
+  const lo = Array.isArray(r.loadout) ? r.loadout.filter((x): x is string => typeof x === 'string' && d.owned.includes(x)) : [];
+  d.loadout = Array.from(new Set(lo)).slice(0, LOADOUT_SIZE);
+  if (!d.loadout.includes(d.equipped)) {
+    if (d.loadout.length >= LOADOUT_SIZE) d.loadout[LOADOUT_SIZE - 1] = d.equipped;
+    else d.loadout.unshift(d.equipped);
+  }
   const s = r.settings as Record<string, unknown> | undefined;
   if (s && typeof s === 'object') {
     if (s.quality === 'low' || s.quality === 'medium' || s.quality === 'high') d.settings.quality = s.quality;

@@ -11,6 +11,7 @@ import { JET_BOMB, TANK_SHELL } from '../src/data/vehicles';
 
 const map = createMap();
 const phys = buildPhysics(map);
+const TOP_ROOF = Math.max(...map.structures.levels.map((l) => l.y));
 
 function quietMatch(seed = 11, difficulty: 'normal' | 'hard' | 'extreme' = 'hard') {
   const m = new Match(map, phys.world, phys.nav, 'pistol', {}, { seed, difficulty });
@@ -99,10 +100,14 @@ describe('economy v4', () => {
 
 describe('walk-in buildings and tunnel', () => {
   const s = map.structures;
-  it('has 6 walk-in buildings (2 floors + roof each) and the tunnel', () => {
-    expect(s.houses).toHaveLength(6);
-    expect(s.levels.filter((l) => l.y === FLOOR1_Y)).toHaveLength(6);
-    expect(s.levels.filter((l) => l.y === ROOF_Y)).toHaveLength(6);
+  it('has 6 two-storey buildings in the centre, tall towers outside, and the tunnel', () => {
+    const core = s.houses.filter((h) => Math.abs(h.x0) < 70 && Math.abs(h.z0) < 50);
+    expect(core).toHaveLength(6);
+    expect(s.levels.filter((l) => l.y === ROOF_Y && /^h\d-roof/.test(l.name))).toHaveLength(6);
+    // towers: at least four buildings of 4+ storeys, each floor walkable
+    const roofs = s.levels.filter((l) => l.name.endsWith('-roof'));
+    expect(roofs.filter((l) => l.y >= 4 * FLOOR1_Y).length).toBeGreaterThanOrEqual(4);
+    expect(Math.max(...roofs.map((l) => l.y))).toBeGreaterThanOrEqual(20);
     expect(s.levels.filter((l) => l.name === TUNNEL)).toHaveLength(1);
     expect(s.pits).toHaveLength(4);
     expect(s.links.filter((l) => l.b === TUNNEL)).toHaveLength(4);
@@ -131,7 +136,7 @@ describe('walk-in buildings and tunnel', () => {
     }
   });
   it('POIs and spawns are on walkable street, never inside a stairwell', () => {
-    for (const p of [...map.pois, ...map.spawns.blue, ...map.spawns.red]) {
+    for (const p of [...map.pois, ...map.spawns]) {
       expect(phys.world.inPit(p.x, p.z)).toBe(false);
       expect(phys.nav.street.walkableAt(p.x, p.z), `${p.x},${p.z}`).toBe(true);
     }
@@ -158,9 +163,11 @@ describe('walk-in buildings and tunnel', () => {
     for (const sp of s.spots.filter((x) => x.label === 'ÇATI')) {
       const m = quietMatch();
       const p = m.player;
-      p.pos.set(-63, 0, 0);
-      const end = walk(m, p, sp.p, 60);
-      expect(end.y, sp.name).toBeCloseTo(ROOF_Y, 1);
+      // start on the street next to the building
+      const near = phys.nav.street.nearestWalkable(sp.p.x + 14, sp.p.z + 12, 12)!;
+      p.pos.set(near.x, 0, near.z);
+      const end = walk(m, p, sp.p, 90);
+      expect(end.y, sp.name).toBeCloseTo(sp.p.y, 1);
       expect(Math.hypot(end.x - sp.p.x, end.z - sp.p.z), sp.name).toBeLessThan(1.5);
     }
   });
@@ -174,6 +181,30 @@ describe('walk-in buildings and tunnel', () => {
     end = walk(m, p, { x: 52, y: 0, z: 0 }, 60);
     expect(end.y).toBeCloseTo(0, 1);
     expect(end.x).toBeGreaterThan(50);
+  });
+  it('every floor of every building is one connected area reachable from its stairs', () => {
+    for (const lv of phys.nav.levels.slice(1)) {
+      if (lv.name === TUNNEL) continue;
+      const g = lv.grid;
+      const li = phys.nav.levels.indexOf(lv);
+      const start = phys.nav.links.find((k) => k.a === li)!.pts[0];
+      const s0 = g.nearestWalkable(start.x, start.z, 2)!;
+      const [sx, sz] = g.toCell(s0.x, s0.z);
+      const seen = new Uint8Array(g.w * g.h);
+      const q = [sz * g.w + sx];
+      seen[q[0]] = 1;
+      while (q.length) {
+        const n = q.pop()!;
+        const x = n % g.w, z = (n / g.w) | 0;
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const k = (z + dz) * g.w + x + dx;
+          if (g.isWalkable(x + dx, z + dz) && !seen[k]) { seen[k] = 1; q.push(k); }
+        }
+      }
+      let total = 0, reached = 0;
+      for (let i = 0; i < g.walk.length; i++) if (g.walk[i]) { total++; if (seen[i]) reached++; }
+      expect(reached / total, lv.name).toBeGreaterThan(0.9);
+    }
   });
   it('the street level is a single connected area (no sealed pockets)', () => {
     const g = phys.nav.street;
@@ -413,7 +444,7 @@ describe('bots use the new spaces', () => {
       for (const c of m.combatants) {
         expect(Number.isFinite(c.pos.y)).toBe(true);
         expect(c.pos.y).toBeGreaterThan(TUNNEL_Y - 0.6);
-        expect(c.pos.y).toBeLessThan(ROOF_Y + 1.5);
+        expect(c.pos.y).toBeLessThan(TOP_ROOF + 1.5);
         if (c.alive && c.pos.y > FLOOR1_Y - 0.2) up++;
         if (c.alive && c.pos.y < TUNNEL_Y + 0.2) down++;
       }

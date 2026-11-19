@@ -1,3 +1,4 @@
+import { LOADOUT_SIZE } from '../core/save';
 import type { SaveData } from '../core/save';
 import { START_GRENADES, getWeapon, SHOP_WEAPONS } from '../data/weapons';
 import { VEHICLE_DEFS, type VehicleKind } from '../data/vehicles';
@@ -25,14 +26,35 @@ export function buyWeapon(save: SaveData, weaponId: string): BuyResult {
   if (save.money < w.price) return 'no-money';
   save.money -= w.price;
   save.owned.push(w.id);
-  save.equipped = w.id;
+  putInLoadout(save, w.id);
   return 'ok';
 }
 
-export function equipWeapon(save: SaveData, weaponId: string): boolean {
+/**
+ * Carries a weapon in a hand slot and makes it the one in hand. A free slot is
+ * used first; with all three full it takes the given slot (default: the one in
+ * hand), and the weapon there goes back into the backpack.
+ */
+export function putInLoadout(save: SaveData, weaponId: string, slot?: number): boolean {
   if (!save.owned.includes(weaponId)) return false;
-  save.equipped = getWeapon(weaponId).id;
+  const lo = save.loadout;
+  const at = lo.indexOf(weaponId);
+  if (slot !== undefined && slot >= 0 && slot < LOADOUT_SIZE) {
+    if (at >= 0 && at !== slot && slot < lo.length) [lo[at], lo[slot]] = [lo[slot], lo[at]];
+    else if (at < 0) {
+      if (slot < lo.length) lo[slot] = weaponId;
+      else lo.push(weaponId);
+    }
+  } else if (at < 0) {
+    if (lo.length < LOADOUT_SIZE) lo.push(weaponId);
+    else lo[Math.max(0, lo.indexOf(save.equipped))] = weaponId;
+  }
+  save.equipped = weaponId;
   return true;
+}
+
+export function equipWeapon(save: SaveData, weaponId: string): boolean {
+  return putInLoadout(save, getWeapon(weaponId).id);
 }
 
 // ---------------------------------------------------------------- equipment
@@ -116,7 +138,9 @@ export function sellWeapon(save: SaveData, weaponId: string): number {
   if (!w || !save.owned.includes(w.id)) return 0;
   const got = sellPrice(w.price);
   save.owned = save.owned.filter((id) => id !== w.id);
-  if (save.equipped === w.id) save.equipped = save.owned[0];
+  save.loadout = save.loadout.filter((id) => id !== w.id);
+  if (!save.loadout.length) save.loadout = [save.owned[0]];
+  if (save.equipped === w.id) save.equipped = save.loadout[0];
   save.money += got;
   return got;
 }

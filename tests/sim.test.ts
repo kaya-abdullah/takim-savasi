@@ -56,7 +56,7 @@ describe('bot-only match simulation', () => {
     expect(kills).toBeGreaterThan(10);
     expect(m.score.blue + m.score.red).toBe(kills);
     // nobody ends up embedded in a building
-    for (const c of m.combatants) if (c.alive) expect(s.world.blocked(c.pos.x, c.pos.z, 0.3)).toBe(false);
+    for (const c of m.combatants) if (c.alive) expect(s.world.blocked(c.pos.x, c.pos.z, 0.3, c.pos.y), `${c.name} at ${c.pos.toArray()}`).toBe(false);
   });
   it('match ends at the kill limit and reports the winner', () => {
     const s = setup(2);

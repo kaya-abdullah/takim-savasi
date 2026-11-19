@@ -132,6 +132,11 @@ export class Combatant {
   /** Kills since last death. */
   streak = 0;
   meleeCd = 0;
+  /** False while the knife is thrown (until picked up or it comes back). */
+  hasKnife = true;
+  knifeBackT = 0;
+  /** Backpack in hand (choosing weapons): no shooting, no moving. */
+  inBag = false;
   /** Power-up timers (seconds left). */
   dmgBuffT = 0;
   speedBuffT = 0;

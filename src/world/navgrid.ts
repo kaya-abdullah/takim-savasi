@@ -105,7 +105,7 @@ export class NavGrid {
   }
 
   /** A* with 8-neighbours and no corner cutting; result is smoothed. */
-  findPath(sx: number, sz: number, tx: number, tz: number, maxNodes = 6000): V2[] | null {
+  findPath(sx: number, sz: number, tx: number, tz: number, maxNodes = 24000): V2[] | null {
     const s0 = this.nearestWalkable(sx, sz, 4), t0 = this.nearestWalkable(tx, tz, 8);
     if (!s0 || !t0) return null;
     const [six, siz] = this.toCell(s0.x, s0.z);

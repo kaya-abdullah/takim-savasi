@@ -120,7 +120,7 @@ function addRim(mat: THREE.MeshStandardMaterial, color: THREE.Color): void {
   mat.customProgramCacheKey = () => 'rim';
 }
 
-function makeKnife(): THREE.Group {
+export function makeKnife(): THREE.Group {
   const g = new THREE.Group();
   const blade = new THREE.Mesh(
     new THREE.BoxGeometry(0.012, 0.2, 0.035),
@@ -130,6 +130,70 @@ function makeKnife(): THREE.Group {
   const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.09, 10), new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.6 }));
   g.add(blade, handle);
   g.visible = false;
+  return g;
+}
+
+// ------------------------------------------------------------------ backpack
+/** Backpack size (m): width, height, depth. Straps side is +z (against the back). */
+const BAG_W = 0.36, BAG_H = 0.46, BAG_D = 0.2;
+let BAG_PARTS: { flap: THREE.BufferGeometry; extra: THREE.BufferGeometry; inside: THREE.BufferGeometry; guns: THREE.BufferGeometry; fabric: THREE.MeshStandardMaterial; dark: THREE.MeshStandardMaterial } | null = null;
+
+function bagParts() {
+  if (BAG_PARTS) return BAG_PARTS;
+  const gb = new GeomBuilder();
+  const tan = 0x5f6b47, strap = 0x2e2b25, buckle = 0x8a8f96;
+  const rb = (w: number, h: number, d: number, r: number) => new RoundedBoxGeometry(w, h, d, 2, Math.min(r, w / 2.01, h / 2.01, d / 2.01));
+  const at = (x: number, y: number, z: number) => new THREE.Matrix4().makeTranslation(x, y, z);
+  gb.add(rb(BAG_W, BAG_H, BAG_D, 0.06), tan, new THREE.Matrix4());
+  // front pocket, two side pockets, a bedroll strapped under the bag
+  gb.add(rb(BAG_W * 0.74, BAG_H * 0.4, 0.07, 0.03), 0x56603f, at(0, -BAG_H * 0.18, -BAG_D / 2 - 0.025));
+  for (const sx of [-1, 1]) gb.add(rb(0.06, BAG_H * 0.45, BAG_D * 0.7, 0.025), 0x56603f, at(sx * (BAG_W / 2 + 0.02), -BAG_H * 0.15, 0));
+  const roll = new THREE.CylinderGeometry(0.065, 0.065, BAG_W * 0.95, 14).rotateZ(Math.PI / 2);
+  gb.add(roll, 0x3f4a5a, at(0, -BAG_H / 2 - 0.05, 0.0));
+  // shoulder straps and compression straps with buckles
+  for (const sx of [-1, 1]) {
+    gb.add(new THREE.BoxGeometry(0.05, BAG_H * 0.9, 0.025), strap, at(sx * 0.09, 0, BAG_D / 2 + 0.012));
+    gb.add(new THREE.BoxGeometry(0.035, BAG_H * 0.5, 0.012), strap, at(sx * 0.1, -BAG_H * 0.1, -BAG_D / 2 - 0.062));
+    gb.add(new THREE.BoxGeometry(0.045, 0.03, 0.016), buckle, at(sx * 0.1, -BAG_H * 0.02, -BAG_D / 2 - 0.066));
+  }
+  gb.add(new THREE.TorusGeometry(0.035, 0.008, 6, 12, Math.PI).rotateY(Math.PI / 2), strap, at(0, BAG_H / 2 + 0.005, BAG_D / 2 - 0.03));
+  const extra = gb.build();
+  // flap: hinged on the top edge of the straps side, it covers the top and hangs down the front
+  const fb = new GeomBuilder();
+  fb.add(rb(BAG_W * 1.02, 0.03, BAG_D + 0.02, 0.012), 0x56603f, at(0, 0.01, -(BAG_D + 0.02) / 2));
+  fb.add(rb(BAG_W * 1.02, BAG_H * 0.3, 0.03, 0.012), 0x56603f, at(0, -BAG_H * 0.15 + 0.01, -BAG_D - 0.02));
+  const flap = fb.build();
+  // the dark inside and gun parts poking out, seen when the flap is open
+  const ib = new GeomBuilder();
+  ib.add(new THREE.BoxGeometry(BAG_W * 0.86, 0.012, BAG_D * 0.78), 0x1a1a18, at(0, BAG_H / 2 + 0.001, 0));
+  const inside = ib.build();
+  const gg = new GeomBuilder();
+  gg.add(new THREE.CylinderGeometry(0.014, 0.014, 0.2, 8), 0x1d1f22, at(-0.08, BAG_H / 2 + 0.06, 0.02));
+  gg.add(new THREE.BoxGeometry(0.05, 0.12, 0.09), 0x2a2d31, at(0.06, BAG_H / 2 + 0.03, -0.01));
+  gg.add(new THREE.CylinderGeometry(0.012, 0.012, 0.16, 8), 0x3b3326, at(0.0, BAG_H / 2 + 0.05, 0.04));
+  const guns = gg.build();
+  const fabric = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
+  const dark = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.5 });
+  return (BAG_PARTS = { flap, extra, inside, guns, fabric, dark });
+}
+
+/** Backpack mesh: body, a hinged flap (userData.flap), the inside and the gear (shown when open). */
+function makeBackpack(): THREE.Group {
+  const p = bagParts();
+  const g = new THREE.Group();
+  g.name = 'backpack';
+  const body = new THREE.Mesh(p.extra, p.fabric);
+  body.castShadow = true;
+  const hinge = new THREE.Group();
+  hinge.position.set(0, BAG_H / 2, BAG_D / 2);
+  const flap = new THREE.Mesh(p.flap, p.fabric);
+  flap.castShadow = true;
+  hinge.add(flap);
+  const inside = new THREE.Mesh(p.inside, p.dark);
+  const guns = new THREE.Mesh(p.guns, p.dark);
+  inside.visible = guns.visible = false;
+  g.add(body, hinge, inside, guns);
+  g.userData = { hinge, inside, guns };
   return g;
 }
 
@@ -333,6 +397,12 @@ export class CharacterView {
   private sprintK = 0;
   private throwT = 0;
   private knife = makeKnife();
+  /** Knife held up for a throw (shown during the wind-up). */
+  private knifeThrowT = 0;
+  readonly backpack = makeBackpack();
+  /** Backpack: 0 on the back .. 1 held in front and open; target 0 or 1. */
+  private bagK = 0;
+  private bagWant = 0;
   private hiGeo!: THREE.BufferGeometry;
   private loGeo!: THREE.BufferGeometry;
   readonly marker: THREE.Sprite;
@@ -422,6 +492,8 @@ export class CharacterView {
     this.knife.position.set(0, -0.3, 0.02);
     this.knife.rotation.x = -0.3;
     this.bones[BoneId.LFore].add(this.knife);
+    this.bones[BoneId.Chest].add(this.backpack);
+    this.placeBag(0);
     const mt = new THREE.SpriteMaterial({ map: markerTextures()[team], depthTest: true, sizeAttenuation: false, transparent: true });
     this.marker = new THREE.Sprite(mt);
     this.marker.scale.set(0.028, 0.028, 1);
@@ -464,6 +536,38 @@ export class CharacterView {
     if (this.gun) for (const ch of this.gun.children) ch.castShadow = d < 20;
   }
 
+  /** Takes the backpack off the back and opens it (true), or closes it and puts it back. */
+  setBag(open: boolean): void { this.bagWant = open ? 1 : 0; }
+  /** 0 on the back .. 1 in front and open. */
+  get bagProgress(): number { return this.bagK; }
+  /** Knife raised behind the head, ready to throw (while the button is held). */
+  private knifeReady = false;
+  setKnifeReady(on: boolean): void { this.knifeReady = on; }
+  /** Knife throw: the knife shows in the hand during the wind-up. */
+  knifeThrowAnim(): void { this.throwT = 0.4; this.knifeThrowT = 0.4; }
+
+  /**
+   * Backpack pose along its path: on the back, up over the right shoulder,
+   * then held in front of the chest turned round with the flap toward the body.
+   */
+  private placeBag(k: number): void {
+    const b = this.backpack;
+    const back = _a.set(0.03, -0.03, -0.215), over = _b.set(-0.3, 0.42, -0.02), front = _c.set(0, -0.12, 0.44);
+    const t = THREE.MathUtils.smoothstep(k, 0, 0.85);
+    // quadratic Bezier back -> over the shoulder -> front
+    const u = 1 - t;
+    b.position.set(
+      u * u * back.x + 2 * u * t * over.x + t * t * front.x,
+      u * u * back.y + 2 * u * t * over.y + t * t * front.y,
+      u * u * back.z + 2 * u * t * over.z + t * t * front.z,
+    );
+    b.rotation.set(-0.45 * t, Math.PI * t, 0.5 * Math.sin(t * Math.PI));
+    const open = THREE.MathUtils.smoothstep(k, 0.8, 1);
+    const ud = b.userData as { hinge: THREE.Object3D; inside: THREE.Object3D; guns: THREE.Object3D };
+    ud.hinge.rotation.x = 2.1 * open;
+    ud.inside.visible = ud.guns.visible = open > 0.3;
+  }
+
   hitFlash(): void { this.flash = 1; }
   slash(): void { this.slashT = 0.32; }
   throwAnim(): void { this.throwT = 0.4; }
@@ -472,9 +576,12 @@ export class CharacterView {
   die(): void {
     this.deadT = 0;
     if (this.gun) this.gun.visible = false; // it dropped to the ground
+    this.bagWant = 0;
   }
   revive(): void {
     this.deadT = -1;
+    this.bagK = this.bagWant = 0;
+    this.placeBag(0);
     if (this.gun) this.gun.visible = true;
     this.root.visible = true;
     this.root.rotation.x = 0;
@@ -491,7 +598,8 @@ export class CharacterView {
       this.syncHuman();
       if (this.dist < 25) {
         this.body.updateMatrixWorld(true);
-        this.handsOnGun();
+        if (this.bagK > 0.02) this.handsOnBag();
+        else this.handsOnGun();
       }
     }
   }
@@ -506,6 +614,19 @@ export class CharacterView {
     return e.q.copy(this.wq(o.parent)).multiply(o.quaternion);
   }
 
+  /** Hands on the backpack: the right one grabs the top handle, then both hold its sides. */
+  private handsOnBag(): void {
+    if (!this.arms || this.deadT >= 0) return;
+    const chest = this.bones[BoneId.Chest];
+    chest.updateWorldMatrix(true, false);
+    const p = this.backpack.position;
+    const side = THREE.MathUtils.smoothstep(this.bagK, 0.55, 0.9);
+    // targets in the chest's frame (the bag turns round on the way, its own sides swap)
+    _t.set(p.x - (BAG_W / 2 + 0.02) * side, p.y + (BAG_H / 2 + 0.03) * (1 - side), p.z);
+    ikSolve(this.arms.r, chest.localToWorld(_t), this.body.localToWorld(_pole.set(-0.6, -0.5, -0.3)));
+    if (side > 0.05) ikSolve(this.arms.l, chest.localToWorld(_t.set(p.x + BAG_W / 2 + 0.02, p.y, p.z)), this.body.localToWorld(_pole.set(0.6, -0.6, -0.1)));
+  }
+
   /** Puts the soldier's hands on the gun: right on the grip, left on the forend (two-bone IK). */
   private handsOnGun(): void {
     const gun = this.gun;
@@ -515,7 +636,7 @@ export class CharacterView {
     const long = mz > 0.4;
     // wrist targets in gun space: the palm wraps the grip, the wrist sits just behind it
     ikSolve(this.arms.r, gun.localToWorld(_t.set(-0.01, -0.07, -0.03)), this.body.localToWorld(_pole.set(-0.6, -0.5, -0.3)));
-    if (this.slashT > 0 || this.throwT > 0 || this.reloading) return;
+    if (this.slashT > 0 || this.throwT > 0 || this.reloading || this.knifeReady) return;
     if (long) {
       // the forend, or as far along it as the arm reaches (the stance holds the gun well forward)
       const [u, f, h] = this.arms.l;
@@ -602,7 +723,14 @@ export class CharacterView {
     // aim: chest pitches with view, head follows a bit more
     const pitch = THREE.MathUtils.clamp(a.pitch, -0.9, 0.9);
     // bladed rifle stance: torso turned right, head and gun counter-turned to the target
-    const blade = STANCE_YAW * (1 - this.sprintK);
+    // backpack: a steady motion toward the wanted state (about 0.75 s each way)
+    if (this.bagK !== this.bagWant) {
+      const step = dt / 0.75;
+      this.bagK = this.bagWant > this.bagK ? Math.min(this.bagWant, this.bagK + step) : Math.max(this.bagWant, this.bagK - step);
+      this.placeBag(this.bagK);
+    }
+    const bk = THREE.MathUtils.smoothstep(this.bagK, 0, 0.5);
+    const blade = STANCE_YAW * (1 - this.sprintK) * (1 - bk);
     B[BoneId.Chest].rotation.set(-pitch * 0.8, -blade, 0);
     B[BoneId.Head].rotation.set(-pitch * 0.3, blade * 0.9, 0);
     // arms hold the gun in front
@@ -621,7 +749,13 @@ export class CharacterView {
       B[BoneId.LFore].rotation.set(-0.3, 0, 0);
       B[BoneId.Spine].rotation.y += (k - 0.5) * 0.6;
     }
-    this.knife.visible = this.slashT > 0;
+    if (this.knifeThrowT > 0) this.knifeThrowT -= dt;
+    // the knife shows during a stab and while winding up a throw (it leaves the hand halfway)
+    this.knife.visible = this.slashT > 0 || this.knifeThrowT > 0.2 || this.knifeReady;
+    if (this.knifeReady && this.throwT <= 0) {
+      B[BoneId.LUpper].rotation.set(-2.7, 0, 0.35);
+      B[BoneId.LFore].rotation.set(-1.0, 0, 0);
+    }
     // overhand grenade throw with the left arm
     if (this.throwT > 0) {
       this.throwT -= dt;
@@ -640,6 +774,14 @@ export class CharacterView {
       B[BoneId.RUpper].rotation.x += 0.55 * sk + s * 0.25 * sk;
       B[BoneId.LUpper].rotation.x += 0.4 * sk - s * 0.25 * sk;
     }
+    if (bk > 0.01) {
+      // both forearms forward and in, holding the bag (IK refines this on the soldier)
+      B[BoneId.RUpper].rotation.set(-0.9 * bk + B[BoneId.RUpper].rotation.x * (1 - bk), 0, -0.2);
+      B[BoneId.LUpper].rotation.set(-0.9 * bk + B[BoneId.LUpper].rotation.x * (1 - bk), 0, 0.2);
+      B[BoneId.RFore].rotation.set(-1.0, 0, 0);
+      B[BoneId.LFore].rotation.set(-1.0, 0, 0);
+    }
+    if (this.gun) this.gun.visible = this.deadT < 0 && this.bagK < 0.12;
     this.gunMount.position.z = 0.14 - a.kick * 0.06;
     this.gunMount.rotation.set(-a.kick * 0.12 + (a.reloading ? 0.5 : 0) + 0.75 * sk, blade + 0.55 * sk, -0.3 * sk);
     // a little weapon bob while moving

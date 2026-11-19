@@ -59,7 +59,8 @@ test('world materials: wet ground, PBR facades, trees with leaf cards, sandbags'
     };
   })()`) as G;
   expect(r.groundRough).toBe(true);
-  expect(r.groundMap).toBe(140 * 16);
+  // v5.3: the city is 280 m wide; the ground canvas keeps under 3200 px
+  expect(r.groundMap).toBe(280 * 11);
   expect(r.facadeCount).toBe(4);
   expect(r.facadeNormals).toBe(true);
   // 14 trees x 120 cards x 2 triangles plus shrubs

@@ -239,8 +239,9 @@ test('sprint drains stamina; dropped gun goes to the inventory bar and can be se
     m.brains.delete(e); e.setWeapon(g.weaponDef('lmg')); e.shieldT = 0;
     e.pos.set(p.pos.x + 0.5, 0, p.pos.z); m.damage(e, p, 999, false, p.weapon.def); })()`);
   await page.waitForTimeout(1200);
-  await expect(page.locator('#hud .inv .slot')).toHaveCount(2);
+  await expect(page.locator('#hud .inv .slot:not(.empty)')).toHaveCount(2);
   await expect(page.locator('#hud .inv .slot.temp')).toHaveCount(1);
+  await expect(page.locator('#hud .inv .slot')).toHaveCount(3); // three hand slots, one still empty
   await page.screenshot({ path: `${shots}/13-inventory.png` });
   await page.keyboard.press('Digit1');
   expect(await g(page, 'g.match.player.weapon.def.id')).toBe('pistol');

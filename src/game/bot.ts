@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Difficulty } from '../core/save';
-import { GRENADE_SPEED } from '../data/weapons';
+import { GRENADE_SPEED, KNIFE_GRAVITY, KNIFE_SPEED } from '../data/weapons';
 import type { WayPoint } from '../world/navworld';
 import type { P3 } from '../world/structures';
 import type { Combatant } from './combatant';
@@ -67,6 +67,7 @@ export class BotBrain {
   private lastPos = { x: 0, z: 0 };
   private desiredYaw = 0;
   private grenadeCd = 4 + Math.random() * 8;
+  private knifeCd = 3 + Math.random() * 6;
   private crouchT = 0;
   private dodgeT = 0;
   private retreatT = 0;
@@ -92,6 +93,7 @@ export class BotBrain {
     this.reactT -= dt;
     this.repathT -= dt;
     this.grenadeCd -= dt;
+    this.knifeCd -= dt;
     this.crouchT -= dt;
     this.dodgeT -= dt;
     this.retreatT -= dt;
@@ -130,7 +132,15 @@ export class BotBrain {
       const flying = t.vehicle?.kind === 'jet';
       // knife at point-blank range, grenades at mid range
       if (visible && dist < 2.0 && !t.vehicle) m.melee(c);
-      else if (visible && !flying && this.reactT <= 0 && this.grenadeCd <= 0 && c.grenades > 0 && dist > 9 && dist < 24) {
+      else if (visible && !t.vehicle && c.hasKnife && this.reactT <= 0 && this.knifeCd <= 0 && dist > 4 && dist < 13 && Math.abs(t.pos.y - c.pos.y) < 2) {
+        // a knife thrown while reloading (or now and then): aim a little high for the drop
+        this.knifeCd = 5 + Math.random() * 8;
+        if (c.weapon.reloading || Math.random() < 0.3) {
+          const ft = dist / KNIFE_SPEED;
+          const dir = _c.set(t.pos.x - c.pos.x, t.pos.y + 1.2 - (c.pos.y + 1.5) + 0.5 * KNIFE_GRAVITY * ft * ft, t.pos.z - c.pos.z);
+          m.throwKnife(c, dir);
+        }
+      } else if (visible && !flying && this.reactT <= 0 && this.grenadeCd <= 0 && c.grenades > 0 && dist > 9 && dist < 24) {
         this.grenadeCd = 6 + Math.random() * 9;
         if (Math.random() < 0.35) this.throwAt(c, m, t.pos.x, t.pos.z, dist);
       }
@@ -336,17 +346,22 @@ export class BotBrain {
       return;
     }
     const pois = m.map.pois;
-    const enemyX = c.team === 'blue' ? 1 : -1;
-    // weight objectives toward the middle and the enemy side
+    // the city is big: head for places between here and where the enemy is
+    let ex = 0, ez = 0, n = 0;
+    for (const o of m.combatants) if (o.alive && o.team !== c.team) { ex += o.pos.x; ez += o.pos.z; n++; }
+    if (n) { ex /= n; ez /= n; }
     let best = pois[0], bestS = -Infinity;
     for (const p of pois) {
-      const s = Math.random() * 60 + p.x * enemyX * 0.35 - Math.abs(p.z) * 0.1;
-      if (s > bestS && Math.hypot(p.x - c.pos.x, p.z - c.pos.z) > 8) { bestS = s; best = p; }
+      const d = Math.hypot(p.x - c.pos.x, p.z - c.pos.z);
+      if (d < 8) continue;
+      const s = Math.random() * 70 - Math.hypot(p.x - ex, p.z - ez) * 0.5 - Math.max(0, d - 60) * 0.4;
+      if (s > bestS) { bestS = s; best = p; }
     }
-    // sometimes push straight into the enemy spawn area
-    if (Math.random() < 0.15) {
-      const sp = m.spawnList(c.team === 'blue' ? 'red' : 'blue');
-      best = sp[Math.floor(Math.random() * sp.length)];
+    // sometimes go straight for the last place an enemy was
+    if (Math.random() < 0.2 && n) {
+      const foes = m.combatants.filter((o) => o.alive && o.team !== c.team);
+      const f = foes[Math.floor(Math.random() * foes.length)];
+      best = m.nav.street.nearestWalkable(f.pos.x, f.pos.z, 6) ?? best;
     }
     this.goal = { x: best.x + (Math.random() - 0.5) * 4, y: 0, z: best.z + (Math.random() - 0.5) * 4 };
     this.path = [];

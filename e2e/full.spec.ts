@@ -100,7 +100,7 @@ test('phone: every menu, shop, wheel and settings control', async ({ page }) => 
 
 test('phone: every in-match control, pause flow, death and end screen', async ({ page }) => {
   const errors = await boot(page);
-  await g(page, "(g.save.owned = ['pistol', 'smg'], g.save.equipped = 'smg', g.toMenu())");
+  await g(page, "(g.save.owned = ['pistol', 'smg'], g.save.loadout = ['pistol', 'smg'], g.save.equipped = 'smg', g.toMenu())");
   await page.tap('.big-play');
   await page.waitForTimeout(400);
   const cdp = await page.context().newCDPSession(page);
@@ -126,9 +126,20 @@ test('phone: every in-match control, pause flow, death and end screen', async ({
   await hold(cdp, page, '.tc.jump', 60);
   expect(await g(page, 'g.match.player.pos.y')).toBeGreaterThan(0.05);
   await page.waitForTimeout(800);
-  // switch weapon cycles smg -> pistol
-  await hold(cdp, page, '.tc.switch', 60);
+  // tapping a hand slot switches straight to it
+  await page.locator('#hud .inv .slot[data-w="pistol"]').tap();
   expect(await g(page, 'g.match.player.weapon.def.id')).toBe('pistol');
+  // the weapon button takes the backpack off and opens it; picking a gun there puts it in hand
+  await hold(cdp, page, '.tc.switch', 60);
+  await page.waitForFunction(() => (window as G).__game.bagState === 'open', null, { timeout: 3000 });
+  await expect(page.locator('#hud .bagui')).toHaveClass(/on/);
+  await page.screenshot({ path: `${shots}/22b-phone-bag.png` });
+  await page.locator('#hud .bitem[data-bw="smg"]').tap();
+  expect(await g(page, 'g.match.player.weapon.def.id')).toBe('smg');
+  await page.locator('#hud .bdone').tap();
+  await page.waitForFunction(() => (window as G).__game.bagState === null, null, { timeout: 3000 });
+  expect(await g(page, 'g.match.player.inBag')).toBe(false);
+  await page.locator('#hud .inv .slot[data-w="pistol"]').tap();
   // grenade: hold shows the arc, release throws
   const b = (await page.locator('.tc.grenade').boundingBox())!;
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: b.x + b.width / 2, y: b.y + b.height / 2 }] });
@@ -137,9 +148,20 @@ test('phone: every in-match control, pause flow, death and end screen', async ({
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await page.waitForTimeout(150);
   expect(await g(page, 'g.match.player.grenades')).toBe(2);
-  // knife swings
+  // knife: a tap swings it
   await hold(cdp, page, '.tc.knife', 60);
   expect(await g(page, 'g.match.player.meleeCd')).toBeGreaterThan(0);
+  await page.waitForTimeout(700);
+  // holding the knife button aims a throw (arc), letting go throws it
+  const kb = (await page.locator('.tc.knife').boundingBox())!;
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: kb.x + kb.width / 2, y: kb.y + kb.height / 2 }] });
+  await page.waitForTimeout(400);
+  expect(await g(page, 'g.ctrl.knifeAiming')).toBe(true);
+  expect(await g(page, 'g.arcDots.visible')).toBe(true);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await page.waitForTimeout(150);
+  expect(await g(page, 'g.match.player.hasKnife')).toBe(false);
+  await expect(page.locator('.tc.knife')).toHaveClass(/empty/);
   // look: drag on the right half turns the view
   const yaw0 = await g(page, 'g.match.player.yaw');
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 560, y: 140 }] });
@@ -182,8 +204,8 @@ test('phone: every in-match control, pause flow, death and end screen', async ({
   expect(['minigun', 'rocket', 'plasma', 'sniper', 'lmg']).toContain(drop);
   await expect(page.locator('#hud .inv .slot.temp')).toHaveCount(1);
   await expect(page.locator('#hud .inv .slot')).toHaveCount(3);
-  // tap the first inventory slot to switch back to the pistol
-  await page.locator('#hud .inv .slot').first().tap();
+  // tap the pistol's slot to switch back to it
+  await page.locator('#hud .inv .slot[data-w="pistol"]').tap();
   expect(await g(page, 'g.match.player.weapon.def.id')).toBe('pistol');
 
   // win -> end screen buttons are reachable on a phone
