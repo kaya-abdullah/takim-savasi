@@ -323,3 +323,9 @@ Hedef: aynı görsel dilin (sinematik ışık, ıslak asfalt, gerçekçi bitki �
 - Ölçüm: masaüstünde 60 fps (Yüksek, 20 asker). Dünya kurulumu 1,8 sn → 2,7 sn.
 - Test: e2e/v5.spec.ts (derecelendirme, gökyüzü, sis, malzemeler, üç kalitede pozlama ve doygunluk, fps).
   Geliştirme için: scripts/shoot.mjs sabit noktalardan ekran görüntüsü alır.
+
+## 19. Sürüm 5.2 (2026-11-19)
+
+Kullanıcı v5.1'in insanlarını, yeleklerini, silahlarını ve duruşlarını beğenmedi. v5.0 görünümüne dönüldü
+(Android sürüm kodu geri gidemediği için 5.2 adıyla). v5.1 çalışması `v6-people` dalında duruyor; yeni sürümde
+gerçek hareket yakalama animasyonları, takım renginde kıyafet ve tutarlı gerçekçi silah seti hedefleniyor.
