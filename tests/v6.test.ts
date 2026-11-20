@@ -40,6 +40,8 @@ describe('bigger, varied city', () => {
     expect(Math.max(...xs)).toBeGreaterThan(120);
     expect(Math.min(...zs)).toBeLessThan(-80);
     expect(Math.max(...zs)).toBeGreaterThan(80);
+    // no spawn point touches a post or wall (one at 104,14 stood against a lamp post)
+    for (const p of map.spawns) expect(phys.world.blocked(p.x, p.z, 0.5, 0), `${p.x},${p.z}`).toBe(false);
   });
 });
 

@@ -241,6 +241,8 @@ export function spawnPool(m: MapData, nav: NavWorld, world: CollisionWorld): V2[
       if (!g.walkableAt(x, z) || !g.walkableAt(x + 1, z) || !g.walkableAt(x - 1, z) || !g.walkableAt(x, z + 1) || !g.walkableAt(x, z - 1)) continue;
       if (m.structures.houses.some((h) => inside(h, x, z, 1)) || m.structures.pits.some((p) => inside(p, x, z, 2))) continue;
       if (!world.segmentClear(x, 0.5, z, x, 30, z)) continue;
+      // the nav grid lets thin props (lamp posts, signs) through; a fighter must not spawn inside one
+      if (world.blocked(x, z, 0.6, 0)) continue;
       out.push({ x, z });
     }
   return out;
