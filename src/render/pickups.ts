@@ -182,6 +182,6 @@ export const PICKUP_NAMES: Record<PickupKind, string> = {
   damage: '2X HASAR!',
   speed: 'SÜPER HIZ!',
   airdrop: 'HAVA İKMALİ!',
-  bandage: 'BANDAJ: +50 CAN',
+  bandage: 'BANDAJ',
 };
 export const PICKUP_COLORS = COLORS;

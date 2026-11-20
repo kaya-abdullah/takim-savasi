@@ -383,3 +383,16 @@ ekranda bütün silahlar görünür); el bombası ve bıçak tuşu yerinde kals�
   ekranda "ÇOK UZAK" yazar.
 - Testler: yelek 5. seviyede 'max', can 225; 200 m'deki hedefe ve gökyüzüne roket atılmaz, 120 m'dekine
   atılır ve kilitlenir.
+
+## 23. Sürüm 5.6 (2026-11-20)
+İstek: binadaki bandajlar elimize gelsin.
+
+- Bandajın üstünden geçince can dolmuyor, bandaj cebe giriyor (can dolu olsa da). En fazla 3 bandaj
+  taşınır; 3 varken yerdeki bırakılır. Alınan bandaj 30 sn sonra yerine gelir. Ölünce cepteki bandajlar gider.
+- Kullanmak: bilgisayarda H, telefonda sol ateş düğmesinin yanındaki kırmızı bandaj düğmesi (yalnız cepte
+  bandaj varken görünür, üstünde sayı). 1,5 sn sarılır: karakter rulo bandajı sol eline alıp kolunu sarar,
+  düğmede ilerleme halkası döner, bu sırada ateş edilmez, bıçak ve bomba kullanılmaz. Bitince +50 can.
+- Can doluysa "CANIN ZATEN DOLU", bandaj yoksa "BANDAJIN YOK" yazar. Araçtayken kullanılmaz.
+- Botlar: yoldaki bandajı alır, canı %60'ın altına inip 1,2 sn vurulmayınca sarar.
+- Testler: cebe girer, en fazla 3, sarma süresince ateş yok ve sonra +50, bot sarıyor; tarayıcıda H ile ve
+  telefonda düğmeyle sarma, düğme diğer kontrollerin üstüne binmiyor.

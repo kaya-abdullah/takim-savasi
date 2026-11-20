@@ -133,6 +133,24 @@ export function makeKnife(): THREE.Group {
   return g;
 }
 
+/** A white bandage roll with a loose strip, held in the left hand while wrapping. */
+let ROLL_GEO: THREE.BufferGeometry[] | null = null;
+let ROLL_MAT: THREE.MeshStandardMaterial | null = null;
+export function makeBandageRoll(): THREE.Group {
+  if (!ROLL_GEO) {
+    const roll = new THREE.CylinderGeometry(0.045, 0.045, 0.07, 14);
+    roll.rotateZ(Math.PI / 2);
+    const strip = new THREE.BoxGeometry(0.06, 0.004, 0.14);
+    strip.translate(0, -0.04, -0.07);
+    ROLL_GEO = [roll, strip];
+    ROLL_MAT = new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.9 });
+  }
+  const g = new THREE.Group();
+  for (const geo of ROLL_GEO) g.add(new THREE.Mesh(geo, ROLL_MAT!));
+  g.visible = false;
+  return g;
+}
+
 // ------------------------------------------------------------------ backpack
 /** Backpack size (m): width, height, depth. Straps side is +z (against the back). */
 const BAG_W = 0.36, BAG_H = 0.46, BAG_D = 0.2;
@@ -397,6 +415,8 @@ export class CharacterView {
   private sprintK = 0;
   private throwT = 0;
   private knife = makeKnife();
+  private roll = makeBandageRoll();
+  private bandaging = false;
   /** Knife held up for a throw (shown during the wind-up). */
   private knifeThrowT = 0;
   readonly backpack = makeBackpack();
@@ -492,6 +512,8 @@ export class CharacterView {
     this.knife.position.set(0, -0.3, 0.02);
     this.knife.rotation.x = -0.3;
     this.bones[BoneId.LFore].add(this.knife);
+    this.roll.position.set(0, -0.3, 0.04);
+    this.bones[BoneId.LFore].add(this.roll);
     this.bones[BoneId.Chest].add(this.backpack);
     this.placeBag(0);
     const mt = new THREE.SpriteMaterial({ map: markerTextures()[team], depthTest: true, sizeAttenuation: false, transparent: true });
@@ -543,6 +565,8 @@ export class CharacterView {
   /** Knife raised behind the head, ready to throw (while the button is held). */
   private knifeReady = false;
   setKnifeReady(on: boolean): void { this.knifeReady = on; }
+  /** Bandage roll in the left hand, wrapping it round the right forearm. */
+  setBandaging(on: boolean): void { this.bandaging = on; }
   /** Knife throw: the knife shows in the hand during the wind-up. */
   knifeThrowAnim(): void { this.throwT = 0.4; this.knifeThrowT = 0.4; }
 
@@ -636,7 +660,7 @@ export class CharacterView {
     const long = mz > 0.4;
     // wrist targets in gun space: the palm wraps the grip, the wrist sits just behind it
     ikSolve(this.arms.r, gun.localToWorld(_t.set(-0.01, -0.07, -0.03)), this.body.localToWorld(_pole.set(-0.6, -0.5, -0.3)));
-    if (this.slashT > 0 || this.throwT > 0 || this.reloading || this.knifeReady) return;
+    if (this.slashT > 0 || this.throwT > 0 || this.reloading || this.knifeReady || this.bandaging) return;
     if (long) {
       // the forend, or as far along it as the arm reaches (the stance holds the gun well forward)
       const [u, f, h] = this.arms.l;
@@ -755,6 +779,15 @@ export class CharacterView {
     if (this.knifeReady && this.throwT <= 0) {
       B[BoneId.LUpper].rotation.set(-2.7, 0, 0.35);
       B[BoneId.LFore].rotation.set(-1.0, 0, 0);
+    }
+    // bandage: the left hand circles round the right forearm with the roll
+    this.roll.visible = this.bandaging && this.deadT < 0;
+    if (this.bandaging) {
+      const w = performance.now() * 0.011;
+      B[BoneId.LUpper].rotation.set(-1.15 + Math.sin(w) * 0.18, -0.55, -0.35 + Math.cos(w) * 0.15);
+      B[BoneId.LFore].rotation.set(-1.25 + Math.cos(w) * 0.25, 0.3, 0);
+      B[BoneId.RUpper].rotation.set(-0.8, 0, -0.15);
+      B[BoneId.RFore].rotation.set(-1.1, 0.4, 0);
     }
     // overhand grenade throw with the left arm
     if (this.throwT > 0) {

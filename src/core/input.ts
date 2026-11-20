@@ -2,7 +2,7 @@
  * Unified input: touch (virtual joystick + look drag + on-screen buttons)
  * and keyboard/mouse for desktop testing.
  */
-export type Btn = 'fire' | 'aim' | 'jump' | 'reload' | 'switch' | 'grenade' | 'knife' | 'crouch' | 'vehicle' | 'tank' | 'jet';
+export type Btn = 'fire' | 'aim' | 'jump' | 'reload' | 'switch' | 'grenade' | 'knife' | 'crouch' | 'vehicle' | 'tank' | 'jet' | 'bandage';
 
 export class Input {
   moveX = 0; // -1..1 (right +)
@@ -171,7 +171,7 @@ export class Input {
     if (!this.enabled) return;
     const map: Record<string, Btn> = {
       Space: 'jump', KeyR: 'reload', KeyQ: 'switch', KeyF: 'fire', KeyG: 'grenade', KeyV: 'knife',
-      KeyC: 'crouch', ControlLeft: 'crouch', KeyX: 'vehicle', KeyT: 'tank', KeyY: 'jet',
+      KeyC: 'crouch', ControlLeft: 'crouch', KeyX: 'vehicle', KeyT: 'tank', KeyY: 'jet', KeyH: 'bandage',
     };
     const b = map[k];
     if (b) {

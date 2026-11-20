@@ -66,6 +66,10 @@ export const BUFF_TIME = 10;
 export const BANDAGE_HEAL = 50;
 /** Seconds until a taken bandage is back in its place. */
 export const BANDAGE_RESPAWN = 30;
+/** Bandages a fighter can carry at once. */
+export const BANDAGE_CARRY = 3;
+/** Seconds it takes to wrap a bandage. */
+export const BANDAGE_TIME = 1.5;
 export const AIRDROP_WEAPONS = ['minigun', 'rocket', 'plasma', 'sniper', 'lmg'];
 const PICKUP_EVERY = 12;
 const AIRDROP_FIRST = 35;
@@ -142,6 +146,8 @@ export interface MatchEvents {
   knifeLanded?(k: ThrownKnife, victim: Combatant | null): void;
   /** The owner has a knife again (picked up, or it came back). */
   knifeBack?(c: Combatant, pickedUp: boolean): void;
+  /** Started wrapping a bandage (done=false) or finished and healed (done=true). */
+  bandage?(c: Combatant, done: boolean): void;
   shot?(c: Combatant, hit: HitInfo, def: WeaponDef): void;
   projectileFired?(p: Projectile): void;
   explosion?(pos: THREE.Vector3, radius: number, owner: Combatant): void;
@@ -313,6 +319,8 @@ export class Match {
     c.grenades = c.maxGrenades;
     this.returnKnife(c, false);
     c.inBag = false;
+    c.bandages = 0;
+    c.bandageT = 0;
     c.streak = 0;
     c.shieldT = SHIELD_TIME;
     c.lastAttacker = null;
@@ -342,6 +350,17 @@ export class Match {
       if (c.hp < c.maxHp && this.time - c.lastHurtT > REGEN_DELAY) c.hp = Math.min(c.maxHp, c.hp + REGEN_RATE * dt);
       const brain = this.brains.get(c);
       if (brain) brain.update(dt, c, this);
+      if (c.bandageT > 0) {
+        // both hands on the bandage: no shooting until it is wrapped
+        c.trigger = false;
+        if (c.vehicle) c.bandageT = 0;
+        else if ((c.bandageT -= dt) <= 0) {
+          c.bandageT = 0;
+          c.bandages--;
+          c.hp = Math.min(c.maxHp, c.hp + BANDAGE_HEAL);
+          this.events.bandage?.(c, true);
+        }
+      }
       // the vehicle's gun replaces the hand weapon while driving or flying
       const ws = c.vehicle?.gun ?? c.weapon;
       const shots = ws.update(dt, c.trigger);
@@ -619,7 +638,8 @@ export class Match {
       if (p.kind !== 'airdrop' && p.kind !== 'bandage' && p.age > 40) { p.alive = false; continue; }
       for (const c of this.combatants) {
         if (!c.alive || c.vehicle || Math.hypot(c.pos.x - p.pos.x, c.pos.z - p.pos.z) > 1.4 || Math.abs(c.pos.y - p.pos.y) > 1.5) continue;
-        if ((p.kind === 'health' || p.kind === 'bandage') && c.hp >= c.maxHp) continue;
+        if (p.kind === 'health' && c.hp >= c.maxHp) continue;
+        if (p.kind === 'bandage' && c.bandages >= BANDAGE_CARRY) continue;
         this.collect(c, p);
         break;
       }
@@ -632,7 +652,7 @@ export class Match {
     let weapon: WeaponDef | undefined;
     if (p.kind === 'health') c.hp = c.maxHp;
     else if (p.kind === 'bandage') {
-      c.hp = Math.min(c.maxHp, c.hp + BANDAGE_HEAL);
+      c.bandages++;
       this.bandageBack.push({ pos: p.pos.clone(), t: BANDAGE_RESPAWN });
     }
     else if (p.kind === 'damage') c.dmgBuffT = BUFF_TIME;
@@ -960,6 +980,15 @@ export class Match {
     }
     const i = this.vehicles.indexOf(v);
     if (i >= 0) this.vehicles.splice(i, 1);
+  }
+
+  /** Starts wrapping a carried bandage; it heals BANDAGE_HEAL when done (BANDAGE_TIME later). */
+  useBandage(c: Combatant): boolean {
+    if (!c.alive || c.vehicle || c.inBag || c.bandages <= 0 || c.bandageT > 0 || c.hp >= c.maxHp) return false;
+    c.bandageT = BANDAGE_TIME;
+    c.trigger = false;
+    this.events.bandage?.(c, false);
+    return true;
   }
 
   /** Heavy weapon on the grenade button: tank shell or jet bomb. */

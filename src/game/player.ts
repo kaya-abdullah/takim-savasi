@@ -45,6 +45,8 @@ export class PlayerController {
   /** Heli rocket fired this frame. */
   rocket = false;
   rocketFar = false;
+  /** Why the last bandage press did nothing (shown once), or null. */
+  bandageNo: 'none' | 'full' | null = null;
   /** Seconds since the player last dragged the view (cars swing the camera back behind). */
   private lookIdle = 0;
   /** 0 normal camera .. 1 swung round to the front to watch the backpack being opened. */
@@ -92,6 +94,7 @@ export class PlayerController {
 
   update(dt: number, c: Combatant, input: Input, m: Match, settings: Settings): void {
     this.jumped = this.reloaded = this.threw = this.slashed = this.rocket = this.rocketFar = this.knifeThrown = false;
+    this.bandageNo = null;
     const def = c.weapon.def;
     // ---- look
     const look = input.takeLook();
@@ -120,7 +123,7 @@ export class PlayerController {
     if (c.inBag) {
       c.trigger = c.aiming = c.sprinting = false;
       this.grenadeAiming = this.knifeAiming = this.knifeDown = false;
-      for (const b of ['fire', 'reload', 'jump', 'crouch', 'grenade', 'knife'] as const) input.consume(b);
+      for (const b of ['fire', 'reload', 'jump', 'crouch', 'grenade', 'knife', 'bandage'] as const) input.consume(b);
       input.poll();
       const k = Math.min(1, dt * 10);
       c.vx -= c.vx * k;
@@ -189,6 +192,13 @@ export class PlayerController {
     c.aimOrigin.copy(cam.position).addScaledVector(_dir, ahead + 0.3);
     c.aimDir.copy(_dir);
 
+    // bandage (H / the bandage button): both hands busy wrapping, no knife or grenade meanwhile
+    if (input.consume('bandage')) {
+      if (m.useBandage(c)) { this.knifeDown = this.knifeAiming = this.grenadeAiming = false; }
+      else this.bandageNo = c.bandages <= 0 ? 'none' : c.hp >= c.maxHp ? 'full' : null;
+    }
+    if (c.bandageT > 0) { input.consume('knife'); input.consume('grenade'); c.trigger = false; }
+
     // knife: a tap stabs, holding aims a throw (arc preview), releasing throws
     if (input.consume('knife')) { this.knifeDown = true; this.knifeDownT = 0; }
     if (this.knifeDown) {
@@ -254,6 +264,7 @@ export class PlayerController {
     input.consume('crouch');
     input.consume('grenade');
     input.consume('knife');
+    input.consume('bandage');
     this.updateCamera(dt, c, m);
     // shots go down the camera ray, starting level with the vehicle's gun
     const cam = this.camera;

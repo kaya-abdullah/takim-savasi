@@ -11,7 +11,7 @@ import { LOADOUT_SIZE, loadSave, writeSave, type SaveData, type Settings } from 
 import { ALL_WEAPONS, getWeapon } from './data/weapons';
 import { makeWeaponMesh } from './render/weaponModel';
 import { canSpin, spinWheel, applyMatchResult, putInLoadout, buyUpgrade, buyVehicle, buyWeapon, sellVehicle, sellWeapon, equipWeapon, formatTL, grenadeCount, killReward, maxHp, streakReward, UPGRADES, type UpgradeId } from './game/economy';
-import { Match, type Drop, type Grenade, type HitInfo, type PickupKind, type Projectile, type ThrownKnife } from './game/match';
+import { BANDAGE_CARRY, BANDAGE_HEAL, BANDAGE_TIME, Match, type Drop, type Grenade, type HitInfo, type PickupKind, type Projectile, type ThrownKnife } from './game/match';
 import { HEAVY_CD, VEHICLE_DEFS, type VehicleKind } from './data/vehicles';
 import type { WeaponDef } from './data/weapons';
 import type { Vehicle } from './game/vehicle';
@@ -437,6 +437,11 @@ class Game {
         audio.siren();
       },
       pickedUp: (c, p, w) => this.onPickup(c, p.kind, w),
+      bandage: (c, done) => {
+        if (!c.isPlayer) return;
+        if (done) { audio.powerup(); this.ui.popup(`+${BANDAGE_HEAL} CAN`, 'kill'); }
+        else this.ui.popup('BANDAJ SARILIYOR…', 'kill');
+      },
       weaponFound: (c, d) => {
         const have = this.bagIds().includes(d.def.id);
         const better = d.def.price > c.weapon.def.price;
@@ -1005,7 +1010,8 @@ class Game {
         this.addToInventory(w.id, true, true);
         c.weapon.refill();
         this.ui.banner(w.name.toUpperCase() + '!', 'Süper silah · bu maç boyunca envanterinde');
-      } else this.ui.banner(PICKUP_NAMES[kind]);
+      } else if (kind === 'bandage') this.ui.popup(`+1 BANDAJ (${c.bandages}/${BANDAGE_CARRY}) · ${this.input.isTouch ? 'bandaj düğmesi' : 'H'} ile sar`, 'kill');
+      else this.ui.banner(PICKUP_NAMES[kind]);
     } else if (s.dist < 25) audio.powerup();
     if (kind === 'airdrop' && !c.isPlayer && w) {
       const cls = c.team === 'blue' ? 'kb' : 'kr';
@@ -1109,6 +1115,7 @@ class Game {
       audio.engine(pv && !m.over ? pv.kind : null, pv ? (pv.kind === 'tank' ? Math.abs(pv.speed) / 12 : 0.3 + pv.vel.length() / 25) : 0);
       if (this.ctrl.rocket && m.player.vehicle?.kind === 'jet') this.ui.popup(m.lastLock ? `ROKET KİLİTLENDİ: ${m.lastLock.name}` : 'ROKET ATILDI', 'kill');
       if (this.ctrl.rocketFar) this.ui.popup('ÇOK UZAK', 'kill');
+      if (this.ctrl.bandageNo) this.ui.popup(this.ctrl.bandageNo === 'none' ? 'BANDAJIN YOK · binalarda bulunur' : 'CANIN ZATEN DOLU', 'kill');
       if (this.ctrl.reloaded) audio.reload();
       if (this.ctrl.jumped) audio.jump();
       if (this.ctrl.stepped) audio.step(m.player.sprinting);
@@ -1167,6 +1174,7 @@ class Game {
       r.set(-Math.cos(c.yaw), 0, Math.sin(c.yaw));
       v.setShield(c.shieldT);
       if (c.isPlayer) v.setKnifeReady(this.ctrl.knifeAiming && c.alive);
+      v.setBandaging(c.bandageT > 0 && c.alive);
       v.setDistance(c.isPlayer ? 0 : this.camera.position.distanceTo(c.pos));
       v.update(dt, {
         speed,
@@ -1349,6 +1357,7 @@ class Game {
       enemyUnderCross: this.enemyUnderCross, owned: this.save.owned.length, dt,
       grenades: p.grenades,
       knife: p.hasKnife ? -1 : Math.max(0, p.knifeBackT),
+      bandages: p.bandages, bandageFrac: p.bandageT > 0 ? 1 - p.bandageT / BANDAGE_TIME : 0,
       dmgBuff: p.dmgBuffT, speedBuff: p.speedBuffT, stamina: p.stamina,
       grenadeWarn: p.alive && m.grenades.some((g) => g.owner.team !== p.team && g.pos.distanceTo(p.pos) < 7),
       crouch: p.crouch,

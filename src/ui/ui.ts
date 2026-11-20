@@ -19,6 +19,7 @@ const ICON = {
   grenade: '<svg viewBox="0 0 24 24"><path d="M10 2h4v2h2.5l1.5 2-1.6 1.2A7.5 7.5 0 1 1 7.6 7.2L6 6l1.5-2H10zm2 7a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zm-1 2h2v3h3v2h-3v3h-2v-3H8v-2h3z"/></svg>',
   bag: '<svg viewBox="0 0 24 24"><path d="M9 2h6a2 2 0 0 1 2 2v1.2A5 5 0 0 1 20 10v9a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-9a5 5 0 0 1 3-4.8V4a2 2 0 0 1 2-2zm0 2v1h6V4zm-1.5 9a1 1 0 0 0-1 1v3a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1zm1.5 2h6v1H9z"/></svg>',
   knife: '<svg viewBox="0 0 24 24"><path d="M20.5 2.5c.6 3.8-1.4 8-5.3 11.9l-2.1-2.1zM11.7 13.7l2.1 2.1-1.4 1.4 1.1 1.1-2.8 2.8a1.5 1.5 0 0 1-2.1 0l-1.6-1.6a1.5 1.5 0 0 1 0-2.1l2.8-2.8 1.1 1.1z"/></svg>',
+  bandage: '<svg viewBox="0 0 24 24"><path d="M3.5 14.1 14.1 3.5a3 3 0 0 1 4.2 0l2.2 2.2a3 3 0 0 1 0 4.2L9.9 20.5a3 3 0 0 1-4.2 0l-2.2-2.2a3 3 0 0 1 0-4.2zM11 9.5l-1.5 1.5 1.5 1.5 1.5-1.5zm2 2-1.5 1.5 1.5 1.5 1.5-1.5zm-4 0L7.5 13 9 14.5l1.5-1.5zm2 2L9.5 15l1.5 1.5 1.5-1.5z"/></svg>',
   shield: '<svg viewBox="0 0 24 24"><path d="M12 2l8 3v6c0 5.2-3.4 9.6-8 11-4.6-1.4-8-5.8-8-11V5z"/></svg>',
   tank: '<svg viewBox="0 0 24 24"><path d="M6 8h7l1.2-1.6H22V8h-7.2L14 9.4V11h3v2H4v-2h1zM3 14h18l-2 4.5H5zm3 1.3a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6zm4 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6zm4 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6zm4 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6z"/></svg>',
   jet: '<svg viewBox="0 0 24 24"><path d="M12 1.5c.9 0 1.5 1.6 1.5 4v3.3l8.5 5.4v2l-8.5-2.6v4.2l2.5 2v1.7L12 20.6l-4 .9v-1.7l2.5-2v-4.2L2 16.2v-2l8.5-5.4V5.5c0-2.4.6-4 1.5-4z"/></svg>',
@@ -113,7 +114,7 @@ export class UI {
     death: HTMLElement; deathCd: HTMLElement; deathBy: HTMLElement; popups: HTMLElement; scope: HTMLElement;
     reload: HTMLElement; reloadI: HTMLElement; aimBtn: HTMLElement; switchBtn: HTMLElement; touch: HTMLElement[];
     keys: HTMLElement; gCount: HTMLElement; banner: HTMLElement; warn: HTMLElement; buffs: HTMLElement; nums: HTMLElement;
-    inv: HTMLElement; stam: HTMLElement; bag: HTMLElement; knifeBtn: HTMLElement;
+    inv: HTMLElement; stam: HTMLElement; bag: HTMLElement; knifeBtn: HTMLElement; bandageBtn: HTMLElement;
     crouchBtn: HTMLElement; tankBtn: HTMLElement; jetBtn: HTMLElement; venter: HTMLElement; vhp: HTMLElement;
     level: HTMLElement; target: HTMLElement; jumpBtn: HTMLElement;
   };
@@ -235,6 +236,7 @@ export class UI {
       <button class="tc switch" data-b="switch" aria-label="Çanta: silah değiştir">${ICON.bag}</button>
       <button class="tc grenade" data-b="grenade" data-look="1" aria-label="El bombası">${ICON.grenade}<b class="badge" id="gc">3</b></button>
       <button class="tc knife" data-b="knife" data-look="1" aria-label="Bıçak (basılı tut: fırlat)">${ICON.knife}<b class="badge kb"></b></button>
+      <button class="tc bandage" data-b="bandage" aria-label="Bandaj sar (+50 can)">${ICON.bandage}<b class="badge bc">0</b><i class="bprog"></i></button>
       <button class="tc crouch" data-b="crouch" aria-label="Eğil">${ICON.crouch}</button>
       <button class="tc vcall tank" data-b="tank" aria-label="Tank çağır">${ICON.tank}<b class="cd"></b></button>
       <button class="tc vcall jet" data-b="jet" aria-label="Uçak çağır">${ICON.jet}<b class="cd"></b></button>
@@ -249,7 +251,7 @@ export class UI {
       <div class="nums"></div>
       <div class="gwarn">${ICON.grenade}<span>BOMBA!</span></div>
       <button class="shop-btn" data-a="shop">${ICON.cart}MAĞAZA</button>
-      <div class="keys">WASD yürü · Fare nişan · Sol tık ateş · Sağ tık/E dürbün · R şarjör · G bomba (basılı tut) · V bıçak (basılı tut: fırlat) · Space zıpla · Shift koş · C eğil · 1-3 silah · Q/Tab çanta · T tank · Y uçak · X bin/in · B mağaza · Esc</div>
+      <div class="keys">WASD yürü · Fare nişan · Sol tık ateş · Sağ tık/E dürbün · R şarjör · G bomba (basılı tut) · V bıçak (basılı tut: fırlat) · H bandaj sar · Space zıpla · Shift koş · C eğil · 1-3 silah · Q/Tab çanta · T tank · Y uçak · X bin/in · B mağaza · Esc</div>
       <div class="death"><h2>ÖLDÜN!</h2><p id="dby"></p><div class="cd" id="dcd">3</div></div>`;
     s.prepend(this.minimap);
     const q = <T extends HTMLElement>(sel: string) => s.querySelector(sel) as T;
@@ -262,7 +264,7 @@ export class UI {
       reload: q('.reloadbar'), reloadI: q('.reloadbar i'), aimBtn: q('.tc.aim'), switchBtn: q('.tc.switch'),
       touch: Array.from(s.querySelectorAll('.tc, .joy-hint')) as HTMLElement[], keys: q('.keys'),
       gCount: q('#gc'), banner: q('.banner'), warn: q('.gwarn'), buffs: q('.buffs'), nums: q('.nums'),
-      inv: q('.inv'), stam: q('.stam i'), bag: q('.bagui'), knifeBtn: q('.tc.knife'),
+      inv: q('.inv'), stam: q('.stam i'), bag: q('.bagui'), knifeBtn: q('.tc.knife'), bandageBtn: q('.tc.bandage'),
       crouchBtn: q('.tc.crouch'), tankBtn: q('.vcall.tank'), jetBtn: q('.vcall.jet'), venter: q('.venter'), vhp: q('.vhp'),
       level: q('.lvl'), target: q('.tgt'), jumpBtn: q('.tc.jump'),
     };
@@ -341,7 +343,7 @@ export class UI {
     reloadFrac: number; money: number; aiming: boolean; scope: boolean; enemyUnderCross: boolean; owned: number; dt: number;
     grenades: number; grenadeWarn: boolean;
     /** -1 = knife in hand, else seconds until it comes back. */
-    knife: number; dmgBuff: number; speedBuff: number; stamina: number;
+    knife: number; bandages: number; bandageFrac: number; dmgBuff: number; speedBuff: number; stamina: number;
     crouch: boolean; veh: VehicleHud; level: string; target: { name: string; hp: number; max: number } | null;
   }): void {
     const h = this.hud;
@@ -425,6 +427,15 @@ export class UI {
     this.set('aim', d.aiming, () => h.aimBtn.classList.toggle('active', d.aiming));
     this.set('scope', d.scope, () => { h.scope.classList.toggle('on', d.scope); h.cross.style.display = d.scope ? 'none' : ''; });
     this.set('enemy', d.enemyUnderCross, () => h.cross.classList.toggle('enemy', d.enemyUnderCross));
+    this.set('bd', d.bandages, () => {
+      (h.bandageBtn.querySelector('.bc') as HTMLElement).textContent = String(d.bandages);
+      h.bandageBtn.classList.toggle('has', d.bandages > 0);
+    });
+    const bf = Math.round(d.bandageFrac * 20);
+    this.set('bf', bf, () => {
+      h.bandageBtn.classList.toggle('busy', bf > 0);
+      (h.bandageBtn.querySelector('.bprog') as HTMLElement).style.setProperty('--p', `${bf * 5}%`);
+    });
     const kn = d.knife < 0 ? -1 : Math.ceil(d.knife);
     this.set('kn', kn, () => {
       h.knifeBtn.classList.toggle('empty', kn >= 0);

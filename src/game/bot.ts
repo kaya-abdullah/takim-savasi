@@ -4,7 +4,7 @@ import { GRENADE_SPEED, KNIFE_GRAVITY, KNIFE_SPEED } from '../data/weapons';
 import type { WayPoint } from '../world/navworld';
 import type { P3 } from '../world/structures';
 import type { Combatant } from './combatant';
-import { GRAVITY } from './match';
+import { BANDAGE_CARRY, GRAVITY } from './match';
 import type { Match } from './match';
 
 type State = 'roam' | 'fight' | 'chase';
@@ -97,6 +97,8 @@ export class BotBrain {
     this.crouchT -= dt;
     this.dodgeT -= dt;
     this.retreatT -= dt;
+    // wrap a bandage when hurt and out of the line of fire for a moment
+    if (c.bandages > 0 && c.bandageT <= 0 && !c.vehicle && c.hp < c.maxHp * 0.6 && m.time - c.lastHurtT > 1.2) m.useBandage(c);
     let mvx = 0, mvz = 0; // desired move direction (world, unnormalised)
     let speedMul = 1;
     c.trigger = false;
@@ -329,8 +331,8 @@ export class BotBrain {
     let near = null as P3 | null, nd = 40;
     for (const p of m.pickups) {
       if (!p.alive) continue;
-      // bandages only matter when hurt
-      if (p.kind === 'bandage' && c.hp > c.maxHp * 0.6) continue;
+      // bandages are worth a detour while hurt, or to have one in the pocket
+      if (p.kind === 'bandage' && (c.bandages >= BANDAGE_CARRY || (c.bandages > 0 && c.hp > c.maxHp * 0.6))) continue;
       const d = Math.hypot(p.pos.x - c.pos.x, p.pos.z - c.pos.z) * (p.kind === 'airdrop' ? 0.5 : 1);
       if (d < nd) { nd = d; near = { x: p.pos.x, y: p.falling ? 0 : p.pos.y, z: p.pos.z }; }
     }

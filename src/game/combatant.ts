@@ -137,6 +137,10 @@ export class Combatant {
   knifeBackT = 0;
   /** Backpack in hand (choosing weapons): no shooting, no moving. */
   inBag = false;
+  /** Bandages carried (picked up in buildings, used later). */
+  bandages = 0;
+  /** Seconds left of wrapping a bandage (0 = not bandaging); no shooting meanwhile. */
+  bandageT = 0;
   /** Power-up timers (seconds left). */
   dmgBuffT = 0;
   speedBuffT = 0;

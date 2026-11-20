@@ -431,3 +431,12 @@ button { border: none; color: var(--text); }
   .bitem { height: 58px; } .bitem img { max-height: 26px; }
   .bhint { display: none; } .bhead h3 { font-size: 18px; }
 }
+
+/* v5.6: carried bandages; the button shows only with one in the pocket */
+.tc.bandage { width: 52px; height: 52px; left: calc(108px + var(--safe-l)); top: calc(44% + 2px); background: rgba(150,40,40,.5); border-color: rgba(255,190,190,.75); display: none; overflow: visible; }
+#hud.touch .tc.bandage.has, #hud.touch .tc.bandage.busy { display: flex; }
+#hud.in-tank .tc.bandage, #hud.in-jet .tc.bandage { display: none !important; }
+.tc.bandage .badge { background: #fff; color: #a01818; }
+.tc.bandage .bprog { position: absolute; inset: -5px; border-radius: 50%; pointer-events: none; display: none; background: conic-gradient(#fff var(--p, 0%), transparent 0); -webkit-mask: radial-gradient(circle, transparent 62%, #000 64%); mask: radial-gradient(circle, transparent 62%, #000 64%); }
+.tc.bandage.busy .bprog { display: block; }
+@media (max-height: 430px) { .tc.bandage { width: 48px; height: 48px; left: calc(106px + var(--safe-l)); top: calc(44% - 2px); } }

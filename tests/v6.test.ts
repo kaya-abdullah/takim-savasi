@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { buildPhysics, createMap } from '../src/world/map';
-import { BANDAGE_HEAL, BANDAGE_RESPAWN, Match, SPAWN_SAFE } from '../src/game/match';
+import { BANDAGE_CARRY, BANDAGE_HEAL, BANDAGE_RESPAWN, BANDAGE_TIME, Match, SPAWN_SAFE } from '../src/game/match';
 import { defaultSave, sanitize, LOADOUT_SIZE } from '../src/core/save';
 import { buyWeapon, putInLoadout, sellWeapon } from '../src/game/economy';
 import { KNIFE_RETURN, THROWN_KNIFE } from '../src/data/weapons';
@@ -167,7 +167,7 @@ describe('throwing the knife', () => {
   });
 });
 
-describe('bandages in the buildings', () => {
+describe('bandages in the buildings, carried and used later', () => {
   it('every walk-in building has a bandage on each floor (not on the roofs)', () => {
     const m = quiet();
     const b = m.pickups.filter((p) => p.kind === 'bandage');
@@ -179,21 +179,59 @@ describe('bandages in the buildings', () => {
     }
     expect(new Set(b.map((p) => p.pos.y)).size).toBeGreaterThan(5); // up the towers too
   });
-  it('heals 50, only when hurt, and comes back after a while', () => {
+  it('walking over one puts it in the pocket (even at full health); it comes back after a while', () => {
     const m = quiet();
     const p = m.player;
     const bd = m.pickups.find((q) => q.kind === 'bandage' && q.pos.y > 10)!;
     p.pos.copy(bd.pos);
     p.hp = p.maxHp;
     m.update(1 / 30);
-    expect(bd.alive).toBe(true); // full health: left for later
-    p.hp = 20;
-    p.lastHurtT = m.time; // no regen during the test
-    m.update(1 / 30);
     expect(bd.alive).toBe(false);
-    expect(p.hp).toBeCloseTo(20 + BANDAGE_HEAL, 0);
+    expect(p.bandages).toBe(1);
+    expect(p.hp).toBe(p.maxHp); // nothing healed yet
     p.pos.set(-20, 0, -3);
     for (let t = 0; t < BANDAGE_RESPAWN + 1; t += 1 / 10) m.update(1 / 10);
     expect(m.pickups.some((q) => q.kind === 'bandage' && q.alive && q.pos.distanceTo(bd.pos) < 0.01)).toBe(true);
+  });
+  it('carries at most three; leaves the rest for later', () => {
+    const m = quiet();
+    const p = m.player;
+    p.bandages = BANDAGE_CARRY;
+    const bd = m.pickups.find((q) => q.kind === 'bandage')!;
+    p.pos.copy(bd.pos);
+    m.update(1 / 30);
+    expect(bd.alive).toBe(true);
+    expect(p.bandages).toBe(BANDAGE_CARRY);
+  });
+  it('using one takes a moment with no shooting, then heals 50; not at full health or with none', () => {
+    const m = quiet();
+    const p = m.player;
+    p.pos.set(-20, 0, -3);
+    p.hp = p.maxHp;
+    p.bandages = 1;
+    expect(m.useBandage(p)).toBe(false); // full health: kept
+    p.hp = 20;
+    p.lastHurtT = m.time + 100; // no regen during the test
+    expect(m.useBandage(p)).toBe(true);
+    expect(m.useBandage(p)).toBe(false); // already wrapping
+    const ammo = p.weapon.ammo;
+    for (let t = 0; t < BANDAGE_TIME - 0.2; t += 1 / 30) { p.trigger = true; m.update(1 / 30); }
+    expect(p.hp).toBe(20);
+    expect(p.weapon.ammo).toBe(ammo);
+    for (let t = 0; t < 0.4; t += 1 / 30) m.update(1 / 30);
+    expect(p.hp).toBeCloseTo(20 + BANDAGE_HEAL, 0);
+    expect(p.bandages).toBe(0);
+    expect(m.useBandage(p)).toBe(false); // none left
+  });
+  it('a hurt bot with a bandage wraps it once out of fire', () => {
+    const m = new Match(map, phys.world, phys.nav, 'pistol', {}, { seed: 5, difficulty: 'normal' });
+    const b = m.combatants.find((c) => !c.isPlayer && c.team === 'red')!;
+    for (const c of m.combatants) if (c !== b) { c.alive = false; c.respawnT = 1e9; }
+    b.bandages = 1; b.hp = 30; b.lastHurtT = m.time;
+    let healed = false;
+    m.events.bandage = (c, done) => { if (c === b && done) healed = true; };
+    for (let t = 0; t < 4 && !healed; t += 1 / 30) m.update(1 / 30);
+    expect(healed).toBe(true);
+    expect(b.bandages).toBe(0);
   });
 });
