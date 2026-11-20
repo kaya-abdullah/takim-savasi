@@ -1108,6 +1108,7 @@ class Game {
       const pv = m.player.vehicle;
       audio.engine(pv && !m.over ? pv.kind : null, pv ? (pv.kind === 'tank' ? Math.abs(pv.speed) / 12 : 0.3 + pv.vel.length() / 25) : 0);
       if (this.ctrl.rocket && m.player.vehicle?.kind === 'jet') this.ui.popup(m.lastLock ? `ROKET KİLİTLENDİ: ${m.lastLock.name}` : 'ROKET ATILDI', 'kill');
+      if (this.ctrl.rocketFar) this.ui.popup('ÇOK UZAK', 'kill');
       if (this.ctrl.reloaded) audio.reload();
       if (this.ctrl.jumped) audio.jump();
       if (this.ctrl.stepped) audio.step(m.player.sprinting);

@@ -372,3 +372,14 @@ ekranda bütün silahlar görünür); el bombası ve bıçak tuşu yerinde kals�
   bandaja gider.
 - Testler: roket önce düşer ve 8 m irtifadan bile hedefini vurur; her katta bandaj var ve yürünebilir yerde;
   bandaj 50 iyileştirir, can doluyken alınmaz, 30 sn sonra geri gelir.
+
+## 22. Sürüm 5.5 (2026-11-20)
+İstekler: yeleklerin en üst seviyesi 5 olsun; uçak roketi haritanın yarısına kadar atsın, uzaksa "çok uzak" yazsın.
+
+- Çelik Yelek 5 seviye: 2.500 / 5.000 / 7.500 / 10.000 / 12.500 TL; her seviye +25 can (en üstte 225).
+  Eski kayıtlar korunur (en fazla 5).
+- Uçak roketi menzili haritanın yarısı (140 m; harita 280 m geniş). Nişangâhtaki düşman 140 m'den uzaksa
+  ya da nişangâh 140 m içinde bir yere değmiyorsa (gökyüzü) roket atılmaz, bekleme süresi harcanmaz ve
+  ekranda "ÇOK UZAK" yazar.
+- Testler: yelek 5. seviyede 'max', can 225; 200 m'deki hedefe ve gökyüzüne roket atılmaz, 120 m'dekine
+  atılır ve kilitlenir.

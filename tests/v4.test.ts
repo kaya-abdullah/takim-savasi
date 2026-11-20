@@ -419,6 +419,27 @@ describe('vehicles', () => {
     for (let i = 0; i < 30 * 4 && !hit; i++) m.update(1 / 30);
     expect(hit).toBe(true);
   });
+  it('the jet rocket reaches half the map; further away it says too far and keeps the rocket', () => {
+    const { m, p, v } = withVehicle('jet');
+    for (let i = 0; i < 60; i++) { m.driveInput.set(v, { forward: 0, side: 0, up: 1, yaw: 0 }); m.update(1 / 30); }
+    m.driveInput.set(v, { forward: 0, side: 0, up: 0, yaw: 0 });
+    for (const c of m.combatants) if (c.team === 'red') { c.alive = false; c.respawnT = 1e9; }
+    const e = m.combatants.find((c) => c.team === 'red')!;
+    e.alive = true; e.hp = e.maxHp = 100; e.shieldT = 0;
+    p.aimOrigin.copy(v.pos).add(new THREE.Vector3(1, 0.7, 0));
+    const aimAt = (dx: number) => { e.pos.set(v.pos.x + dx, 0, v.pos.z); p.aimDir.set(dx, 1 - p.aimOrigin.y, 0).normalize(); };
+    aimAt(-200); // 200 m away: too far
+    expect(m.heavyFire(p)).toBe(false);
+    expect(m.rocketFar).toBe(true);
+    expect(m.projectiles.length).toBe(0);
+    p.aimDir.set(0, 1, 0); // the sky: nothing within reach
+    expect(m.heavyFire(p)).toBe(false);
+    expect(m.rocketFar).toBe(true);
+    aimAt(-120); // within half the map: fires and locks
+    expect(m.heavyFire(p)).toBe(true);
+    expect(m.rocketFar).toBe(false);
+    expect(m.lastLock).toBe(e);
+  });
   it('the tank fires its machine gun and a cannon shell', () => {
     const { m, p, v } = withVehicle('tank');
     let shots = 0;

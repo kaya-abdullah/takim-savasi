@@ -65,6 +65,10 @@ describe('economy', () => {
     expect(buyUpgrade(s, 'armor')).toBe('ok');
     expect(maxHp(s)).toBe(125);
     expect(s.money).toBe(100000 - 1500 - 3000 - 2500);
+    // the vest goes up to level 5
+    for (let i = 0; i < 4; i++) expect(buyUpgrade(s, 'armor')).toBe('ok');
+    expect(buyUpgrade(s, 'armor')).toBe('max');
+    expect(maxHp(s)).toBe(225);
   });
 });
 
@@ -82,7 +86,7 @@ describe('save', () => {
     expect(old.settings.quality).toBe('high'); // node has no phone UA -> desktop default
     const cur = sanitize({ sv: 3, settings: { quality: 'low' }, upgrades: { bag: 1, armor: 9 } });
     expect(cur.settings.quality).toBe('low');
-    expect(cur.upgrades).toEqual({ bag: 1, armor: 2 });
+    expect(cur.upgrades).toEqual({ bag: 1, armor: 5 });
   });
   it('keeps valid data', () => {
     const s = sanitize({ sv: 3, money: 7200, owned: ['smg'], equipped: 'smg', settings: { quality: 'low', sensitivity: 1.5, sound: false } });

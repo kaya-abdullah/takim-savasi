@@ -129,6 +129,13 @@ test('phone: crouch button, vehicle buttons, driving and flying by touch', async
   const ammo = await g(page, 'g.match.player.vehicle.gun.ammo');
   await touch(cdp, page, '.tc.fire', 600);
   expect(await g(page, 'g.match.player.vehicle.gun.ammo')).toBeLessThan(ammo);
+  // aimed at the sky: nothing within half the map, so the rocket stays and the screen says so
+  await g(page, '(g.match.player.pitch = 0.3, 0)');
+  await touch(cdp, page, '.tc.grenade');
+  expect(await g(page, 'g.match.player.vehicle.rocketCd')).toBe(0);
+  await expect(page.getByText('ÇOK UZAK')).toBeVisible();
+  // aimed at the ground nearby: it fires
+  await g(page, '(g.match.player.pitch = -0.7, 0)');
   await touch(cdp, page, '.tc.grenade');
   expect(await g(page, 'g.match.player.vehicle.rocketCd')).toBeGreaterThan(0);
   await joystick(cdp, page, 800);

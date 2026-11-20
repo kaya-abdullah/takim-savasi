@@ -100,7 +100,7 @@ export function sanitize(raw: unknown): SaveData {
   const u = r.upgrades as Record<string, unknown> | undefined;
   if (u && typeof u === 'object') {
     d.upgrades.bag = Math.min(2, num(u.bag, 0));
-    d.upgrades.armor = Math.min(2, num(u.armor, 0));
+    d.upgrades.armor = Math.min(5, num(u.armor, 0));
   }
   // v4.7: the car became the tank and the helicopter the jet (same prices), so old purchases carry over
   const kind = (v: unknown): VehicleKind | null => (v === 'car' || v === 'tank' ? 'tank' : v === 'heli' || v === 'jet' ? 'jet' : null);

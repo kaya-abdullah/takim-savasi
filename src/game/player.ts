@@ -44,6 +44,7 @@ export class PlayerController {
   slashed = false;
   /** Heli rocket fired this frame. */
   rocket = false;
+  rocketFar = false;
   /** Seconds since the player last dragged the view (cars swing the camera back behind). */
   private lookIdle = 0;
   /** 0 normal camera .. 1 swung round to the front to watch the backpack being opened. */
@@ -90,7 +91,7 @@ export class PlayerController {
   }
 
   update(dt: number, c: Combatant, input: Input, m: Match, settings: Settings): void {
-    this.jumped = this.reloaded = this.threw = this.slashed = this.rocket = this.knifeThrown = false;
+    this.jumped = this.reloaded = this.threw = this.slashed = this.rocket = this.rocketFar = this.knifeThrown = false;
     const def = c.weapon.def;
     // ---- look
     const look = input.takeLook();
@@ -243,7 +244,10 @@ export class PlayerController {
       const up = (input.isHeld('jump') ? 1 : 0) - (input.isHeld('crouch') ? 1 : 0);
       m.driveInput.set(v, { forward: input.moveY, side: input.moveX, up, yaw: c.yaw });
     }
-    if (input.consume('grenade') && m.heavyFire(c)) this.rocket = true;
+    if (input.consume('grenade')) {
+      if (m.heavyFire(c)) this.rocket = true;
+      else if (m.rocketFar) this.rocketFar = true;
+    }
     if (input.consume('reload') && v.gun.startReload()) this.reloaded = true;
     // presses that mean nothing in a vehicle must not fire later
     input.consume('jump');

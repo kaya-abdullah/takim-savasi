@@ -70,8 +70,9 @@ export const JET_BOMB: WeaponDef = {
   projectile: { speed: 60, radius: 0.3, splash: 9, gravity: 0, color: 0xff7a1a },
   tracer: 0xff7a1a, sound: { freq: 40, noise: 700, decay: 0.9, gain: 1 },
 };
-/** Free fall after release, top speed and turn rate of the jet rocket. */
-export const JET_ROCKET = { drop: 0.3, speed: 60, accel: 90, ignite: 25, pitchOver: 0.4, turnFast: 7, turn: 2.6, lockCone: 0.45, lockRange: 170 };
+/** Free fall after release, top speed and turn rate of the jet rocket.
+ *  lockRange is half the map (280 m wide): a target further away is "too far". */
+export const JET_ROCKET = { drop: 0.3, speed: 60, accel: 90, ignite: 25, pitchOver: 0.4, turnFast: 7, turn: 2.6, lockCone: 0.45, lockRange: 140, seeRange: 400 };
 export const JET_BOMB_CD = 3;
 
 /** Cooldown of each vehicle's heavy weapon (grenade button). */

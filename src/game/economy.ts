@@ -71,8 +71,8 @@ export const UPGRADES: UpgradeDef[] = [
     desc: (l) => `Doğarken ${START_GRENADES + l} el bombası${l < 2 ? ` → ${START_GRENADES + l + 1}` : ''}`,
   },
   {
-    id: 'armor', name: 'Çelik Yelek', prices: [2500, 5000],
-    desc: (l) => `Can ${100 + l * 25}${l < 2 ? ` → ${100 + (l + 1) * 25}` : ''}`,
+    id: 'armor', name: 'Çelik Yelek', prices: [2500, 5000, 7500, 10000, 12500],
+    desc: (l) => `Can ${100 + l * 25}${l < 5 ? ` → ${100 + (l + 1) * 25}` : ''}`,
   },
 ];
 

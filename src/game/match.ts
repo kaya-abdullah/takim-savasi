@@ -188,6 +188,8 @@ export class Match {
   readonly brains = new Map<Combatant, BotBrain>();
   /** Enemy the last jet rocket locked onto (null: flew to the crosshair). */
   lastLock: Combatant | null = null;
+  /** The last jet rocket was refused: the target was past half the map. */
+  rocketFar = false;
   private rand: () => number;
 
   constructor(
@@ -501,7 +503,7 @@ export class Match {
       const tp = e.vehicle ? e.vehicle.center(_v2) : _v2.set(e.pos.x, e.pos.y + 1, e.pos.z);
       const to = _right.copy(tp).sub(c.aimOrigin);
       const dist = to.length();
-      if (dist > JET_ROCKET.lockRange || dist < 4) continue;
+      if (dist > JET_ROCKET.seeRange || dist < 4) continue;
       const a = Math.acos(THREE.MathUtils.clamp(to.dot(d) / dist, -1, 1));
       if (a < bestA && this.world.segmentClear(c.aimOrigin.x, c.aimOrigin.y, c.aimOrigin.z, tp.x, tp.y, tp.z)) { bestA = a; best = e; }
     }
@@ -963,21 +965,32 @@ export class Match {
   /** Heavy weapon on the grenade button: tank shell or jet bomb. */
   heavyFire(c: Combatant): boolean {
     const v = c.vehicle;
+    this.rocketFar = false;
     if (!v || v.rocketCd > 0 || !c.alive) return false;
+    // the jet only fires at what lies within half the map: an aimed enemy or ground point further away is refused
+    let target: Combatant | null = null, point: THREE.Vector3 | null = null;
+    if (v.kind === 'jet') {
+      target = this.rocketTarget(c);
+      if (target) {
+        const tp = target.vehicle ? target.vehicle.center(_v2) : _v2.set(target.pos.x, target.pos.y + 1, target.pos.z);
+        if (tp.distanceTo(c.aimOrigin) > JET_ROCKET.lockRange) { this.rocketFar = true; return false; }
+      } else {
+        const wh = this.world.raycast(c.aimOrigin.x, c.aimOrigin.y, c.aimOrigin.z, c.aimDir.x, c.aimDir.y, c.aimDir.z, JET_ROCKET.lockRange);
+        if (!wh) { this.rocketFar = true; return false; }
+        point = c.aimOrigin.clone().addScaledVector(c.aimDir, wh.t);
+      }
+    }
     v.rocketCd = HEAVY_CD[v.kind];
     c.lastShotT = this.time;
     if (v.kind === 'tank') this.launch(c, TANK_SHELL, c.aimOrigin, c.aimDir);
     else {
       // the rocket is released under the belly with the jet's speed, falls a moment,
       // then flies at the enemy nearest the crosshair (or the crosshair point)
-      const target = this.rocketTarget(c);
-      const wh = this.world.raycast(c.aimOrigin.x, c.aimOrigin.y, c.aimOrigin.z, c.aimDir.x, c.aimDir.y, c.aimDir.z, JET_ROCKET.lockRange);
-      const point = c.aimOrigin.clone().addScaledVector(c.aimDir, wh ? wh.t : JET_ROCKET.lockRange);
       const pr = this.launch(c, JET_BOMB, _v2.set(v.pos.x, v.pos.y - 0.5, v.pos.z), _v.set(0, -1, 0));
       // it keeps the jet's forward speed but never its climb: released, it always falls first
       pr.vel.set(v.vel.x, Math.min(0, v.vel.y) - 3, v.vel.z);
       pr.life = 7;
-      pr.guide = { target, point, t: 0 };
+      pr.guide = { target, point: point ?? (target ? target.pos.clone() : c.aimOrigin.clone()), t: 0 };
       this.lastLock = target;
     }
     return true;
