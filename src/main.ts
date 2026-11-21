@@ -29,6 +29,8 @@ import { PickupViews, PICKUP_NAMES } from './render/pickups';
 import { APK_URL, SITE_URL, VERSION, VERSION_CODE } from './version';
 import { Capacitor } from '@capacitor/core';
 import { Minimap } from './ui/minimap';
+import { Online, type StartInfo } from './net/online';
+import { TrysteroTransport } from './net/trystero';
 import { buildWorld, updateInteriors } from './world/build3d';
 import type { CollisionWorld } from './world/collision';
 import { buildPhysics, createMap, type MapData } from './world/map';
@@ -110,6 +112,10 @@ class Game {
   private crossT = 0;
   private enemyUnderCross = false;
   private frameCap = new FrameCap();
+  /** Online room (null: playing alone against bots). */
+  online: Online | null = null;
+  private onlineRoom = 1;
+  private netBox: HTMLDivElement | null = null;
   private fpsAcc = 0;
   private fpsFrames = 0;
   fps = 60;
@@ -133,7 +139,12 @@ class Game {
     this.ctrl = new PlayerController(this.camera);
     this.ui = new UI(document.getElementById('ui')!, {
       play: () => this.startMatch(),
-      again: () => this.startMatch(),
+      online: () => this.startOnline(),
+      again: () => {
+        // online the room starts the next match for everyone
+        if (this.online) this.ui.toast('Yeni maç birkaç saniye içinde başlıyor…');
+        else this.startMatch();
+      },
       openShop: () => this.openShop(),
       closeShop: () => this.closeShop(),
       buy: (id) => this.buy(id),
@@ -387,6 +398,7 @@ class Game {
 
   // ------------------------------------------------------------------ flow
   toMenu(): void {
+    this.leaveOnline();
     void this.keepAwake(false);
     if (this.endTimer !== null) { clearTimeout(this.endTimer); this.endTimer = null; }
     this.clearMatch();
@@ -427,10 +439,80 @@ class Game {
     this.match = null;
   }
 
-  startMatch(): void {
+  // ------------------------------------------------------------------ online
+  /** A name other people see (kept on this device). */
+  private onlineName(): string {
+    let n = '';
+    try { n = localStorage.getItem('ts3d-name') ?? ''; } catch { /* private mode */ }
+    if (!n) {
+      n = `Asker${100 + Math.floor(Math.random() * 900)}`;
+      try { localStorage.setItem('ts3d-name', n); } catch { /* private mode */ }
+    }
+    return n;
+  }
+
+  startOnline(): void {
+    audio.unlock();
+    audio.click();
+    this.leaveOnline();
+    this.showNet('Oda aranıyor…');
+    // ?oda=isim in the address: a private room for friends (and the tests)
+    let priv = '';
+    try { priv = (new URLSearchParams(location.search).get('oda') ?? '').replace(/[^\w-]/g, '').slice(0, 24); } catch { /* no location */ }
+    const tr = new TrysteroTransport(priv ? `${priv}-${this.onlineRoom}` : String(this.onlineRoom));
+    // the constructor already reports its status: `on` must exist before it runs
+    let on: Online | null = null;
+    on = new Online(tr, this.onlineName(), {
+      start: (info) => {
+        if (this.online !== on) return;
+        this.hideNet();
+        this.startMatch(info);
+      },
+      end: () => {},
+      status: (t) => { if ((!on || this.online === on) && !this.match) this.showNet(t); },
+      full: () => {
+        // this room holds 20 people: try the next one
+        if (this.online !== on || this.onlineRoom >= 5) return;
+        this.onlineRoom++;
+        this.startOnline();
+      },
+    });
+    this.online = on;
+  }
+
+  private leaveOnline(): void {
+    this.hideNet();
+    if (!this.online) return;
+    this.online.leave();
+    this.online = null;
+    this.onlineRoom = 1;
+  }
+
+  private showNet(text: string): void {
+    if (!this.netBox) {
+      const d = document.createElement('div');
+      d.className = 'net-wait';
+      d.innerHTML = '<div class="panel"><div class="spin"></div><p></p><button class="btn" data-a="cancel">VAZGEÇ</button></div>';
+      d.querySelector('button')!.onclick = () => this.toMenu();
+      document.getElementById('ui')!.appendChild(d);
+      this.netBox = d;
+    }
+    this.netBox.querySelector('p')!.textContent = text;
+    this.netBox.style.display = '';
+  }
+
+  private hideNet(): void {
+    if (this.netBox) this.netBox.style.display = 'none';
+  }
+
+  startMatch(net?: StartInfo): void {
     if (this.endTimer !== null) { clearTimeout(this.endTimer); this.endTimer = null; }
     audio.unlock();
     audio.click();
+    // the offline "play" button leaves any room
+    if (!net) this.leaveOnline();
+    this.ui.closePause();
+    this.ui.closeShop();
     this.clearMatch();
     const m = new Match(this.map, this.world, this.nav, this.save.equipped, {
       pickupSpawned: (p) => {
@@ -513,8 +595,12 @@ class Game {
         this.effects.shake = Math.min(1.2, this.effects.shake + Math.min(0.8, imp * 0.05));
       },
       runOver: (v) => { if (v.driver?.isPlayer) this.ui.popup('EZDİN!', 'kill'); },
-    }, { playerGrenades: grenadeCount(this.save), playerHp: maxHp(this.save), difficulty: this.save.settings.difficulty });
+    }, {
+      playerGrenades: grenadeCount(this.save), playerHp: maxHp(this.save), difficulty: this.save.settings.difficulty,
+      ...(net ? { slot: net.slot, seed: net.seed, playerName: this.online!.name } : {}),
+    });
     this.match = m;
+    if (net) this.joinRunning(m, net);
     for (const c of m.combatants) {
       c.view = new CharacterView(c.team, !c.isPlayer);
       c.view.setWeapon(c.weapon.def);
@@ -539,6 +625,21 @@ class Game {
     this.ui.showHud(this.input.isTouch, m.killLimit);
     void this.keepAwake(true);
     this.input.requestPointerLock();
+    if (net) {
+      const team = m.player.team === 'blue' ? 'MAVİ' : 'KIRMIZI';
+      this.ui.banner(`ÇEVRİMİÇİ · ${team} TAKIM`, `Odada ${this.online!.humans()} oyuncu · boş yerlerde botlar var`);
+    }
+  }
+
+  /** Hooks the match into the room and catches up with a match already running. */
+  private joinRunning(m: Match, net: StartInfo): void {
+    this.online!.attach(m);
+    m.time = net.time;
+    m.score.blue = net.score.blue;
+    m.score.red = net.score.red;
+    net.kd.forEach(([k, d], i) => { const c = m.combatants[i]; if (c) { c.kills = k; c.deaths = d; } });
+    for (const [id, kind, x, y, z] of net.pk) m.spawnPickup(kind, new THREE.Vector3(x, y, z), id, true);
+    for (const id of net.gone) m.pickupTaken(id, null);
   }
 
   pause(): void {
@@ -555,7 +656,9 @@ class Game {
   /** Leaving while the enemy leads counts as a defeat (no dodging the penalty). */
   private quitCountsAsLoss(): boolean {
     const m = this.match;
-    return !!m && !m.over && m.score.red > m.score.blue;
+    if (!m || m.over) return false;
+    const mine = m.player.team, theirs = mine === 'blue' ? 'red' : 'blue';
+    return m.score[theirs] > m.score[mine];
   }
 
   /** Pause-menu "main menu": applies the defeat penalty if the enemy was ahead. */
@@ -620,6 +723,7 @@ class Game {
     if (!m || this.state !== 'playing') return;
     const p = m.player;
     if (!p.alive) return;
+    if (this.online) { this.ui.popup('Çevrimiçi maçta tank ve uçak yok', 'kill'); return; }
     if (kind === 'toggle') {
       if (p.vehicle) { m.exitVehicle(p); audio.click(); return; }
       const v = m.nearbyVehicle(p);
@@ -1062,7 +1166,7 @@ class Game {
 
   private onEnd(w: 'blue' | 'red' | 'draw'): void {
     const m = this.match!;
-    const res = w === 'blue' ? 'win' : w === 'red' ? 'lose' : 'draw';
+    const res = w === 'draw' ? 'draw' : w === m.player.team ? 'win' : 'lose';
     const bonus = applyMatchResult(this.save, res);
     this.save.matches++;
     if (res === 'win') this.save.wins++;
@@ -1108,6 +1212,11 @@ class Game {
   private tick(dt: number): void {
     this.frames++;
     const m = this.match;
+    // online the match never stops for one person's pause menu (the others play on)
+    if (m && this.online && this.state === 'paused') {
+      this.online.tick(dt);
+      m.update(dt);
+    }
     if (m && this.state === 'playing') {
       if (this.input.consume('tank')) this.vehicleAction('tank');
       if (this.input.consume('jet')) this.vehicleAction('jet');
@@ -1123,6 +1232,7 @@ class Game {
       if (this.ctrl.reloaded) audio.reload();
       if (this.ctrl.jumped) audio.jump();
       if (this.ctrl.stepped) audio.step(m.player.sprinting);
+      this.online?.tick(dt);
       m.update(dt);
     }
     if (m && this.state !== 'menu') {

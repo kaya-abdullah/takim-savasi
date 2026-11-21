@@ -18,6 +18,30 @@ export const SHIELD_TIME = 2;
 /** Nobody respawns closer than this to a living enemy. */
 export const SPAWN_SAFE = 30;
 
+/** Online: a fighter's slot index equals its id (blue 0..9, red 10..19). */
+export const SLOTS = TEAM_SIZE * 2;
+export const slotTeam = (slot: number): Team => (slot < TEAM_SIZE ? 'blue' : 'red');
+/** The bot's own name for a slot (shown again when a person leaves it). */
+export function botName(slot: number): string {
+  return slot < TEAM_SIZE ? (slot === 0 ? 'Şahin' : BLUE_NAMES[slot - 1]) : RED_NAMES[slot - TEAM_SIZE];
+}
+
+/**
+ * Online play: who simulates which fighter. Damage is decided by the peer
+ * that owns the attacker and applied by the peer that owns the victim.
+ */
+export interface MatchNet {
+  owns(c: Combatant): boolean;
+  /** This peer runs the bots, pickups, the clock and the end of the match. */
+  isHost(): boolean;
+  /** A fighter this peer owns hurt one another peer owns (amount already includes buffs). */
+  sendDamage(victim: Combatant, attacker: Combatant, amount: number, head: boolean, def: WeaponDef): void;
+  /** A fighter this peer owns died. */
+  sendKill(e: KillEntry): void;
+  sendPickupTaken(p: Pickup, c: Combatant | null): void;
+  sendPickupSpawned(p: Pickup): void;
+}
+
 const BLUE_NAMES = ['Kartal', 'Aslan', 'Pars', 'Doğan', 'Yıldız', 'Bora', 'Tuna', 'Efe', 'Atlas'];
 const RED_NAMES = ['Kurt', 'Kobra', 'Akrep', 'Kara', 'Fırtına', 'Yılan', 'Çakal', 'Duman', 'Kaya', 'Volkan'];
 
@@ -55,6 +79,8 @@ export interface ThrownKnife {
 
 export type PickupKind = 'health' | 'damage' | 'speed' | 'airdrop' | 'bandage';
 export interface Pickup {
+  /** Same on every peer (online): bandages are numbered in spot order, the rest by the host. */
+  id: number;
   kind: PickupKind;
   pos: THREE.Vector3;
   alive: boolean;
@@ -188,7 +214,7 @@ export class Match {
   readonly difficulty: Difficulty;
   private pickupT = 6;
   /** Bandages waiting to come back: where and when. */
-  private bandageBack: { pos: THREE.Vector3; t: number }[] = [];
+  private bandageBack: { id: number; pos: THREE.Vector3; t: number }[] = [];
   private airdropT = AIRDROP_FIRST;
   readonly killFeed: KillEntry[] = [];
   readonly brains = new Map<Combatant, BotBrain>();
@@ -204,7 +230,7 @@ export class Match {
     readonly nav: NavWorld,
     playerWeapon: string,
     public events: MatchEvents = {},
-    opts: { killLimit?: number; duration?: number; seed?: number; playerName?: string; playerGrenades?: number; playerHp?: number; difficulty?: Difficulty } = {},
+    opts: { killLimit?: number; duration?: number; seed?: number; playerName?: string; playerGrenades?: number; playerHp?: number; difficulty?: Difficulty; slot?: number } = {},
   ) {
     this.difficulty = opts.difficulty ?? 'hard';
     this.killLimit = opts.killLimit ?? KILL_LIMIT;
@@ -214,13 +240,17 @@ export class Match {
       s = (s * 1664525 + 1013904223) >>> 0;
       return s / 4294967296;
     };
-    let id = 0;
-    this.player = new Combatant(id++, opts.playerName ?? 'MUSTAFA', 'blue', true, getWeapon(playerWeapon));
-    this.player.maxGrenades = opts.playerGrenades ?? START_GRENADES;
-    this.player.maxHp = this.player.hp = opts.playerHp ?? MAX_HP;
-    this.combatants.push(this.player);
-    for (const n of BLUE_NAMES.slice(0, TEAM_SIZE - 1)) this.addBot(id++, n, 'blue');
-    for (const n of RED_NAMES.slice(0, TEAM_SIZE)) this.addBot(id++, n, 'red');
+    // one fighter per slot, ids equal slots; offline the player is slot 0 (blue)
+    const slot = opts.slot ?? 0;
+    let player: Combatant | null = null;
+    for (let id = 0; id < SLOTS; id++) {
+      if (id !== slot) { this.addBot(id, botName(id), slotTeam(id)); continue; }
+      player = new Combatant(id, opts.playerName ?? 'MUSTAFA', slotTeam(id), true, getWeapon(playerWeapon));
+      player.maxGrenades = opts.playerGrenades ?? START_GRENADES;
+      player.maxHp = player.hp = opts.playerHp ?? MAX_HP;
+      this.combatants.push(player);
+    }
+    this.player = player!;
     // first spawn: each team scattered over its own half of the city, a different
     // spot every match (no fixed base)
     const taken: V2[] = [];
@@ -234,7 +264,22 @@ export class Match {
       c.shieldT = SHIELD_TIME;
       c.grenades = c.maxGrenades;
     }
-    for (const b of bandageSpots(map, nav)) this.spawnPickup('bandage', b);
+    const spots = bandageSpots(map, nav);
+    this.bandageCount = spots.length;
+    spots.forEach((b, i) => this.spawnPickup('bandage', b, i));
+  }
+
+  /** Bandages carry ids 0..bandageCount-1 on every device. */
+  readonly bandageCount: number;
+
+  /** Online hooks (null offline). */
+  net: MatchNet | null = null;
+  /** Ids for pickups this peer creates (online: only the host does). */
+  private pickupId = 1000 + Math.floor(Math.random() * 1e6);
+
+  /** This peer simulates the fighter (always true offline). */
+  owns(c: Combatant): boolean {
+    return !this.net || this.net.owns(c);
   }
 
   readonly killLimit: number;
@@ -335,7 +380,10 @@ export class Match {
     this.time += dt;
     this.updateVehicles(dt);
     for (const c of this.combatants) {
+      const local = this.owns(c);
       if (!c.alive) {
+        // a fighter another peer runs comes back through its snapshots
+        if (!local) continue;
         c.respawnT -= dt;
         if (c.respawnT <= 0) this.respawn(c);
         continue;
@@ -347,10 +395,10 @@ export class Match {
       if (c.meleeCd > 0) c.meleeCd -= dt;
       if (c.dmgBuffT > 0) c.dmgBuffT -= dt;
       if (c.speedBuffT > 0) c.speedBuffT -= dt;
-      if (c.hp < c.maxHp && this.time - c.lastHurtT > REGEN_DELAY) c.hp = Math.min(c.maxHp, c.hp + REGEN_RATE * dt);
-      const brain = this.brains.get(c);
+      if (local && c.hp < c.maxHp && this.time - c.lastHurtT > REGEN_DELAY) c.hp = Math.min(c.maxHp, c.hp + REGEN_RATE * dt);
+      const brain = local && !c.remote ? this.brains.get(c) : undefined;
       if (brain) brain.update(dt, c, this);
-      if (c.bandageT > 0) {
+      if (c.bandageT > 0 && local) {
         // both hands on the bandage: no shooting until it is wrapped
         c.trigger = false;
         if (c.vehicle) c.bandageT = 0;
@@ -371,12 +419,16 @@ export class Match {
     this.updateKnives(dt);
     this.updatePickups(dt);
     this.updateDrops(dt);
+    // online only the host ends the match (the others hear it)
+    if (this.net && !this.net.isHost()) return;
     if (this.score.blue >= this.killLimit || this.score.red >= this.killLimit || this.time >= this.duration) this.finish();
   }
 
-  private finish(): void {
+  /** Ends the match now (online: the host said so). */
+  finish(winner?: Team | 'draw'): void {
+    if (this.over) return;
     this.over = true;
-    this.winner = this.score.blue > this.score.red ? 'blue' : this.score.red > this.score.blue ? 'red' : 'draw';
+    this.winner = winner ?? (this.score.blue > this.score.red ? 'blue' : this.score.red > this.score.blue ? 'red' : 'draw');
     this.events.end?.(this.winner);
   }
 
@@ -601,29 +653,42 @@ export class Match {
     return null;
   }
 
-  spawnPickup(kind: PickupKind, at?: THREE.Vector3): Pickup | null {
+  spawnPickup(kind: PickupKind, at?: THREE.Vector3, id?: number, fromNet = false): Pickup | null {
     const pos = at ?? this.freePoi(kind === 'airdrop' ? 6 : 10);
     if (!pos) return null;
-    const p: Pickup = { kind, pos, alive: true, falling: kind === 'airdrop', age: 0 };
-    if (p.falling) p.pos.y = 45;
+    const p: Pickup = { id: id ?? this.pickupId++, kind, pos, alive: true, falling: kind === 'airdrop', age: 0 };
+    // a crate heard from the host is already on its way down (its height came with it)
+    if (p.falling && !fromNet) p.pos.y = 45;
     this.pickups.push(p);
+    if (this.net && !fromNet && kind !== 'bandage') this.net.sendPickupSpawned(p);
     this.events.pickupSpawned?.(p);
     return p;
   }
 
+  /** Online: another peer's fighter took a pickup (its effect was applied there). */
+  pickupTaken(id: number, c: Combatant | null): void {
+    const p = this.pickups.find((q) => q.id === id && q.alive);
+    if (!p) return;
+    p.alive = false;
+    if (p.kind === 'bandage') this.bandageBack.push({ id: p.id, pos: p.pos.clone(), t: BANDAGE_RESPAWN });
+    if (c) this.events.pickedUp?.(c, p);
+  }
+
   private updatePickups(dt: number): void {
-    for (const b of this.bandageBack) if ((b.t -= dt) <= 0) this.spawnPickup('bandage', b.pos);
+    for (const b of this.bandageBack) if ((b.t -= dt) <= 0) this.spawnPickup('bandage', b.pos, b.id);
     if (this.bandageBack.some((b) => b.t <= 0)) this.bandageBack = this.bandageBack.filter((b) => b.t > 0);
-    this.pickupT -= dt;
-    if (this.pickupT <= 0) {
+    // online the host alone drops new pickups (and tells the others)
+    const spawner = !this.net || this.net.isHost();
+    if (spawner) this.pickupT -= dt;
+    if (spawner && this.pickupT <= 0) {
       this.pickupT = PICKUP_EVERY;
       if (this.pickups.filter((p) => p.alive && p.kind !== 'airdrop' && p.kind !== 'bandage').length < 3) {
         const kinds: PickupKind[] = ['health', 'damage', 'speed'];
         this.spawnPickup(kinds[Math.floor(this.rand() * 3)]);
       }
     }
-    this.airdropT -= dt;
-    if (this.airdropT <= 0) {
+    if (spawner) this.airdropT -= dt;
+    if (spawner && this.airdropT <= 0) {
       this.airdropT = AIRDROP_EVERY;
       this.spawnPickup('airdrop');
     }
@@ -635,9 +700,9 @@ export class Match {
         if (p.pos.y <= 0) { p.pos.y = 0; p.falling = false; }
         continue;
       }
-      if (p.kind !== 'airdrop' && p.kind !== 'bandage' && p.age > 40) { p.alive = false; continue; }
+      if (p.kind !== 'airdrop' && p.kind !== 'bandage' && p.age > 40 && (!this.net || this.net.isHost())) { p.alive = false; this.net?.sendPickupTaken(p, null); continue; }
       for (const c of this.combatants) {
-        if (!c.alive || c.vehicle || Math.hypot(c.pos.x - p.pos.x, c.pos.z - p.pos.z) > 1.4 || Math.abs(c.pos.y - p.pos.y) > 1.5) continue;
+        if (!c.alive || c.vehicle || !this.owns(c) || Math.hypot(c.pos.x - p.pos.x, c.pos.z - p.pos.z) > 1.4 || Math.abs(c.pos.y - p.pos.y) > 1.5) continue;
         if (p.kind === 'health' && c.hp >= c.maxHp) continue;
         if (p.kind === 'bandage' && c.bandages >= BANDAGE_CARRY) continue;
         this.collect(c, p);
@@ -653,7 +718,7 @@ export class Match {
     if (p.kind === 'health') c.hp = c.maxHp;
     else if (p.kind === 'bandage') {
       c.bandages++;
-      this.bandageBack.push({ pos: p.pos.clone(), t: BANDAGE_RESPAWN });
+      this.bandageBack.push({ id: p.id, pos: p.pos.clone(), t: BANDAGE_RESPAWN });
     }
     else if (p.kind === 'damage') c.dmgBuffT = BUFF_TIME;
     else if (p.kind === 'speed') c.speedBuffT = BUFF_TIME;
@@ -663,6 +728,7 @@ export class Match {
       if (!c.isPlayer) c.setWeapon(weapon);
       c.grenades = Math.max(c.grenades, c.maxGrenades);
     }
+    this.net?.sendPickupTaken(p, c);
     this.events.pickedUp?.(c, p, weapon);
   }
 
@@ -673,7 +739,7 @@ export class Match {
       if (d.age > DROP_LIFETIME) { d.alive = false; continue; }
       if (d.age < 0.6) continue; // let it land before anyone grabs it
       for (const c of this.combatants) {
-        if (!c.alive || c.vehicle || Math.hypot(c.pos.x - d.pos.x, c.pos.z - d.pos.z) > 1.3 || Math.abs(c.pos.y - d.pos.y) > 1.5) continue;
+        if (!c.alive || c.vehicle || !this.owns(c) || Math.hypot(c.pos.x - d.pos.x, c.pos.z - d.pos.z) > 1.3 || Math.abs(c.pos.y - d.pos.y) > 1.5) continue;
         if (c.isPlayer) {
           d.alive = false;
           this.events.weaponFound?.(c, d);
@@ -790,42 +856,82 @@ export class Match {
 
   damage(victim: Combatant, attacker: Combatant, amount: number, head: boolean, def: WeaponDef): void {
     if (!victim.alive || victim.shieldT > 0 || this.over) return;
+    // online: only the attacker's peer decides a hit; on the others the shot is just a picture
+    if (this.net && !this.net.owns(attacker)) return;
     // a driver is protected by the vehicle body: the vehicle takes the hit
     if (victim.vehicle && def !== VEHICLE_EJECT) { this.damageVehicle(victim.vehicle, attacker, amount); return; }
     if (attacker.dmgBuffT > 0) amount *= 2;
     amount = Math.round(amount);
+    if (this.net && !this.net.owns(victim)) {
+      // the victim's peer applies it (and reports a death); here only the hit feedback
+      this.net.sendDamage(victim, attacker, amount, head, def);
+      victim.view?.hitFlash();
+      this.events.damage?.(victim, attacker, amount, head);
+      return;
+    }
+    this.applyDamage(victim, attacker, amount, head, def);
+  }
+
+  /** Takes hp off a fighter this peer owns (amount is final); a death is scored here. */
+  applyDamage(victim: Combatant, attacker: Combatant, amount: number, head: boolean, def: WeaponDef): void {
+    if (!victim.alive || victim.shieldT > 0 || this.over) return;
     victim.hp -= amount;
     victim.lastHurtT = this.time;
     victim.lastAttacker = attacker;
     victim.view?.hitFlash();
     this.events.damage?.(victim, attacker, amount, head);
     if (victim.hp <= 0) {
-      victim.hp = 0;
-      victim.alive = false;
-      victim.trigger = false;
       victim.respawnT = RESPAWN_TIME + (victim.isPlayer ? 1 : 0);
-      victim.deaths++;
-      victim.streak = 0;
-      // own goals (crashing your own vehicle) score nothing
-      if (attacker.team !== victim.team) {
-        attacker.kills++;
-        attacker.streak++;
-        this.score[attacker.team]++;
-      }
-      if (victim.vehicle) this.exitVehicle(victim);
-      victim.crouch = false;
-      victim.view?.die();
-      // the fallen fighter's gun drops where they stood (onto the floor below them)
-      const gy = this.world.groundHeight(victim.pos.x, victim.pos.z, 0.2, victim.pos.y + 0.3);
-      const drop: Drop = { def: victim.weapon.def, pos: new THREE.Vector3(victim.pos.x, Math.max(gy, victim.pos.y - 50), victim.pos.z), age: 0, alive: true };
-      this.drops.push(drop);
-      if (this.drops.length > 24) this.drops.shift();
-      this.events.dropSpawned?.(drop);
-      const entry: KillEntry = { killer: attacker, victim, weapon: def, head, t: this.time };
-      this.killFeed.push(entry);
-      if (this.killFeed.length > 30) this.killFeed.shift();
-      this.events.kill?.(entry);
+      const entry = this.registerKill(victim, attacker, def, head);
+      this.net?.sendKill(entry);
     }
+  }
+
+  /** Bookkeeping of a death (also run when another peer reports one). */
+  registerKill(victim: Combatant, attacker: Combatant, def: WeaponDef, head: boolean): KillEntry {
+    victim.hp = 0;
+    victim.alive = false;
+    victim.trigger = false;
+    victim.bandageT = 0;
+    victim.deaths++;
+    victim.streak = 0;
+    // own goals (crashing your own vehicle) score nothing
+    if (attacker.team !== victim.team) {
+      attacker.kills++;
+      attacker.streak++;
+      this.score[attacker.team]++;
+    }
+    if (victim.vehicle) this.exitVehicle(victim);
+    victim.crouch = false;
+    victim.view?.die();
+    // the fallen fighter's gun drops where they stood (onto the floor below them)
+    const gy = this.world.groundHeight(victim.pos.x, victim.pos.z, 0.2, victim.pos.y + 0.3);
+    const drop: Drop = { def: victim.weapon.def, pos: new THREE.Vector3(victim.pos.x, Math.max(gy, victim.pos.y - 50), victim.pos.z), age: 0, alive: true };
+    this.drops.push(drop);
+    if (this.drops.length > 24) this.drops.shift();
+    this.events.dropSpawned?.(drop);
+    const entry: KillEntry = { killer: attacker, victim, weapon: def, head, t: this.time };
+    this.killFeed.push(entry);
+    if (this.killFeed.length > 30) this.killFeed.shift();
+    this.events.kill?.(entry);
+    return entry;
+  }
+
+  /** Online: a grenade another peer's fighter threw (its blast hurts only on that peer). */
+  remoteGrenade(owner: Combatant, pos: THREE.Vector3, vel: THREE.Vector3): void {
+    const g: Grenade = { owner, pos: pos.clone(), vel: vel.clone(), fuse: GRENADE_FUSE, alive: true, resting: false };
+    this.grenades.push(g);
+    this.events.grenadeThrown?.(g);
+  }
+
+  /** Online: a knife another peer's fighter threw. */
+  remoteKnife(owner: Combatant, pos: THREE.Vector3, vel: THREE.Vector3): void {
+    for (const k of this.knives) if (k.owner === owner) k.alive = false;
+    owner.hasKnife = false;
+    owner.knifeBackT = KNIFE_RETURN;
+    const k: ThrownKnife = { owner, pos: pos.clone(), vel: vel.clone(), spin: 0, flying: true, alive: true, age: 0 };
+    this.knives.push(k);
+    this.events.knifeThrown?.(k);
   }
 
   /** Line of sight between two combatants' eyes/chests. */

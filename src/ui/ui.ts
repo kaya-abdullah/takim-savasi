@@ -30,6 +30,8 @@ const ICON = {
 
 export interface UICallbacks {
   play(): void;
+  /** Join the shared online room. */
+  online(): void;
   openShop(): void;
   closeShop(): void;
   buy(id: string): void;
@@ -182,6 +184,7 @@ export class UI {
         <div class="logo"><div class="l1">Takım<br>Savaşı</div><div class="l2">3D</div>
           <div class="vs"><b class="b">MAVİ</b> VS <b class="r">KIRMIZI</b></div></div>
         <button class="big-play" data-a="play">OYNA</button>
+        <button class="online-play" data-a="online">ÇEVRİMİÇİ OYNA</button>
         <div class="equipped">${this.icons[w.id] ? `<img src="${this.icons[w.id]}" alt="">` : ''}<div>Silahın<br><b>${esc(w.name)}</b></div></div>
         <div class="stats">
           <div class="stat">Maç<b>${save.matches}</b></div>
@@ -201,6 +204,7 @@ export class UI {
       const t = (e.target as HTMLElement).closest('[data-a]') as HTMLElement | null;
       const a = t?.getAttribute('data-a');
       if (a === 'play') this.cb.play();
+      else if (a === 'online') this.cb.online();
       else if (a === 'shop') this.cb.openShop();
       else if (a === 'settings') this.openSettings(save.settings);
       else if (a === 'wheel') this.openWheel(save, x);
@@ -761,7 +765,7 @@ export class UI {
   // ------------------------------------------------------------------ end
   showEnd(d: EndData, money: number): void {
     const s = this.screens.end;
-    const won = d.winner === 'blue';
+    const won = d.winner === d.player.team;
     const title = d.winner === 'draw' ? 'BERABERE' : won ? 'KAZANDIN!' : 'KAYBETTİN';
     const table = (team: 'blue' | 'red') => {
       const rows = d.combatants.filter((c) => c.team === team).sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);

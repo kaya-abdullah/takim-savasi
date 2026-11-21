@@ -440,3 +440,12 @@ button { border: none; color: var(--text); }
 .tc.bandage .bprog { position: absolute; inset: -5px; border-radius: 50%; pointer-events: none; display: none; background: conic-gradient(#fff var(--p, 0%), transparent 0); -webkit-mask: radial-gradient(circle, transparent 62%, #000 64%); mask: radial-gradient(circle, transparent 62%, #000 64%); }
 .tc.bandage.busy .bprog { display: block; }
 @media (max-height: 430px) { .tc.bandage { width: 48px; height: 48px; left: calc(106px + var(--safe-l)); top: calc(44% - 2px); } }
+
+/* online */
+.online-play { pointer-events: auto; font-size: clamp(15px, 2vw, 19px); font-weight: 900; letter-spacing: 2px; padding: 10px 28px; border-radius: 12px; background: linear-gradient(180deg, #5ad1ff 0%, #1f8fe0 100%); color: #04213a; box-shadow: 0 4px 0 #0d4f86, 0 8px 20px rgba(31,143,224,.4), inset 0 2px 0 rgba(255,255,255,.6); }
+.online-play:active { transform: translateY(3px); box-shadow: 0 1px 0 #0d4f86; }
+.net-wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5,10,20,.72); pointer-events: auto; z-index: 50; }
+.net-wait .panel { text-align: center; padding: 24px 32px; }
+.net-wait p { font-size: 18px; font-weight: 800; margin: 14px 0 18px; }
+.net-wait .spin { width: 42px; height: 42px; margin: 0 auto; border-radius: 50%; border: 4px solid rgba(255,255,255,.2); border-top-color: #5ad1ff; animation: netspin 0.9s linear infinite; }
+@keyframes netspin { to { transform: rotate(360deg); } }

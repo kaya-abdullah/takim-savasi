@@ -152,8 +152,10 @@ export class Combatant {
   crouchK = 0;
   /** Vehicle this fighter is driving, if any. */
   vehicle: Vehicle | null = null;
+  /** Online: a person on another device plays this fighter (no bot brain here). */
+  remote = false;
 
-  constructor(readonly id: number, readonly name: string, readonly team: Team, readonly isPlayer: boolean, weapon: WeaponDef) {
+  constructor(readonly id: number, public name: string, readonly team: Team, readonly isPlayer: boolean, weapon: WeaponDef) {
     this.weapon = new WeaponState(weapon);
   }
 

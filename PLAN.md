@@ -405,3 +405,22 @@ ekranda bütün silahlar görünür); el bombası ve bıçak tuşu yerinde kals�
 - Otomatik çözünürlük düşürme sınıra göre: 30 seçiliyken 30 FPS "yavaş cihaz" sayılmaz.
 - Testler: 60/120/144/240 Hz ekranlarda sınır tutuyor, kayıtta geçersiz değer 100'e dönüyor; tarayıcıda
   30 seçilince döngü ≤32 FPS, ayar yeniden açılışta korunuyor.
+
+## 25. Sürüm 5.8 (2026-11-21)
+İstek: aynı anda oyuna girenler aynı odada olsun; bir takım dolunca diğer takıma girsinler.
+
+- Menüde "ÇEVRİMİÇİ OYNA". Sunucu yok: cihazlar herkese açık Nostr röleleri üzerinden tanışır (trystero),
+  oyun verisi WebRTC ile doğrudan cihazlar arasında akar. GitHub Pages'te çalışır, hesap gerekmez.
+- Tek ortak oda (`p1-oda-1`). Odaya en önce giren cihaz ev sahibidir: botları, saati, eşyaları ve maç
+  sonunu o yürütür. Ev sahibi çıkarsa en eski konuk devralır; botlar kaldığı yerden devam eder.
+- Takım: insanlar önce maviyi doldurur (10 yer), mavi dolunca kırmızıya (10 yer) girer. İnsan olmayan yerde
+  bot oynar; oyuncu çıkınca yerine yine bot geçer. 20 kişi dolunca sonraki oda (`oda-2`… en fazla 5).
+- Herkes kendi askerini yürütür ve saniyede 12 kez durumunu yollar. Vuruşa ateş eden cihaz karar verir,
+  canı kurbanın cihazı düşer ve ölümü herkese duyurur (skor, leş akışı, para herkeste aynı).
+- El bombası, fırlatılan bıçak, bıçak darbesi, bandaj ve eşyalar (ikmal, can, bandaj) eşleniyor.
+- Çevrimiçi maçta tank ve uçak kapalı (sonraki adım). Duraklatma menüsü maçı durdurmaz.
+- Maç bitince ev sahibi 12 sn sonra herkese yeni maç başlatır. Arada katılan, süren maça girer.
+- `?oda=isim` adresiyle özel oda (arkadaş grubu ve testler için).
+- Testler: sahte ağla 20 kişi (mavi 1..9, kırmızı 10..19, 21. kişiye "dolu"), boşalan yer, ev sahibi
+  devri, aynı anda açılan iki odanın birleşmesi, vuruş/ölüm yönlendirmesi; gerçek ağda üç tarayıcı
+  (sıra, hareket, leş ve skor herkeste aynı, ev sahibi çıkınca botlar sürüyor).
