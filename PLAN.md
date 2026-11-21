@@ -396,3 +396,12 @@ ekranda bütün silahlar görünür); el bombası ve bıçak tuşu yerinde kals�
 - Botlar: yoldaki bandajı alır, canı %60'ın altına inip 1,2 sn vurulmayınca sarar.
 - Testler: cebe girer, en fazla 3, sarma süresince ateş yok ve sonra +50, bot sarıyor; tarayıcıda H ile ve
   telefonda düğmeyle sarma, düğme diğer kontrollerin üstüne binmiyor.
+
+## 24. Sürüm 5.7 (2026-11-21)
+İstek: ayarlara FPS ekle, en fazla 100 FPS olsun.
+
+- Ayarlar'da "FPS sınırı" satırı: 30 / 60 / 100. Varsayılan 100; 100'ün üstü yok.
+- Döngü bir zaman çizelgesiyle kısılıyor: 120/144 Hz ekranda 100 seçilince gerçekten ~100 FPS (60'a düşmez).
+- Otomatik çözünürlük düşürme sınıra göre: 30 seçiliyken 30 FPS "yavaş cihaz" sayılmaz.
+- Testler: 60/120/144/240 Hz ekranlarda sınır tutuyor, kayıtta geçersiz değer 100'e dönüyor; tarayıcıda
+  30 seçilince döngü ≤32 FPS, ayar yeniden açılışta korunuyor.

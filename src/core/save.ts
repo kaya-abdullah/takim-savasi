@@ -1,5 +1,6 @@
 import { ALL_WEAPONS, STARTER } from '../data/weapons';
 import type { VehicleKind } from '../data/vehicles';
+import { FPS_LIMITS, type FpsLimit } from './framecap';
 
 export type Quality = 'low' | 'medium' | 'high';
 export type Difficulty = 'normal' | 'hard' | 'extreme';
@@ -11,6 +12,8 @@ export interface Settings {
   aimAssist: boolean;
   /** Bot toughness and skill. */
   difficulty: Difficulty;
+  /** Frame rate cap (max 100). */
+  fpsLimit: FpsLimit;
 }
 
 export interface SaveData {
@@ -55,7 +58,7 @@ export function defaultSave(): SaveData {
     totalKills: 0,
     matches: 0,
     wins: 0,
-    settings: { quality: defaultQuality(), sensitivity: 1, sound: true, aimAssist: true, difficulty: 'hard' },
+    settings: { quality: defaultQuality(), sensitivity: 1, sound: true, aimAssist: true, difficulty: 'hard', fpsLimit: 100 },
     upgrades: { bag: 0, armor: 0 },
     vehicles: [],
     lastSpin: '',
@@ -93,6 +96,7 @@ export function sanitize(raw: unknown): SaveData {
     if (typeof s.sound === 'boolean') d.settings.sound = s.sound;
     if (typeof s.aimAssist === 'boolean') d.settings.aimAssist = s.aimAssist;
     if (s.difficulty === 'normal' || s.difficulty === 'hard' || s.difficulty === 'extreme') d.settings.difficulty = s.difficulty;
+    if ((FPS_LIMITS as readonly unknown[]).includes(s.fpsLimit)) d.settings.fpsLimit = s.fpsLimit as FpsLimit;
   }
   // Quality defaults changed in v2 and v3: re-pick the device default once.
   if (r.sv !== 3) d.settings.quality = defaultQuality();

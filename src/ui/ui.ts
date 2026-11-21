@@ -663,6 +663,7 @@ export class UI {
       `<div class="seg" data-k="${key}">${opts.map(([v, l]) => `<button data-v="${v}" class="${v === cur ? 'on' : ''}">${l}</button>`).join('')}</div>`;
     s.innerHTML = `<div class="overlay"><div class="panel"><h2>AYARLAR</h2>
       <div class="row">Grafik ${seg('quality', [['low', 'Düşük'], ['medium', 'Orta'], ['high', 'Yüksek']], st.quality)}</div>
+      <div class="row">FPS sınırı ${seg('fpsLimit', [['30', '30'], ['60', '60'], ['100', '100']], String(st.fpsLimit))}</div>
       <div class="row">Hassasiyet <input type="range" min="0.3" max="2" step="0.1" value="${st.sensitivity}"></div>
       <div class="row">Ses ${seg('sound', [['1', 'Açık'], ['0', 'Kapalı']], st.sound ? '1' : '0')}</div>
       <div class="row">Nişan yardımı (dokunmatik) ${seg('aimAssist', [['1', 'Açık'], ['0', 'Kapalı']], st.aimAssist ? '1' : '0')}</div>
@@ -681,6 +682,7 @@ export class UI {
       else if (k === 'sound') this.cb.settings({ sound: v === '1' });
       else if (k === 'aimAssist') this.cb.settings({ aimAssist: v === '1' });
       else if (k === 'difficulty') this.cb.settings({ difficulty: v as Settings['difficulty'] });
+      else if (k === 'fpsLimit') this.cb.settings({ fpsLimit: Number(v) as Settings['fpsLimit'] });
     };
     const range = s.querySelector('input') as HTMLInputElement;
     range.oninput = () => this.cb.settings({ sensitivity: parseFloat(range.value) });

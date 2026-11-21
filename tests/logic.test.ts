@@ -187,3 +187,22 @@ describe('daily wheel', () => {
     expect(WHEEL[spinWheel(s, 0.999, new Date(2026, 0, 1))]).toBe(2000);
   });
 });
+
+describe('fps limit', () => {
+  it('defaults to 100 and rejects unknown caps', async () => {
+    const { sanitize } = await import('../src/core/save');
+    expect(sanitize({ sv: 3 }).settings.fpsLimit).toBe(100);
+    expect(sanitize({ sv: 3, settings: { fpsLimit: 60 } }).settings.fpsLimit).toBe(60);
+    expect(sanitize({ sv: 3, settings: { fpsLimit: 144 } }).settings.fpsLimit).toBe(100);
+  });
+  it('caps a fast screen at the limit', async () => {
+    const { FrameCap } = await import('../src/core/framecap');
+    for (const [hz, limit, lo, hi] of [[120, 100, 95, 101], [144, 100, 95, 101], [60, 30, 29, 31], [60, 100, 59, 61], [240, 60, 58, 61]]) {
+      const cap = new FrameCap(limit);
+      let n = 0;
+      for (let i = 0; i < hz * 10; i++) if (cap.shouldRun(1000 + (i * 1000) / hz)) n++;
+      expect(n / 10, `${hz}Hz cap ${limit}`).toBeGreaterThanOrEqual(lo);
+      expect(n / 10, `${hz}Hz cap ${limit}`).toBeLessThanOrEqual(hi);
+    }
+  });
+});

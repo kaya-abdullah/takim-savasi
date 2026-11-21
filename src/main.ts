@@ -7,6 +7,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { audio } from './core/audio';
 import { Input } from './core/input';
+import { FrameCap } from './core/framecap';
 import { LOADOUT_SIZE, loadSave, writeSave, type SaveData, type Settings } from './core/save';
 import { ALL_WEAPONS, getWeapon } from './data/weapons';
 import { makeWeaponMesh } from './render/weaponModel';
@@ -108,6 +109,7 @@ class Game {
   }
   private crossT = 0;
   private enemyUnderCross = false;
+  private frameCap = new FrameCap();
   private fpsAcc = 0;
   private fpsFrames = 0;
   fps = 60;
@@ -1087,6 +1089,8 @@ class Game {
   // ------------------------------------------------------------------ loop
   private frame(t: number): void {
     requestAnimationFrame((tt) => this.frame(tt));
+    this.frameCap.limit = this.save.settings.fpsLimit;
+    if (!this.frameCap.shouldRun(t)) return;
     let dt = (t - this.last) / 1000;
     this.last = t;
     if (!(dt > 0)) dt = 0.016;
@@ -1413,7 +1417,7 @@ class Game {
       this.fpsAcc = now;
       this.fpsFrames = 0;
       // adaptive resolution: drop render scale if the device struggles
-      if (this.state === 'playing' && this.fps < 40) this.lowFpsT++;
+      if (this.state === 'playing' && this.fps < Math.min(40, this.save.settings.fpsLimit * 0.66)) this.lowFpsT++;
       else this.lowFpsT = 0;
       if (this.lowFpsT >= 3 && this.dprScale > 0.6) {
         this.dprScale -= 0.15;
