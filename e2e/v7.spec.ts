@@ -6,7 +6,7 @@ const shots = 'test-results/shots';
 const g = (page: Page, fn: string) => page.evaluate(`(() => { const g = window.__game; return ${fn}; })()`);
 
 async function play(page: Page): Promise<void> {
-  await page.goto('/');
+  await page.goto(`${process.env.ONLINE_URL ?? ''}/`); // ONLINE_URL: test the live site
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.waitForFunction(() => (window as G).__game?.state === 'menu', null, { timeout: 120_000 });

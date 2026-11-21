@@ -30,6 +30,11 @@ export class Train {
   dwell = DWELL;
   /** How long someone has been on board while waiting (doors close at BOARD_WAIT). */
   boardT = 0;
+  /**
+   * Who rides between two stations: fixed when the doors close, so a big
+   * step against the wall (low frame rate) never counts as being outside.
+   */
+  readonly riders = new Set<Combatant>();
 
   get doorsOpen(): boolean {
     return this.state === 'stopped';

@@ -436,7 +436,7 @@ export class Match {
   /** Runs the train (the host or alone) or follows the host's; carries the riders this device runs. */
   private updateTrain(dt: number): void {
     const t = this.train, x0 = t.x, wasMoving = t.state === 'moving';
-    const riders = this.combatants.filter((c) => t.aboard(c, x0));
+    const riders = this.combatants.filter((c) => t.aboard(c, x0) || (wasMoving && t.riders.has(c) && c.alive && !c.vehicle));
     let dx = 0;
     if (!this.net || this.net.isHost()) dx = t.step(dt, riders.length > 0);
     else if (this.trainNet) {
@@ -452,6 +452,8 @@ export class Match {
       dx = t.follow(p, dt);
     }
     for (const c of riders) if (this.owns(c)) c.pos.x += dx;
+    t.riders.clear();
+    if (t.state === 'moving') for (const c of riders) t.riders.add(c);
     for (const c of this.combatants) if (this.owns(c)) t.constrain(c, riders.includes(c));
     if (!wasMoving && t.state === 'moving') this.events.trainDepart?.();
     else if (wasMoving && t.state === 'stopped') this.events.trainArrive?.(t.at);

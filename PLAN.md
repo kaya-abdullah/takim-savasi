@@ -462,3 +462,8 @@ ekranda bütün silahlar görünür); el bombası ve bıçak tuşu yerinde kals�
   beklemez, 2 sn sonra kalkar, tam durakta durur, hat sonunda döner, yolcuyu taşır, yoldakini iter;
   çevrimiçi konuğun treni ev sahibininkini izler; köprü yüksekliği, geçitler, bot yolu; maç sonu kimse
   çekilmez, devir. Tarayıcıda trene binip sonraki durağa gitme, girişten inme, köprüden geçme.
+
+## 28. Sürüm 6.1 (2026-11-21)
+- Hata: yavaş cihazda (20 FPS, kare başına 0,05 sn) yolcu vagon duvarına yürüyünce tek adımda "içeride"
+  sınırını aşıp dışarı itiliyordu, yani yürüyen trenden kaçabiliyordu. Kapılar kapanınca yolcu listesi
+  sabitleniyor; durağa kadar yolcu sayılıyor. Test: 20 FPS'te her karede duvara koşan yolcu trende kalıyor.

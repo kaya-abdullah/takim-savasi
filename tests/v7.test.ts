@@ -89,6 +89,24 @@ describe('metro line', () => {
     // the one on the track was moved into the side lane
     expect(Math.abs(other.pos.z)).toBeGreaterThan(TRAIN_HALF_W);
   });
+
+  it('a rider cannot step out of the running train even at a low frame rate', () => {
+    const m = new Match(map, world, nav, 'pistol', {}, { seed: 9 });
+    for (const [, b] of m.brains) b.update = () => {};
+    const p = m.player, t = m.train;
+    p.pos.set(t.x, TUNNEL_Y, 0);
+    p.shieldT = 99;
+    const dt = 0.05; // 20 fps: the game's largest step
+    for (let i = 0; i < 200 && t.state === 'stopped'; i++) m.update(dt);
+    expect(t.state).toBe('moving');
+    for (let i = 0; i < 40 && t.state === 'moving'; i++) {
+      // a full sprint step straight at the side wall, every frame
+      m.move(p, 0, 0.45, dt);
+      m.update(dt);
+      expect(t.aboard(p) || Math.abs(p.pos.z) < TRAIN_HALF_W).toBe(true);
+      expect(Math.abs(p.pos.x - t.x)).toBeLessThan(TRAIN_LEN / 2);
+    }
+  });
 });
 
 describe('roof bridges', () => {
