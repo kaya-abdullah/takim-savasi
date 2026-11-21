@@ -424,3 +424,17 @@ ekranda bütün silahlar görünür); el bombası ve bıçak tuşu yerinde kals�
 - Testler: sahte ağla 20 kişi (mavi 1..9, kırmızı 10..19, 21. kişiye "dolu"), boşalan yer, ev sahibi
   devri, aynı anda açılan iki odanın birleşmesi, vuruş/ölüm yönlendirmesi; gerçek ağda üç tarayıcı
   (sıra, hareket, leş ve skor herkeste aynı, ev sahibi çıkınca botlar sürüyor).
+
+## 26. Sürüm 5.9 (2026-11-21)
+İstek: askerlerin üstünde isimleri yazsın, kendimize isim koyma bölümü olsun.
+
+- Menüde sağ üstte "İSMİN" düğmesi: açılan pencereye isim yazılır (2–14 harf, Türkçe harfler olur;
+  `< > & " ' \``, kontrol karakterleri ve fazla boşluk temizlenir). Kayıtta `name` olarak saklanır.
+- İsim konmadan ÇEVRİMİÇİ OYNA'ya basılırsa önce bu pencere açılır. İsim tek başına oynarken de
+  kullanılır (konmamışsa eskisi gibi MUSTAFA).
+- Her askerin başında, takım işaretinin üstünde takım renginde isim etiketi (botlar dahil, kendi askerimizde
+  yok). Duvarın arkasından görünmez, 55 m'den uzakta ve ölüyken gizlenir. Çevrimiçi isim değişince etiket
+  yenilenir.
+- Testler: isim temizleme ve kayıt; tarayıcıda isim yazma (WASD yazı olarak girer), 2 harften kısa
+  reddedilir, yeniden açılışta korunur, maçta kullanılır, etiketler yakında görünür/uzakta gizli;
+  çevrimiçi ilk girişte pencere açılır, karşı cihaz ismi askerin üstünde görür.

@@ -11,13 +11,15 @@ const BASE = process.env.ONLINE_URL ?? '';
 const room = `test${Date.now().toString(36)}`;
 const g = (page: Page, fn: string) => page.evaluate(`(() => { const g = window.__game; return ${fn}; })()`);
 
+let count = 0;
 async function player(browser: Browser, errors: string[]): Promise<Page> {
   const ctx = await browser.newContext({ viewport: { width: 960, height: 540 } });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${BASE || ''}/?oda=${room}`);
   await page.waitForFunction(() => (window as G).__game?.state === 'menu', null, { timeout: 120_000 });
-  await g(page, "(g.save.settings.quality = 'low', g.applyQuality(), 0)");
+  // a chosen name skips the name window on the first online press (names.spec covers that window)
+  await g(page, `(g.save.settings.quality = 'low', g.applyQuality(), g.setName('Er${100 + count++}'), 0)`);
   return page;
 }
 
@@ -62,9 +64,12 @@ test('three devices share one room: blue fills in order, hits and kills reach ev
   }
 
   // C kills a red bot (run by host A): the kill and the score reach all three
-  const before = await g(a, 'g.match.combatants[14].deaths');
-  await g(c, '(g.match.combatants[14].shieldT = 0, g.match.combatants.forEach(x => x.shieldT = 0), g.match.damage(g.match.combatants[14], g.match.player, 999, true, g.match.player.weapon.def), 0)');
-  await a.waitForFunction((d) => (window as G).__game.match.combatants[14].deaths > d, before, { timeout: 10_000 });
+  // a bot that is alive on both screens right now (a dead one cannot be hit)
+  let bot = 14;
+  for (let k = 10; k < 20; k++) if (await g(a, `g.match.combatants[${k}].alive && g.match.combatants[${k}].shieldT <= 0`) && await g(c, `g.match.combatants[${k}].alive`)) { bot = k; break; }
+  const before = await g(a, `g.match.combatants[${bot}].deaths`);
+  await g(c, `(g.match.combatants.forEach(x => x.shieldT = 0), g.match.damage(g.match.combatants[${bot}], g.match.player, 999, true, g.match.player.weapon.def), 0)`);
+  await a.waitForFunction(([k, d]) => (window as G).__game.match.combatants[k].deaths > d, [bot, before], { timeout: 10_000 });
   await c.waitForFunction(() => (window as G).__game.match.player.kills >= 1, null, { timeout: 10_000 });
   await b.waitForFunction(() => (window as G).__game.match.combatants[2].kills >= 1, null, { timeout: 10_000 });
   const blue = await Promise.all([a, b, c].map((p) => g(p, 'g.match.score.blue')));

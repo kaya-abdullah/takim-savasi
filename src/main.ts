@@ -8,7 +8,7 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { audio } from './core/audio';
 import { Input } from './core/input';
 import { FrameCap } from './core/framecap';
-import { LOADOUT_SIZE, loadSave, writeSave, type SaveData, type Settings } from './core/save';
+import { LOADOUT_SIZE, cleanName, loadSave, writeSave, type SaveData, type Settings } from './core/save';
 import { ALL_WEAPONS, getWeapon } from './data/weapons';
 import { makeWeaponMesh } from './render/weaponModel';
 import { canSpin, spinWheel, applyMatchResult, putInLoadout, buyUpgrade, buyVehicle, buyWeapon, sellVehicle, sellWeapon, equipWeapon, formatTL, grenadeCount, killReward, maxHp, streakReward, UPGRADES, type UpgradeId } from './game/economy';
@@ -140,6 +140,7 @@ class Game {
     this.ui = new UI(document.getElementById('ui')!, {
       play: () => this.startMatch(),
       online: () => this.startOnline(),
+      setName: (n) => this.setName(n),
       again: () => {
         // online the room starts the next match for everyone
         if (this.online) this.ui.toast('Yeni maç birkaç saniye içinde başlıyor…');
@@ -440,8 +441,9 @@ class Game {
   }
 
   // ------------------------------------------------------------------ online
-  /** A name other people see (kept on this device). */
+  /** The name chosen in the menu; before one is chosen: MUSTAFA alone, a numbered soldier online. */
   private onlineName(): string {
+    if (this.save.name) return this.save.name;
     let n = '';
     try { n = localStorage.getItem('ts3d-name') ?? ''; } catch { /* private mode */ }
     if (!n) {
@@ -451,7 +453,18 @@ class Game {
     return n;
   }
 
+  setName(name: string): void {
+    this.save.name = cleanName(name);
+    writeSave(this.save);
+    if (this.state === 'menu') this.ui.showMenu(this.save, this.menuExtras());
+  }
+
   startOnline(): void {
+    // the first time online: choose a name others will see
+    if (!this.save.name) {
+      this.ui.askName('', (n) => { this.setName(n); if (this.save.name) this.startOnline(); });
+      return;
+    }
     audio.unlock();
     audio.click();
     this.leaveOnline();
@@ -597,7 +610,8 @@ class Game {
       runOver: (v) => { if (v.driver?.isPlayer) this.ui.popup('EZDİN!', 'kill'); },
     }, {
       playerGrenades: grenadeCount(this.save), playerHp: maxHp(this.save), difficulty: this.save.settings.difficulty,
-      ...(net ? { slot: net.slot, seed: net.seed, playerName: this.online!.name } : {}),
+      playerName: net ? this.online!.name : this.save.name || 'MUSTAFA',
+      ...(net ? { slot: net.slot, seed: net.seed } : {}),
     });
     this.match = m;
     if (net) this.joinRunning(m, net);
@@ -1289,6 +1303,7 @@ class Game {
       v.setShield(c.shieldT);
       if (c.isPlayer) v.setKnifeReady(this.ctrl.knifeAiming && c.alive);
       v.setBandaging(c.bandageT > 0 && c.alive);
+      v.setName(c.name);
       v.setDistance(c.isPlayer ? 0 : this.camera.position.distanceTo(c.pos));
       v.update(dt, {
         speed,

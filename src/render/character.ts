@@ -370,6 +370,31 @@ function markerTextures(): Record<Team, THREE.Texture> {
   return markerTex;
 }
 
+/** Name tags are only drawn up to this distance (further ones would clutter the view). */
+export const TAG_RANGE = 55;
+
+/** A name in the team colour on a dark outline, for a sprite above the head. */
+function nameTexture(name: string, team: Team): THREE.CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 48;
+  const x = c.getContext('2d')!;
+  x.font = 'bold 30px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  let size = 30;
+  while (size > 16 && x.measureText(name).width > 244) x.font = `bold ${(size -= 2)}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+  x.lineJoin = 'round';
+  x.lineWidth = 6;
+  x.strokeStyle = 'rgba(0,0,0,0.85)';
+  x.strokeText(name, 128, 25);
+  x.fillStyle = team === 'blue' ? '#8cc4ff' : '#ff8a7a';
+  x.fillText(name, 128, 25);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 export interface AnimInput {
   speed: number; // horizontal speed m/s
   fwd: number; // -1..1 local forward component of motion
@@ -426,6 +451,9 @@ export class CharacterView {
   private hiGeo!: THREE.BufferGeometry;
   private loGeo!: THREE.BufferGeometry;
   readonly marker: THREE.Sprite;
+  /** Name above the head (other fighters only); hidden behind walls like the marker. */
+  readonly tag: THREE.Sprite | null = null;
+  private tagName = '';
 
   constructor(readonly team: Team, showMarker: boolean) {
     const rim = new THREE.Color(team === 'blue' ? 0x3d7bff : 0xff4a3a).multiplyScalar(0.2);
@@ -522,6 +550,23 @@ export class CharacterView {
     this.marker.position.y = 2.25;
     this.marker.visible = showMarker;
     this.root.add(this.marker);
+    if (showMarker) {
+      this.tag = new THREE.Sprite(new THREE.SpriteMaterial({ depthTest: true, sizeAttenuation: false, transparent: true }));
+      // screen-sized (like the marker): about 15 px tall letters at 620 px screen height
+      this.tag.scale.set(0.24, 0.045, 1);
+      this.tag.position.y = 2.62;
+      this.tag.visible = false;
+      this.root.add(this.tag);
+    }
+  }
+
+  /** Shows this name above the head (redrawn only when it changes). */
+  setName(name: string): void {
+    if (!this.tag || name === this.tagName) return;
+    this.tagName = name;
+    this.tag.material.map?.dispose();
+    this.tag.material.map = nameTexture(name, this.team);
+    this.tag.material.needsUpdate = true;
   }
 
   setWeapon(w: WeaponDef): void {
@@ -543,6 +588,7 @@ export class CharacterView {
     for (const m of this.mats) m.dispose();
     for (const m of this.meshes) (m as THREE.SkinnedMesh).skeleton?.dispose(); // bone textures live on the GPU
     this.marker.material.dispose();
+    if (this.tag) { this.tag.material.map?.dispose(); this.tag.material.dispose(); }
     this.knife.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.isMesh) { m.geometry.dispose(); (m.material as THREE.Material).dispose(); }
@@ -555,6 +601,7 @@ export class CharacterView {
     const g = d > 18 ? this.loGeo : this.hiGeo;
     if (this.mesh.geometry !== g) this.mesh.geometry = g;
     for (const m of this.meshes) m.castShadow = d < 32;
+    if (this.tag) this.tag.visible = !!this.tagName && this.deadT < 0 && d < TAG_RANGE;
     if (this.gun) for (const ch of this.gun.children) ch.castShadow = d < 20;
   }
 

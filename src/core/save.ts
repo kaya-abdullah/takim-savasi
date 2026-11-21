@@ -35,6 +35,16 @@ export interface SaveData {
   lastSpin: string;
   /** Settings schema version; older saves get the new quality default once. */
   sv: number;
+  /** The player's own name (shown above their soldier and in the score lists); '' = not chosen yet. */
+  name: string;
+}
+
+export const NAME_MAX = 14;
+
+/** A name others can read: printable characters only, single spaces, at most NAME_MAX long. */
+export function cleanName(v: unknown): string {
+  if (typeof v !== 'string') return '';
+  return v.replace(/\s+/g, ' ').replace(/[\u0000-\u001f\u007f<>&"'`]/g, '').replace(/ +/g, ' ').trim().slice(0, NAME_MAX).trim();
 }
 
 const KEY = 'takim-savasi-save-v1';
@@ -63,6 +73,7 @@ export function defaultSave(): SaveData {
     vehicles: [],
     lastSpin: '',
     sv: 3,
+    name: '',
   };
 }
 
@@ -100,6 +111,7 @@ export function sanitize(raw: unknown): SaveData {
   }
   // Quality defaults changed in v2 and v3: re-pick the device default once.
   if (r.sv !== 3) d.settings.quality = defaultQuality();
+  d.name = cleanName(r.name);
   if (typeof r.lastSpin === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.lastSpin)) d.lastSpin = r.lastSpin;
   const u = r.upgrades as Record<string, unknown> | undefined;
   if (u && typeof u === 'object') {

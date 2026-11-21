@@ -206,3 +206,19 @@ describe('fps limit', () => {
     }
   });
 });
+
+describe('player name', async () => {
+  const { cleanName, sanitize, NAME_MAX } = await import('../src/core/save');
+  it('keeps readable names, trims, limits the length and drops markup', () => {
+    expect(cleanName('  Mustafa  ')).toBe('Mustafa');
+    expect(cleanName('Kara   Kartal')).toBe('Kara Kartal');
+    expect(cleanName('Şahin Çelik Ğüİö')).toBe('Şahin Çelik Ğü');
+    expect(cleanName('<b>x</b>')).toBe('bx/b');
+    expect(cleanName('a'.repeat(40))).toHaveLength(NAME_MAX);
+    expect(cleanName(42)).toBe('');
+  });
+  it('is stored in the save and cleaned on load', () => {
+    expect(sanitize({}).name).toBe('');
+    expect(sanitize({ name: ' Ali\n<script> ' }).name).toBe('Ali script');
+  });
+});

@@ -1,5 +1,5 @@
 import type { Btn, Input } from '../core/input';
-import type { SaveData, Settings } from '../core/save';
+import { NAME_MAX, cleanName, type SaveData, type Settings } from '../core/save';
 import { SHOP_WEAPONS, STARTER, getWeapon, weaponStats, type WeaponDef } from '../data/weapons';
 import { formatTL, LOSE_PENALTY, sellPrice, UPGRADES, WHEEL, WIN_BONUS, type UpgradeId } from '../game/economy';
 import { VEHICLE_LIST, type VehicleKind } from '../data/vehicles';
@@ -32,6 +32,8 @@ export interface UICallbacks {
   play(): void;
   /** Join the shared online room. */
   online(): void;
+  /** The player chose a name. */
+  setName(name: string): void;
   openShop(): void;
   closeShop(): void;
   buy(id: string): void;
@@ -180,6 +182,7 @@ export class UI {
     s.innerHTML = `
       <button class="icon-btn settings-btn" data-a="settings" aria-label="Ayarlar">${ICON.gear}</button>
       <div class="money"><span class="coin">₺</span><span>${formatTL(save.money)}</span></div>
+      <button class="name-btn" data-a="name"><small>İSMİN</small><b>${esc(save.name || 'İsim koy')}</b><span class="pen">✎</span></button>
       <div class="left">
         <div class="logo"><div class="l1">Takım<br>Savaşı</div><div class="l2">3D</div>
           <div class="vs"><b class="b">MAVİ</b> VS <b class="r">KIRMIZI</b></div></div>
@@ -205,12 +208,44 @@ export class UI {
       const a = t?.getAttribute('data-a');
       if (a === 'play') this.cb.play();
       else if (a === 'online') this.cb.online();
+      else if (a === 'name') this.askName(save.name, (n) => this.cb.setName(n));
       else if (a === 'shop') this.cb.openShop();
       else if (a === 'settings') this.openSettings(save.settings);
       else if (a === 'wheel') this.openWheel(save, x);
       else if (a === 'link') this.cb.openLink(t!.dataset.url!);
     };
     this.only('menu');
+  }
+
+  /** Small window to type a name; done() gets the cleaned name ('' when nothing usable was typed). */
+  askName(cur: string, done: (name: string) => void): void {
+    this.root.querySelector('.name-ask')?.remove();
+    const d = document.createElement('div');
+    d.className = 'overlay name-ask';
+    d.innerHTML = `<div class="panel"><h2>İSMİNİ YAZ</h2>
+      <p class="sub">Diğer oyuncular askerinin üstünde bu ismi görür.</p>
+      <input type="text" maxlength="${NAME_MAX}" autocomplete="off" spellcheck="false" placeholder="ör. Mustafa" value="${esc(cur)}">
+      <div class="err"></div>
+      <div class="btns"><button class="btn" data-a="cancel">VAZGEÇ</button><button class="btn primary" data-a="ok">TAMAM</button></div></div>`;
+    const inp = d.querySelector('input') as HTMLInputElement;
+    const ok = () => {
+      const n = cleanName(inp.value);
+      if (n.length < 2) { (d.querySelector('.err') as HTMLElement).textContent = 'En az 2 harf yaz'; inp.focus(); return; }
+      d.remove();
+      done(n);
+    };
+    d.onclick = (e) => {
+      const a = (e.target as HTMLElement).closest('[data-a]')?.getAttribute('data-a');
+      if (a === 'ok') ok();
+      else if (a === 'cancel') d.remove();
+    };
+    inp.onkeydown = (e) => { e.stopPropagation(); if (e.key === 'Enter') ok(); if (e.key === 'Escape') d.remove(); };
+    inp.onkeyup = (e) => e.stopPropagation();
+    this.root.appendChild(d);
+    // focus at once (letters typed right away must land in the box), and again after the click settles
+    inp.focus();
+    inp.select();
+    setTimeout(() => { if (document.activeElement !== inp && d.isConnected) inp.focus(); }, 50);
   }
 
   // ------------------------------------------------------------------ HUD
