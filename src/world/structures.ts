@@ -180,7 +180,11 @@ export interface HouseSpec {
   floors?: number;
   /** Seed for the furniture mix on the upper floors. */
   seed?: number;
+  /** Openings in the roof parapet where a bridge lands: wall side, and span a..b along that wall. */
+  roofGaps?: RoofGap[];
 }
+
+export interface RoofGap { side: 'x0' | 'x1' | 'z0' | 'z1'; a: number; b: number }
 
 /** Height of one storey. */
 export const STOREY = FLOOR1_Y;
@@ -334,11 +338,18 @@ export function buildHouse(o: Out, h: HouseSpec, name: string, res: Res): void {
     // the x0 wall keeps its windows clear of the stair bands
     o.wall('z', x0, ix0, true, iz0, iz1, base, yTop, windowSpots(r2[1] + 0.2, iz1).map((z) => win(z, base)), brick, plasterIn(f));
   }
-  // parapet: brick both sides with a stone cap
-  o.wall('x', z0, iz0, true, x0, x1, roofY, top, [], brick, null);
-  o.wall('x', iz1, z1, false, x0, x1, roofY, top, [], brick, null);
-  o.wall('z', x0, ix0, true, iz0, iz1, roofY, top, [], brick, null);
-  o.wall('z', ix1, x1, false, iz0, iz1, roofY, top, [], brick, null);
+  // parapet: brick both sides with a stone cap; a bridge landing leaves a gap
+  const gaps = h.roofGaps ?? [];
+  const gapOps = (side: RoofGap['side']): Opening[] => gaps.filter((g) => g.side === side).map((g) => ({ a: g.a, b: g.b, bottom: roofY, top, door: true }));
+  o.wall('x', z0, iz0, true, x0, x1, roofY, top, gapOps('z0'), brick, null);
+  o.wall('x', iz1, z1, false, x0, x1, roofY, top, gapOps('z1'), brick, null);
+  o.wall('z', x0, ix0, true, iz0, iz1, roofY, top, gapOps('x0'), brick, null);
+  o.wall('z', ix1, x1, false, iz0, iz1, roofY, top, gapOps('x1'), brick, null);
+  // 3 m inside each gap stays free of roof clutter (people walk in from the bridge)
+  const landing: Rect[] = gaps.map((g) => g.side === 'x0' ? { x0: ix0, x1: ix0 + 3, z0: g.a - 0.3, z1: g.b + 0.3 }
+    : g.side === 'x1' ? { x0: ix1 - 3, x1: ix1, z0: g.a - 0.3, z1: g.b + 0.3 }
+    : g.side === 'z0' ? { x0: g.a - 0.3, x1: g.b + 0.3, z0: iz0, z1: iz0 + 3 } : { x0: g.a - 0.3, x1: g.b + 0.3, z0: iz1 - 3, z1: iz1 });
+  const clear = (u0: number, u1: number, v0: number, v1: number) => !landing.some((r) => ix0 + u0 < r.x1 && ix0 + u1 > r.x0 && iz0 + v0 < r.z1 && iz0 + v1 > r.z0);
   // a ring of four boxes (never one slab across the building, which would cut through the rooms)
   const ring = (ox: number, ix: number, y0: number, y1: number) => {
     o.add(box(x0 - ox, x1 + ox, y0, y1, z0 - ox, z0 + ix), 'concrete', 0xd8d3c8, false);
@@ -443,16 +454,21 @@ export function buildHouse(o: Out, h: HouseSpec, name: string, res: Res): void {
   // ---- roof: AC units, water tank, vents, antenna
   const rf = new Room3(o, ix0, iz0, roofY);
   for (const [cu, cv] of [[W - 1.6, D - 1.4], [W / 2 - 0.4, D - 1.2]]) {
+    if (!clear(cu - 0.8, cu + 0.8, cv - 0.55, cv + 0.55)) continue;
     rf.solid(cu - 0.8, cu + 0.8, 1.0, cv - 0.55, cv + 0.55);
     rf.b(cu - 0.8, cu + 0.8, 0, 1.0, cv - 0.55, cv + 0.55, 'metal', 0xb9bcc0);
     rf.b(cu - 0.5, cu + 0.5, 1.0, 1.03, cv - 0.4, cv + 0.4, 'metal', 0x2a2c30);
   }
-  rf.solid(W - 1.6, W - 0.4, 1.8, 3.6, 4.8);
-  rf.b(W - 1.6, W - 0.4, 0.4, 1.8, 3.6, 4.8, 'metal', 0x6f5a48);
-  for (const [lu, lv] of [[W - 1.5, 3.7], [W - 0.5, 3.7], [W - 1.5, 4.7], [W - 0.5, 4.7]]) rf.b(lu - 0.05, lu + 0.05, 0, 0.4, lv - 0.05, lv + 0.05, 'metal', 0x333333);
-  rf.b(2.6, 2.8, 0, 0.7, D - 0.6, D - 0.4, 'metal', 0x8a8f96);
-  rf.b(4.6, 4.75, 0, 3.5, D - 0.35, D - 0.2, 'metal', 0x9aa0a8);
-  rf.b(4.0, 5.4, 3.0, 3.06, D - 0.3, D - 0.25, 'metal', 0x9aa0a8);
+  if (clear(W - 1.6, W - 0.4, 3.6, 4.8)) {
+    rf.solid(W - 1.6, W - 0.4, 1.8, 3.6, 4.8);
+    rf.b(W - 1.6, W - 0.4, 0.4, 1.8, 3.6, 4.8, 'metal', 0x6f5a48);
+    for (const [lu, lv] of [[W - 1.5, 3.7], [W - 0.5, 3.7], [W - 1.5, 4.7], [W - 0.5, 4.7]]) rf.b(lu - 0.05, lu + 0.05, 0, 0.4, lv - 0.05, lv + 0.05, 'metal', 0x333333);
+  }
+  if (clear(2.6, 2.8, D - 0.6, D - 0.4)) rf.b(2.6, 2.8, 0, 0.7, D - 0.6, D - 0.4, 'metal', 0x8a8f96);
+  if (clear(4.0, 5.4, D - 0.35, D - 0.2)) {
+    rf.b(4.6, 4.75, 0, 3.5, D - 0.35, D - 0.2, 'metal', 0x9aa0a8);
+    rf.b(4.0, 5.4, 3.0, 3.06, D - 0.3, D - 0.25, 'metal', 0x9aa0a8);
+  }
   // ---- baked lights and rooms
   for (let f = 0; f < N; f++) {
     const base = fy(f);
@@ -527,102 +543,166 @@ function tunnelWall(o: Out, axis: 'x' | 'z', f0: number, f1: number, inLow: bool
   lay(TY, TY + 0.25, 0.025, 'granite', 0x777777);
 }
 
-/** Half of the tunnel (west corridor, west stairs, north stairs, west hall walls); mirrored for the rest. */
-function tunnelHalf(o: Out, res: Res, pits: Rect[]): void {
-  const tw = 0.3;
-  // west corridor x -40..-10, z -2.5..2.5
-  tunnelWall(o, 'x', 2.5, 2.5 + tw, true, -40.3, -10);
-  tunnelWall(o, 'x', -2.5 - tw, -2.5, false, -40.3, WEST_X - 1.5 - tw);
-  tunnelWall(o, 'x', -2.5 - tw, -2.5, false, WEST_X + 1.5 + tw, -10);
-  o.add(box(-40, -10, -CEIL, 0, -2.8, 2.8), 'concrete', 0x8f8b84);
-  o.add(box(-40, -10, TY - 0.03, TY, -2.5, 2.5), 'granite', 0xffffff, false);
-  // cable tray and a pipe along the ceiling
-  o.add(box(-40, -10, -CEIL - 0.12, -CEIL - 0.04, 1.6, 2.2), 'metal', 0x6b7076, false);
-  o.add(box(-40, -10, -CEIL - 0.25, -CEIL - 0.13, -2.2, -2.05), 'metal', 0x9b4a2a, false);
-  // west entrance: on the south sidewalk at the cross-street corner, stairs run
-  // down toward +z, then a short passage under the avenue into the corridor
-  sidewalkEntrance(o, res, pits, WEST_X, WEST_TOP, 1, -2.5);
-  // the corridor's west end is closed now
-  tunnelWall(o, 'z', -40.3, -40, false, -2.8, 2.8);
-  const rc = RAIL_C, rh = RAIL_H;
-  // north stairwell on the plaza, east of the north-south street (x 5..8), going down
-  // toward -z into the hall
-  const nx0 = PLAZA_X - 1.5, nx1 = PLAZA_X + 1.5;
-  const pitN: Rect = { x0: nx0, x1: nx1, z0: 6, z1: 11.6 };
-  pits.push(pitN);
-  for (let i = 0; i < 15; i++) {
-    o.add(box(nx0, nx1, TB, -(i + 1) * RISE, 11.6 - (i + 1) * TREAD, 11.6 - i * TREAD), 'concrete', 0xb0aba2);
-    o.add(box(nx0 + 0.02, nx1 - 0.02, -(i + 1) * RISE - 0.03, -(i + 1) * RISE + 0.004, 11.6 - i * TREAD - 0.06, 11.6 - i * TREAD + 0.005), 'paint', 0xd9b21f, false);
+/** Metro line under the avenue: the tunnel runs from end to end of the city. */
+export const METRO_END = 136;
+/** Train stops: one in each quarter of the city, west to east. */
+export const STATIONS = [-105, -35, 35, 105];
+/** Corridor half width; the train runs down its middle. */
+export const CORRIDOR_HALF = 2.5;
+const HALL_X = 10;
+
+/**
+ * Sidewalk metro entrances: x, and the side of the avenue (S = south, stairs
+ * going down toward +z; N = north, toward -z). Spread over the whole city.
+ */
+export const ENTRANCES: { x: number; side: 'N' | 'S' }[] = [
+  { x: -128, side: 'N' }, { x: -128, side: 'S' },
+  { x: -102, side: 'N' }, { x: -102, side: 'S' },
+  { x: -62, side: 'N' }, { x: -62, side: 'S' },
+  { x: -38, side: 'S' }, { x: 38, side: 'N' },
+  { x: 62, side: 'N' }, { x: 62, side: 'S' },
+  { x: 102, side: 'N' }, { x: 102, side: 'S' },
+  { x: 128, side: 'N' }, { x: 128, side: 'S' },
+];
+
+/** Street footprint of an entrance (stairwell, railings, sign and bollards), for keeping it clear. */
+export function entranceFootprint(e: { x: number; side: 'N' | 'S' }): Rect {
+  const zTop = e.side === 'S' ? -ENTRANCE_TOP : ENTRANCE_TOP;
+  const zLow = zTop + (e.side === 'S' ? 1 : -1) * STAIR_LEN;
+  return { x0: e.x - 1.95, x1: e.x + 1.95, z0: Math.min(zTop, zLow) - 0.9, z1: Math.max(zTop, zLow) + 0.9 };
+}
+
+/** The whole metro: corridor, central hall, stations, entrances and the plaza stairwell. */
+function buildTunnel(o: Out, res: Res, pits: Rect[]): void {
+  const tw = 0.3, H = CORRIDOR_HALF, E = METRO_END;
+  const doorN = ENTRANCES.filter((e) => e.side === 'N').map((e) => e.x);
+  const doorS = ENTRANCES.filter((e) => e.side === 'S').map((e) => e.x);
+  // a corridor wall from s to e with doorways at the entrance passages
+  const wallWithDoors = (f0: number, f1: number, inLow: boolean, s: number, e: number, doors: number[]) => {
+    let cur = s;
+    for (const x of doors.filter((d) => d > s && d < e).sort((p, q) => p - q)) {
+      tunnelWall(o, 'x', f0, f1, inLow, cur, x - 1.5 - tw);
+      cur = x + 1.5 + tw;
+    }
+    tunnelWall(o, 'x', f0, f1, inLow, cur, e);
+  };
+  for (const [s, e] of [[-E - tw, -HALL_X], [HALL_X, E + tw]]) {
+    wallWithDoors(H, H + tw, true, s, e, doorN);
+    wallWithDoors(-H - tw, -H, false, s, e, doorS);
+    o.add(box(s, e, -CEIL, 0, -H - tw, H + tw), 'concrete', 0x8f8b84);
+    o.add(box(s, e, TY - 0.03, TY, -H, H), 'granite', 0xffffff, false);
+    // cable tray and a pipe along the ceiling
+    o.add(box(s, e, -CEIL - 0.12, -CEIL - 0.04, 1.6, 2.2), 'metal', 0x6b7076, false);
+    o.add(box(s, e, -CEIL - 0.25, -CEIL - 0.13, -2.2, -2.05), 'metal', 0x9b4a2a, false);
+    res.rooms.push({ x0: s, x1: e, z0: -H, z1: H, y0: TY, y1: -CEIL });
   }
-  o.add(box(nx0, nx1, TY - 0.03, TY, 6, 6.35), 'granite', 0xffffff, false);
-  o.add(box(nx1, nx1 + 0.3, TB, 0, 6, 11.6), 'subway', 0xffffff);
-  o.add(box(nx0 - 0.3, nx0, TB, 0, 6, 11.6), 'subway', 0xffffff);
-  railing(o, box(nx1, nx1 + 0.12, 0, rh, 6, 11.6), rc);
-  railing(o, box(nx0 - 0.12, nx0, 0, rh, 6, 11.6), rc);
-  railing(o, box(nx0, nx1, 0, rh, 6, 6.12), rc);
-  metroSign(o, nx1 + 0.45, 12.3);
-  for (const bx of [-0.85, 0.85]) bollard(o, PLAZA_X + bx, 12.1);
-  // hall walls (west side and north side)
-  tunnelWall(o, 'z', -10.3, -10, false, 2.5, 6.3);
-  tunnelWall(o, 'z', -10.3, -10, false, -6.3, -2.5);
-  tunnelWall(o, 'x', 6, 6.3, true, -10.3, PLAZA_X - 1.8);
-  tunnelWall(o, 'x', 6, 6.3, true, PLAZA_X + 1.8, 10.3);
-  // tiled pillars with a blue band
-  for (const z of [3, -3]) {
-    o.add(box(-5.35, -4.65, TY, -CEIL, z - 0.35, z + 0.35), 'subway', 0xffffff);
-    o.add(box(-5.38, -4.62, TY + 1.15, TY + 1.4, z - 0.38, z + 0.38), 'paint', BLUE, false);
+  // the two ends are closed
+  for (const x of [-E - tw, E]) tunnelWall(o, 'z', x, x + tw, x > 0, -H - tw, H + tw);
+  // rails (visual) the whole length, through the hall too
+  for (const z of [-0.72, 0.72]) {
+    o.add(box(-E, E, TY, TY + 0.12, z - 0.04, z + 0.04), 'metal', 0x8d9399, false);
+    o.add(box(-E, E, TY, TY + 0.03, z - 0.1, z + 0.1), 'metal', 0x4a4d52, false);
   }
-  // cover: crates and concrete blocks; benches, bins and a vending machine for the station
-  o.add(box(-34.6, -33.4, TY, TY + 1.2, -2.3, -1.1), 'crate', 0xffffff);
-  o.add(box(-25.6, -24.4, TY, TY + 1.2, 1.1, 2.3), 'crate', 0xffffff);
-  o.add(box(-17, -15, TY, TY + 1.0, -2.3, -1.6), 'concrete', 0xc9c4b8);
-  o.add(box(-8, -6, TY, TY + 1.0, -0.4, 0.4), 'concrete', 0xc9c4b8);
-  bench(o, -9.5, 4.2, 'z');
-  bench(o, -3.6, 5.5, 'x');
-  o.add(box(-9.9, -9.2, TY, TY + 1.9, -5.6, -4.5), 'hidden', 0);
-  o.add(box(-9.9, -9.2, TY, TY + 1.9, -5.6, -4.5), 'paint', 0xb3261e, false);
-  o.add(box(-9.2, -9.18, TY + 0.9, TY + 1.7, -5.45, -4.65), 'screen', 0xffffff, false);
-  o.add(box(-30.3, -29.7, TY, TY + 0.8, 2.0, 2.45), 'metal', 0x3d6b3d);
-  o.add(box(-20.3, -19.7, TY, TY + 0.8, -2.45, -2.0), 'metal', 0x3d6b3d);
-  // posters on the corridor walls (frame and print stand proud of the tiles)
-  [-36, -28, -21, -13].forEach((x, i) => {
-    o.add(box(x - 0.8, x + 0.8, TY + 1.55, TY + 2.75, 2.46, 2.5), 'darkwood', 0x1a1a1a, false);
-    o.add(box(x - 0.72, x + 0.72, TY + 1.62, TY + 2.68, 2.455, 2.46), 'poster', [0x2f6fbf, 0xc0392b, 0x27ae60, 0xf39c12][i]);
-  });
-  // hanging station sign
-  o.add(box(-9.95, -9.6, -CEIL - 0.9, -CEIL - 0.3, -1.2, 1.2), 'sign', 0xffffff, false);
-  // ceiling light fixtures
-  for (let x = -37.5; x < -10; x += 5) {
+  // ceiling light fixtures every 5 m
+  for (let x = -E + 3; x < E; x += 5) {
+    if (Math.abs(x) < HALL_X) continue;
     o.add(box(x - 0.75, x + 0.75, -CEIL - 0.1, -CEIL, -0.16, 0.16), 'metal', 0x2b2d31, false);
     o.add(box(x - 0.7, x + 0.7, -CEIL - 0.12, -CEIL - 0.1, -0.12, 0.12), 'glow', 0xffffff, false);
     res.lamps.push({ x, y: -CEIL - 0.5, z: 0, reach: 5.5, y0: TB, y1: 0, power: 1.0 });
   }
-  res.lamps.push({ x: PLAZA_X, y: -1.2, z: 9, reach: 4, y0: TB, y1: 0.1, power: 0.7 });
-  res.rooms.push({ x0: -40, x1: -10, z0: -2.5, z1: 2.5, y0: TY, y1: -CEIL });
-  res.rooms.push({ x0: PLAZA_X - 1.5, x1: PLAZA_X + 1.5, z0: 6, z1: 11.6, y0: TY, y1: 0 });
-  // links
-  res.links.push({ a: STREET, b: TUNNEL, pts: [{ x: PLAZA_X, y: 0, z: 12.6 }, { x: PLAZA_X, y: TY, z: 5.2 }] });
-  res.spots.push({ name: TUNNEL, label: 'METRO', p: { x: -26, y: TY, z: 0 } });
+  // ---- central hall (x -10..10, z -6..6) with the plaza stairwell on its south side
+  tunnelWall(o, 'z', -HALL_X - tw, -HALL_X, false, H, 6.3);
+  tunnelWall(o, 'z', -HALL_X - tw, -HALL_X, false, -6.3, -H);
+  tunnelWall(o, 'z', HALL_X, HALL_X + tw, true, H, 6.3);
+  tunnelWall(o, 'z', HALL_X, HALL_X + tw, true, -6.3, -H);
+  tunnelWall(o, 'x', 6, 6.3, true, -HALL_X - tw, HALL_X + tw);
+  tunnelWall(o, 'x', -6.3, -6, false, -HALL_X - tw, -PLAZA_X - 1.8);
+  tunnelWall(o, 'x', -6.3, -6, false, -PLAZA_X + 1.8, HALL_X + tw);
+  plazaStair(o, res, pits);
+  o.add(box(-10.3, 10.3, -CEIL, 0, -6.3, 6.3), 'concrete', 0x8f8b84);
+  o.add(box(-10, 10, TY - 0.03, TY, -6, 6), 'granite', 0xffffff, false);
+  for (const x of [-6, 0, 6]) for (const z of [-3.5, 3.5]) {
+    o.add(box(x - 0.95, x + 0.95, -CEIL - 0.1, -CEIL, z - 0.2, z + 0.2), 'metal', 0x2b2d31, false);
+    o.add(box(x - 0.9, x + 0.9, -CEIL - 0.12, -CEIL - 0.1, z - 0.15, z + 0.15), 'glow', 0xffffff, false);
+    res.lamps.push({ x, y: -CEIL - 0.5, z, reach: 6, y0: TB, y1: 0, power: 1.0 });
+  }
+  res.rooms.push({ x0: -10, x1: 10, z0: -6, z1: 6, y0: TY, y1: -CEIL });
+  // tiled pillars beside the track
+  for (const x of [-5, 5]) for (const z of [3, -3]) {
+    o.add(box(x - 0.35, x + 0.35, TY, -CEIL, z - 0.35, z + 0.35), 'subway', 0xffffff);
+    o.add(box(x - 0.38, x + 0.38, TY + 1.15, TY + 1.4, z - 0.38, z + 0.38), 'paint', BLUE, false);
+  }
+  bench(o, -8, 4.6, 'x');
+  bench(o, 8, -4.6, 'x');
+  o.add(box(-9.9, -9.2, TY, TY + 1.9, 4.6, 5.7), 'hidden', 0);
+  o.add(box(-9.9, -9.2, TY, TY + 1.9, 4.6, 5.7), 'paint', 0xb3261e, false);
+  o.add(box(-9.2, -9.18, TY + 0.9, TY + 1.7, 4.75, 5.55), 'screen', 0xffffff, false);
+  // ---- stations: benches against the walls, a hanging sign and posters
+  STATIONS.forEach((sx, i) => {
+    for (const d of [-4, 4]) { bench(o, sx + d, 2.2, 'x'); bench(o, sx + d, -2.2, 'x'); }
+    o.add(box(sx - 1.2, sx + 1.2, -CEIL - 0.9, -CEIL - 0.3, -0.18, 0.18), 'sign', 0xffffff, false);
+    for (const [px, side] of [[sx - 8, 1], [sx + 8, -1]] as [number, number][]) {
+      const zw = side * H;
+      o.add(box(px - 0.8, px + 0.8, TY + 1.55, TY + 2.75, Math.min(zw, zw - side * 0.04), Math.max(zw, zw - side * 0.04)), 'darkwood', 0x1a1a1a, false);
+      o.add(box(px - 0.72, px + 0.72, TY + 1.62, TY + 2.68, Math.min(zw - side * 0.04, zw - side * 0.045), Math.max(zw - side * 0.04, zw - side * 0.045)), 'poster', [0x2f6fbf, 0xc0392b, 0x27ae60, 0xf39c12][i]);
+    }
+    res.spots.push({ name: TUNNEL, label: 'METRO', p: { x: sx, y: TY, z: 1.9 } });
+  });
+  // cover between the stations, against the walls (the train passes in the middle)
+  for (let x = -E + 12; x < E - 6; x += 23) {
+    if (Math.abs(x) < HALL_X + 3 || STATIONS.some((sx) => Math.abs(sx - x) < 10) || ENTRANCES.some((e) => Math.abs(e.x - x) < 3.5)) continue;
+    const side = Math.round(x) % 2 === 0 ? 1 : -1;
+    o.add(box(x - 0.6, x + 0.6, TY, TY + 1.2, Math.min(side * 2.45, side * 1.6), Math.max(side * 2.45, side * 1.6)), 'crate', 0xffffff);
+  }
+  // ---- sidewalk entrances, each with a passage to a doorway in the corridor wall
+  const passages: Rect[] = [];
+  for (const e of ENTRANCES) {
+    const dir = e.side === 'S' ? 1 : -1;
+    passages.push(sidewalkEntrance(o, res, pits, e.x, -dir * ENTRANCE_TOP, dir, -dir * H));
+  }
+  // collision floor under everything
+  o.add(box(-E - 1, E + 1, TB, TY, -16, 16), 'hidden', 0);
+  const corrW: Rect = { x0: -E, x1: -HALL_X, z0: -H, z1: H }, corrE: Rect = { x0: HALL_X, x1: E, z0: -H, z1: H };
+  const hall: Rect = { x0: -HALL_X, x1: HALL_X, z0: -6, z1: 6 };
+  res.tunnel = [corrW, hall, corrE, ...passages, ...pits];
+  res.levels.push({ name: TUNNEL, y: TY, rect: { x0: -E - 1, x1: E + 1, z0: -16, z1: 16 }, allow: [corrW, hall, corrE, ...passages], block: [] });
+}
+
+/** The plaza stairwell west of the north-south street, south of the avenue, down into the hall. */
+function plazaStair(o: Out, res: Res, pits: Rect[]): void {
+  const cx = -PLAZA_X, x0 = cx - 1.5, x1 = cx + 1.5;
+  pits.push({ x0, x1, z0: -11.6, z1: -6 });
+  for (let i = 0; i < 15; i++) {
+    o.add(box(x0, x1, TB, -(i + 1) * RISE, -11.6 + i * TREAD, -11.6 + (i + 1) * TREAD), 'concrete', 0xb0aba2);
+    o.add(box(x0 + 0.02, x1 - 0.02, -(i + 1) * RISE - 0.03, -(i + 1) * RISE + 0.004, -11.6 + i * TREAD - 0.005, -11.6 + i * TREAD + 0.06), 'paint', 0xd9b21f, false);
+  }
+  o.add(box(x0, x1, TY - 0.03, TY, -6.35, -6), 'granite', 0xffffff, false);
+  o.add(box(x0 - 0.3, x0, TB, 0, -11.6, -6), 'subway', 0xffffff);
+  o.add(box(x1, x1 + 0.3, TB, 0, -11.6, -6), 'subway', 0xffffff);
+  railing(o, box(x0 - 0.12, x0, 0, RAIL_H, -11.6, -6), RAIL_C);
+  railing(o, box(x1, x1 + 0.12, 0, RAIL_H, -11.6, -6), RAIL_C);
+  railing(o, box(x0, x1, 0, RAIL_H, -6.12, -6), RAIL_C);
+  metroSign(o, x0 - 0.45, -12.3);
+  for (const bx of [-0.85, 0.85]) bollard(o, cx + bx, -12.1);
+  res.lamps.push({ x: cx, y: -1.2, z: -9, reach: 4, y0: TB, y1: 0.1, power: 0.7 });
+  res.rooms.push({ x0, x1, z0: -11.6, z1: -6, y0: TY, y1: 0 });
+  res.links.push({ a: STREET, b: TUNNEL, pts: [{ x: cx, y: 0, z: -12.6 }, { x: cx, y: TY, z: -5.2 }] });
 }
 
 const RAIL_C = 0x2c3540;
 const RAIL_H = 1.05;
-/** Centre x and top-step z of the west sidewalk entrance (mirrored to the east). */
-const WEST_X = -38;
-const WEST_TOP = -13.85;
-/** Centre x of the plaza stairwell (mirrored to -x): east of the north-south street. */
+/** Distance of a sidewalk entrance's top step from the middle of the avenue. */
+const ENTRANCE_TOP = 13.85;
+/** The plaza stairwell sits at x = -PLAZA_X (west of the north-south street, south of the avenue). */
 const PLAZA_X = 6.5;
 const STAIR_LEN = 15 * TREAD + 0.35;
-
-/** The passage under the avenue from the west entrance (nav needs it). */
-export const WEST_PASSAGE: Rect = { x0: WEST_X - 1.5, x1: WEST_X + 1.5, z0: WEST_TOP + STAIR_LEN, z1: 0 }; // overlaps the corridor so the doorway cells count
 
 /**
  * A metro entrance on a sidewalk: a 3 m stairwell along z whose top step is at
  * zTop, going down in direction dir, then a tiled passage at tunnel level that
  * ends at zEnd (a corridor wall with a doorway).
  */
-function sidewalkEntrance(o: Out, res: Res, pits: Rect[], cx: number, zTop: number, dir: 1 | -1, zEnd: number): void {
+function sidewalkEntrance(o: Out, res: Res, pits: Rect[], cx: number, zTop: number, dir: 1 | -1, zEnd: number): Rect {
   const x0 = cx - 1.5, x1 = cx + 1.5;
   const zLow = zTop + dir * STAIR_LEN; // foot of the stairs
   const zr = (a: number, b: number): [number, number] => [Math.min(a, b), Math.max(a, b)];
@@ -662,6 +742,8 @@ function sidewalkEntrance(o: Out, res: Res, pits: Rect[], cx: number, zTop: numb
   res.rooms.push({ x0, x1, z0: pz0, z1: pz1, y0: TY, y1: 0 });
   res.rooms.push({ x0, x1, z0: q0, z1: q1, y0: TY, y1: -CEIL });
   res.links.push({ a: STREET, b: TUNNEL, pts: [{ x: cx, y: 0, z: zTop - dir * 1.0 }, { x: cx, y: TY, z: zLow + dir * 0.8 }] });
+  // the passage overlaps the corridor a little so the doorway cells count as walkable
+  return { x0, x1, z0: Math.min(zLow, zEnd - dir * 0.5), z1: Math.max(zLow, zEnd - dir * 0.5) };
 }
 
 /** Station bench along x or z (solid seat, visual legs and slats). */
@@ -718,6 +800,54 @@ function mirrorBox(b: AABB): AABB {
   return { minX: -b.maxX, maxX: -b.minX, minY: b.minY, maxY: b.maxY, minZ: -b.maxZ, maxZ: -b.minZ };
 }
 
+/** A roof bridge deck: from `from` to `to` along `axis`, across c0..c1, top at y. */
+interface BridgeDeck { axis: 'x' | 'z'; from: number; to: number; c0: number; c1: number; y: number }
+
+/** Deck, steel side beams under it and a railing on each side. */
+function bridge(o: Out, b: BridgeDeck): void {
+  const s = Math.min(b.from, b.to), e = Math.max(b.from, b.to);
+  const bx = (a0: number, a1: number, y0: number, y1: number, k0: number, k1: number) =>
+    b.axis === 'x' ? box(a0, a1, y0, y1, k0, k1) : box(k0, k1, y0, y1, a0, a1);
+  o.add(bx(s, e, b.y - 0.3, b.y, b.c0, b.c1), 'concrete', 0xb9b4aa);
+  for (const k of [b.c0, b.c1 - 0.2]) o.add(bx(s, e, b.y - 0.75, b.y - 0.3, k, k + 0.2), 'metal', 0x3d4650, false);
+  railing(o, bx(s, e, b.y, b.y + RAIL_H, b.c0, b.c0 + 0.1), RAIL_C);
+  railing(o, bx(s, e, b.y, b.y + RAIL_H, b.c1 - 0.1, b.c1), RAIL_C);
+}
+
+/**
+ * The centre's roof bridges, laid out for its three walk-in houses (and their
+ * mirrors): west house to the one by the plaza, and from the east house over
+ * the avenue to the mirror of the west house. Any other layout gets none.
+ */
+function centreBridges(half: HouseSpec[]): { houses: HouseSpec[]; decks: BridgeDeck[]; links: LinkDef[]; crossLinks: LinkDef[] } {
+  const find = (x0: number, z0: number) => half.findIndex((h) => h.x0 === x0 && h.z0 === z0);
+  const a = find(-58, 9), b = find(-25, 14), c = find(40, 10);
+  const houses = half.map((h) => ({ ...h, roofGaps: [...(h.roofGaps ?? [])] }));
+  if (a < 0 || b < 0 || c < 0) return { houses, decks: [], links: [], crossLinks: [] };
+  const A = houses[a], B = houses[b], C = houses[c];
+  const y = (h: HouseSpec) => Math.max(2, h.floors ?? 2) * STOREY;
+  const roof = (i: number) => floorName('h' + i, 2, 2);
+  const W = 2.0; // walking width
+  // A (west) to B (by the plaza): along x, high enough in z to miss B's stairwell
+  const z0 = 18.1, z1 = z0 + W;
+  A.roofGaps!.push({ side: 'x1', a: z0, b: z1 });
+  B.roofGaps!.push({ side: 'x0', a: z0, b: z1 });
+  // C (east, north of the avenue) over the avenue to A's mirror; A's own gap faces C's mirror
+  const x0 = 48.5, x1 = x0 + W;
+  C.roofGaps!.push({ side: 'z0', a: x0, b: x1 });
+  A.roofGaps!.push({ side: 'z0', a: -x1, b: -x0 });
+  const zc = (z0 + z1) / 2, xc = (x0 + x1) / 2;
+  return {
+    houses,
+    decks: [
+      { axis: 'x', from: A.x1, to: B.x0, c0: z0, c1: z1, y: y(A) },
+      { axis: 'z', from: -A.z0, to: C.z0, c0: x0, c1: x1, y: y(C) },
+    ],
+    links: [{ a: roof(a), b: roof(b), pts: [{ x: A.x1 - 2, y: y(A), z: zc }, { x: B.x0 + 2, y: y(B), z: zc }] }],
+    crossLinks: [{ a: roof(c), b: roof(a) + 'm', pts: [{ x: xc, y: y(C), z: C.z0 + 2 }, { x: xc, y: y(A), z: -A.z0 - 2 }] }],
+  };
+}
+
 /**
  * Builds every structure. `half` lists the walk-in buildings of one half of
  * the point-symmetric city centre; they and the tunnel half are mirrored to
@@ -727,9 +857,12 @@ export function buildStructures(half: HouseSpec[], extra: HouseSpec[] = []): Str
   const o = new Out();
   const res: Res = { levels: [], links: [], spots: [], houses: [], tunnel: [], lamps: [], rooms: [] };
   const pits: Rect[] = [];
-  half.forEach((h, i) => buildHouse(o, h, 'h' + i, res));
-  tunnelHalf(o, res, pits);
-  // mirror everything built so far
+  // bridges between centre roofs (built in the half, so each gets a mirrored twin)
+  const plan = centreBridges(half);
+  plan.houses.forEach((h, i) => buildHouse(o, h, 'h' + i, res));
+  for (const b of plan.decks) bridge(o, b);
+  for (const l of plan.links) res.links.push(l);
+  // mirror the centre houses to (-x, -z)
   const n = o.pieces.length;
   for (let i = 0; i < n; i++) o.pieces.push({ ...o.pieces[i], box: mirrorBox(o.pieces[i].box) });
   const mp = (p: P3): P3 => ({ x: -p.x, y: p.y, z: -p.z });
@@ -738,25 +871,13 @@ export function buildStructures(half: HouseSpec[], extra: HouseSpec[] = []): Str
   for (const l of [...res.links]) res.links.push({ a: mname(l.a), b: mname(l.b), pts: l.pts.map(mp) });
   for (const s of [...res.spots]) res.spots.push({ name: mname(s.name), label: s.label, p: mp(s.p) });
   for (const h of [...res.houses]) res.houses.push(mirrorRect(h));
-  for (const p of [...pits]) pits.push(mirrorRect(p));
   for (const l of [...res.lamps]) res.lamps.push({ ...l, x: -l.x, z: -l.z });
   for (const r of [...res.rooms]) res.rooms.push({ ...r, ...mirrorRect(r) });
   // the outer districts are not mirrored: each tower is built once
   extra.forEach((h, i) => buildHouse(o, h, 't' + i, res));
-  // shared centre pieces: hall ceiling, floor and lights, plus the tunnel level
-  o.add(box(-10.3, 10.3, -CEIL, 0, -6.3, 6.3), 'concrete', 0x8f8b84);
-  o.add(box(-46, 46, TB, TY, -12, 12), 'hidden', 0); // collision floor under everything
-  o.add(box(-10, 10, TY - 0.03, TY, -6, 6), 'granite', 0xffffff, false);
-  for (const x of [-6, 0, 6]) for (const z of [-3.5, 3.5]) {
-    o.add(box(x - 0.95, x + 0.95, -CEIL - 0.1, -CEIL, z - 0.2, z + 0.2), 'metal', 0x2b2d31, false);
-    o.add(box(x - 0.9, x + 0.9, -CEIL - 0.12, -CEIL - 0.1, z - 0.15, z + 0.15), 'glow', 0xffffff, false);
-    res.lamps.push({ x, y: -CEIL - 0.5, z, reach: 6, y0: TB, y1: 0, power: 1.0 });
-  }
-  res.rooms.push({ x0: -10, x1: 10, z0: -6, z1: 6, y0: TY, y1: -CEIL });
-  const corridorW: Rect = { x0: -40, x1: -10, z0: -2.5, z1: 2.5 };
-  const hall: Rect = { x0: -10, x1: 10, z0: -6, z1: 6 };
-  res.tunnel = [corridorW, hall, mirrorRect(corridorW), WEST_PASSAGE, mirrorRect(WEST_PASSAGE), ...pits];
-  res.levels.push({ name: TUNNEL, y: TY, rect: { x0: -46, x1: 46, z0: -12, z1: 12 }, allow: [corridorW, hall, mirrorRect(corridorW), WEST_PASSAGE, mirrorRect(WEST_PASSAGE)], block: [] });
+  // the bridges across the avenue join a house with another one's mirror: link those after mirroring
+  for (const l of plan.crossLinks) res.links.push(l, { a: l.a + 'm', b: l.b.slice(0, -1), pts: l.pts.map(mp) });
+  buildTunnel(o, res, pits);
   // Underground pieces that reach the street (ceilings, stairwell and tunnel
   // walls) stop 2 cm below it: a top face at y = 0 z-fights with the road and
   // the middle of the avenue flickers. The street plane itself is the floor.

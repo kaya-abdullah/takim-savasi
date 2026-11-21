@@ -109,8 +109,10 @@ describe('walk-in buildings and tunnel', () => {
     expect(roofs.filter((l) => l.y >= 4 * FLOOR1_Y).length).toBeGreaterThanOrEqual(4);
     expect(Math.max(...roofs.map((l) => l.y))).toBeGreaterThanOrEqual(20);
     expect(s.levels.filter((l) => l.name === TUNNEL)).toHaveLength(1);
-    expect(s.pits).toHaveLength(4);
-    expect(s.links.filter((l) => l.b === TUNNEL)).toHaveLength(4);
+    // 14 sidewalk entrances along the whole avenue plus the plaza stairwell (the one east of the plaza is gone)
+    expect(s.pits).toHaveLength(15);
+    expect(s.links.filter((l) => l.b === TUNNEL)).toHaveLength(15);
+    expect(s.pits.some((p) => p.x0 < 6.5 && p.x1 > 6.5 && p.z0 > 0)).toBe(false);
   });
   it('nothing underground has a top face at street level (z-fighting with the road)', () => {
     const bad = s.pieces.filter((p) => p.mat !== 'hidden' && p.box.minY < 0 && Math.abs(p.box.maxY) < 0.01);

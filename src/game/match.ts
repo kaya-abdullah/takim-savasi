@@ -9,6 +9,8 @@ import { HEAVY_CD, JET_BOMB, JET_ROCKET, TANK_HIT, TANK_SHELL, VEHICLE_DEFS, typ
 import { BotBrain, DIFFICULTY } from './bot';
 import { BODY_R, Combatant, HEAD_R, MAX_HP } from './combatant';
 import { Vehicle, type DriveInput } from './vehicle';
+import { Train } from './metro';
+import { STATIONS } from '../world/structures';
 
 export const TEAM_SIZE = 10;
 export const KILL_LIMIT = 60;
@@ -185,6 +187,9 @@ export interface MatchEvents {
   vehicleDamaged?(v: Vehicle, attacker: Combatant, amount: number): void;
   vehicleDestroyed?(v: Vehicle, attacker: Combatant): void;
   vehicleCrash?(v: Vehicle, impact: number): void;
+  /** The metro closed its doors and left, or stopped at a station (index into STATIONS). */
+  trainDepart?(): void;
+  trainArrive?(station: number): void;
   runOver?(v: Vehicle, victim: Combatant): void;
 }
 
@@ -274,6 +279,9 @@ export class Match {
 
   /** Online hooks (null offline). */
   net: MatchNet | null = null;
+  readonly train = new Train();
+  /** Online, not the host: the host's last train state and its age (s). */
+  trainNet: { p: number[]; age: number } | null = null;
   /** Ids for pickups this peer creates (online: only the host does). */
   private pickupId = 1000 + Math.floor(Math.random() * 1e6);
 
@@ -379,6 +387,7 @@ export class Match {
     if (this.over) return;
     this.time += dt;
     this.updateVehicles(dt);
+    this.updateTrain(dt);
     for (const c of this.combatants) {
       const local = this.owns(c);
       if (!c.alive) {
@@ -422,6 +431,30 @@ export class Match {
     // online only the host ends the match (the others hear it)
     if (this.net && !this.net.isHost()) return;
     if (this.score.blue >= this.killLimit || this.score.red >= this.killLimit || this.time >= this.duration) this.finish();
+  }
+
+  /** Runs the train (the host or alone) or follows the host's; carries the riders this device runs. */
+  private updateTrain(dt: number): void {
+    const t = this.train, x0 = t.x, wasMoving = t.state === 'moving';
+    const riders = this.combatants.filter((c) => t.aboard(c, x0));
+    let dx = 0;
+    if (!this.net || this.net.isHost()) dx = t.step(dt, riders.length > 0);
+    else if (this.trainNet) {
+      const n = this.trainNet;
+      n.age += dt;
+      // where the host's train is now: its last position run on for the packet's age, never past the stop
+      const p = [...n.p];
+      if (p[3]) {
+        const target = STATIONS[p[4]] ?? p[0];
+        const ahead = p[0] + p[2] * p[1] * Math.min(n.age, 0.5);
+        p[0] = p[2] > 0 ? Math.min(target, ahead) : Math.max(target, ahead);
+      }
+      dx = t.follow(p, dt);
+    }
+    for (const c of riders) if (this.owns(c)) c.pos.x += dx;
+    for (const c of this.combatants) if (this.owns(c)) t.constrain(c, riders.includes(c));
+    if (!wasMoving && t.state === 'moving') this.events.trainDepart?.();
+    else if (wasMoving && t.state === 'stopped') this.events.trainArrive?.(t.at);
   }
 
   /** Ends the match now (online: the host said so). */

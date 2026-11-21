@@ -86,6 +86,12 @@ export class Online implements MatchNet {
   names: Record<string, string> = {};
   mySlot = -1;
   mid = '';
+  /** This device wants to play the next match (false on the end screen until "play again"). */
+  ready = true;
+  /** Host term: raised whenever the room changes hands, so an old host's word no longer counts. */
+  ep = 0;
+  /** Peers that want to play (said hello, or pressed "play again" after a match). */
+  private peerReady = new Set<string>();
   match: Match | null = null;
   private sendT = 0;
   private discoverTimer: ReturnType<typeof setTimeout> | null = null;
@@ -101,7 +107,7 @@ export class Online implements MatchNet {
     this.hello();
     this.discoverTimer = setTimeout(() => {
       this.discoverTimer = null;
-      if (!this.hostId && !this.closed) this.becomeHost(true);
+      if (!this.hostId && !this.closed) { this.ep = 1; this.becomeHost(true); }
     }, DISCOVER_MS);
   }
 
@@ -174,12 +180,11 @@ export class Online implements MatchNet {
         if (this.owns(c)) this.tr.send({ t: 'ml', mid: this.mid, o: c.id });
       },
       end: (w) => {
+        // nobody is pulled into the next match: each person presses "play again" (again())
+        this.ready = false;
+        this.peerReady.clear();
         ev.end?.(w);
-        if (this.isHost()) {
-          this.tr.send({ t: 'end', mid: this.mid, w, sc: { ...m.score } });
-          // everyone gets a fresh match a little later
-          setTimeout(() => { if (!this.closed && this.isHost() && this.match === m) this.newMatch(); }, 12000);
-        }
+        if (this.isHost()) this.tr.send({ t: 'end', mid: this.mid, w, sc: { ...m.score } });
       },
     };
   }
@@ -214,14 +219,38 @@ export class Online implements MatchNet {
     const list: unknown[] = [];
     for (const c of m.combatants) if (this.owns(c)) list.push(pack(c));
     const msg: Msg = { t: 'st', mid: this.mid, c: list };
-    if (this.isHost()) { msg.time = r2(m.time); msg.sc = { ...m.score }; }
+    if (this.isHost()) { msg.time = r2(m.time); msg.sc = { ...m.score }; msg.tr = m.train.pack(); }
     this.tr.send(msg);
   }
 
   // ------------------------------------------------------------ room
+  /** "Play again" on the end screen: the host starts a match, a guest asks the host for a place. */
+  again(): void {
+    if (this.closed) return;
+    this.ready = true;
+    if (this.isHost()) {
+      if (!this.match || this.match.over) this.newMatch();
+    } else if (this.hostId) this.tr.send({ t: 'again', name: this.name }, this.hostId);
+  }
+
   private hello(to?: string): void {
-    this.tr.send({ t: 'hi', name: this.name, since: this.since, host: this.hostId }, to);
+    this.tr.send({ t: 'hi', name: this.name, since: this.since, host: this.hostId, ready: this.ready }, to);
     if (to && this.isHost()) this.sendRoster(to);
+  }
+
+  /** Host: someone wants to play. Into the running match, or (host still on its end screen) they take over. */
+  private letPlay(id: string): void {
+    if (this.match?.over && !this.ready) this.handoff(id);
+    else this.admit(id);
+  }
+
+  /** The host is still on its end screen and someone wants to play: they take over the room. */
+  private handoff(to: string): void {
+    this.ep += 1;
+    this.tr.send({ t: 'handoff', ep: this.ep, ready: [...this.peerReady] }, to);
+    this.hostId = to;
+    this.mySlot = -1;
+    this.slots = Array(SLOTS).fill(null);
   }
 
   /** This device opens the room (or takes it over when the host left). */
@@ -234,19 +263,33 @@ export class Online implements MatchNet {
       this.slots[this.mySlot] = this.self;
     }
     this.names[this.self] = this.name;
-    if (fresh || !this.match) this.newMatch();
-    else {
-      this.sendRoster();
-      this.applyRoster();
-      for (const b of this.match.brains.values()) b.reset();
-    }
-    // peers already here without a slot get one now
-    for (const id of this.peers.keys()) if (!this.slots.includes(id)) this.admit(id);
+    // taking over a room without a match here: the people keep their places
+    if (fresh || !this.match) { this.newMatch(!fresh); return; }
+    this.sendRoster();
+    this.applyRoster();
+    for (const b of this.match.brains.values()) b.reset();
+    // peers that want to play and have no slot get one now
+    if (!this.match.over) for (const id of this.peers.keys()) if (this.peerReady.has(id) && !this.slots.includes(id)) this.admit(id);
   }
 
-  private newMatch(): void {
+  /** A fresh match for this device and every peer that wants to play (the rest keep their end screen). */
+  private newMatch(keepSlots = false): void {
+    this.ready = true;
     this.mid = Math.random().toString(36).slice(2, 10);
     const seed = Math.floor(Math.random() * 1e9);
+    if (!keepSlots) {
+      this.slots = Array(SLOTS).fill(null);
+      this.mySlot = assignSlot(this.slots);
+      this.slots[this.mySlot] = this.self;
+      this.names = { [this.self]: this.name };
+    }
+    for (const id of this.peers.keys()) {
+      if (!this.peerReady.has(id) || this.slots.includes(id)) continue;
+      const s = assignSlot(this.slots);
+      if (s < 0) { this.tr.send({ t: 'full' }, id); continue; }
+      this.slots[s] = id;
+      this.names[id] = this.peers.get(id)!.name;
+    }
     this.sendRoster();
     for (let i = 0; i < SLOTS; i++) {
       const id = this.slots[i];
@@ -276,7 +319,7 @@ export class Online implements MatchNet {
   }
 
   private sendRoster(to?: string): void {
-    this.tr.send({ t: 'roster', host: this.self, since: this.since, slots: this.slots, names: this.names, mid: this.mid }, to);
+    this.tr.send({ t: 'roster', host: this.self, since: this.since, ep: this.ep, slots: this.slots, names: this.names, mid: this.mid }, to);
   }
 
   /** Host: give a newcomer a slot and the running match. */
@@ -293,6 +336,7 @@ export class Online implements MatchNet {
 
   private peerLeft(id: string): void {
     this.peers.delete(id);
+    this.peerReady.delete(id);
     const wasHost = id === this.hostId;
     const s = this.slots.indexOf(id);
     if (s >= 0) this.slots[s] = null;
@@ -301,6 +345,7 @@ export class Online implements MatchNet {
       // the oldest remaining device takes over the room
       let best = this.self, bestSince = this.since;
       for (const [pid, p] of this.peers) if (p.since < bestSince || (p.since === bestSince && pid < best)) { best = pid; bestSince = p.since; }
+      this.ep += 1;
       if (best === this.self) this.becomeHost(false);
       else this.hostId = best;
     } else if (this.isHost()) {
@@ -319,32 +364,51 @@ export class Online implements MatchNet {
     switch (msg.t) {
       case 'hi': {
         this.peers.set(from, { name: String(msg.name ?? 'Oyuncu').slice(0, 16), since: Number(msg.since) || Date.now() });
-        if (this.isHost()) this.admit(from);
+        if (msg.ready === false) { this.peerReady.delete(from); return; }
+        this.peerReady.add(from);
+        if (this.isHost()) this.letPlay(from);
+        return;
+      }
+      case 'again': {
+        this.peerReady.add(from);
+        if (this.isHost()) this.letPlay(from);
+        return;
+      }
+      case 'handoff': {
+        if (from !== this.hostId) return;
+        this.ep = Number(msg.ep) || this.ep + 1;
+        this.peerReady = new Set((msg.ready as string[]).filter((id) => id !== this.self && this.peers.has(id)));
+        this.becomeHost(true);
         return;
       }
       case 'roster': {
-        const since = Number(msg.since);
+        const since = Number(msg.since), ep = Number(msg.ep) || 0;
         if (this.isHost() && from !== this.self) {
           // two rooms opened at once: the older host keeps it, the other joins as a guest
-          if (Online.older(this.since, this.self, since, from)) { this.sendRoster(from); return; }
+          if (ep < this.ep || (ep === this.ep && Online.older(this.since, this.self, since, from))) { this.sendRoster(from); return; }
+          this.ep = ep;
           this.hostId = from;
           this.mySlot = -1;
           this.slots = Array(SLOTS).fill(null);
-          this.tr.send({ t: 'hi', name: this.name, since: this.since, host: from }, from);
+          this.tr.send({ t: 'hi', name: this.name, since: this.since, host: from, ready: this.ready }, from);
           return;
         }
-        if (this.hostId && this.hostId !== from && this.peers.has(this.hostId)) {
+        // an earlier host's word no longer counts
+        if (ep < this.ep) return;
+        if (ep === this.ep && this.hostId && this.hostId !== from && this.peers.has(this.hostId)) {
           const cur = this.peers.get(this.hostId)!;
           if (Online.older(cur.since, this.hostId, since, from)) return;
         }
         if (this.discoverTimer) { clearTimeout(this.discoverTimer); this.discoverTimer = null; }
+        const changed = this.hostId !== from;
+        this.ep = ep;
         this.hostId = from;
         this.slots = (msg.slots as (string | null)[]).slice(0, SLOTS);
         this.names = { ...(msg.names as Record<string, string>) };
-        // the host forgot us (it restarted): say hello again
-        if (this.mySlot >= 0 && this.slots[this.mySlot] !== this.self && !this.slots.includes(this.self)) {
+        if (!this.slots.includes(this.self)) {
           this.mySlot = -1;
-          this.tr.send({ t: 'hi', name: this.name, since: this.since, host: from }, from);
+          // still waiting for a place (the room changed hands, or the host restarted): ask again
+          if (this.ready && (changed || !this.match || this.match.over)) this.tr.send({ t: 'again', name: this.name }, from);
         }
         this.applyRoster();
         return;
@@ -413,6 +477,7 @@ export class Online implements MatchNet {
       const sc = msg.sc as Record<Team, number> | undefined;
       // kills reach each device a moment apart: never count backwards
       if (sc) { m.score.blue = Math.max(m.score.blue, sc.blue); m.score.red = Math.max(m.score.red, sc.red); }
+      if (Array.isArray(msg.tr)) m.trainNet = { p: msg.tr as number[], age: 0 };
     }
     for (const row of msg.c as number[][]) {
       const c = m.combatants[row[0]];

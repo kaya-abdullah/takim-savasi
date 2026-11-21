@@ -381,12 +381,19 @@ export class PlayerController {
       shoulder = 0;
       pivotY = v.kind === 'jet' ? 3.2 : 3.0;
     }
-    _head.set(c.pos.x, c.pos.y + pivotY + bobY, c.pos.z).addScaledVector(_r, shoulder);
+    _head.set(c.pos.x, c.pos.y + pivotY + bobY, c.pos.z);
+    // the shoulder offset never pokes through a wall beside the player (narrow tunnel, corridors)
+    if (shoulder > 0) {
+      const sh = m.world.raycast(_head.x, _head.y, _head.z, _r.x * shoulder, 0, _r.z * shoulder, 1);
+      _head.addScaledVector(_r, sh ? Math.max(0, sh.t * shoulder - 0.35) : shoulder);
+    }
     _want.copy(_head).addScaledVector(_dir, -dist);
     // keep the camera out of walls
     const dx = _want.x - _head.x, dy = _want.y - _head.y, dz = _want.z - _head.z;
     const hit = m.world.raycast(_head.x, _head.y, _head.z, dx, dy, dz, 1);
-    const allowed = hit ? Math.max(0.15, hit.t * dist - 0.25) : dist;
+    // keep 0.25 m off the wall measured square to it: at a glancing angle that is more along the ray
+    const cosHit = hit ? Math.abs(hit.nx * dx + hit.ny * dy + hit.nz * dz) / Math.max(1e-6, Math.hypot(dx, dy, dz)) : 1;
+    const allowed = hit ? Math.max(0.15, hit.t * dist - 0.25 / Math.max(0.2, cosHit)) : dist;
     // shrink fast, grow back slowly
     this.camDist = allowed < this.camDist ? allowed : this.camDist + (allowed - this.camDist) * Math.min(1, dt * 4);
     cam.position.copy(_head).addScaledVector(_dir, -this.camDist);

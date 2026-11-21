@@ -17,6 +17,7 @@ import { HEAVY_CD, VEHICLE_DEFS, type VehicleKind } from './data/vehicles';
 import type { WeaponDef } from './data/weapons';
 import type { Vehicle } from './game/vehicle';
 import { VehicleView } from './render/vehicleModel';
+import { TrainView } from './render/trainModel';
 import { TUNNEL } from './world/structures';
 import type { Combatant } from './game/combatant';
 import { PlayerController } from './game/player';
@@ -79,6 +80,9 @@ class Game {
   private pickupViews = new PickupViews();
   private dropViews = new Map<Drop, THREE.Group>();
   private vehicleViews = new Map<Vehicle, VehicleView>();
+  private trainView: TrainView | null = null;
+  /** The player was told the doors are closing (once per boarding). */
+  private trainWarned = false;
   /** Last enemy the player hurt, for the target health bar. */
   private target: { c: Combatant; t: number } | null = null;
   /** Weapons picked up during the current match (lost when it ends): they sit in the backpack. */
@@ -142,8 +146,8 @@ class Game {
       online: () => this.startOnline(),
       setName: (n) => this.setName(n),
       again: () => {
-        // online the room starts the next match for everyone
-        if (this.online) this.ui.toast('Yeni maç birkaç saniye içinde başlıyor…');
+        // online: join the room's next match (nobody is pulled in without pressing this)
+        if (this.online) { this.showNet('Yeni maç bekleniyor…'); this.online.again(); }
         else this.startMatch();
       },
       openShop: () => this.openShop(),
@@ -434,6 +438,7 @@ class Game {
     this.dropViews.clear();
     for (const v of this.vehicleViews.values()) { this.scene.remove(v.root); v.dispose(); }
     this.vehicleViews.clear();
+    if (this.trainView) { this.scene.remove(this.trainView.root); this.trainView.dispose(); this.trainView = null; }
     audio.engine(null, 0);
     this.target = null;
     this.effects.clear();
@@ -608,6 +613,15 @@ class Game {
         this.effects.shake = Math.min(1.2, this.effects.shake + Math.min(0.8, imp * 0.05));
       },
       runOver: (v) => { if (v.driver?.isPlayer) this.ui.popup('EZDİN!', 'kill'); },
+      trainDepart: () => {
+        const mm = this.match;
+        if (mm && mm.train.aboard(mm.player)) { this.ui.popup('METRO KALKTI', 'kill'); audio.horn(); }
+      },
+      trainArrive: (i) => {
+        const mm = this.match;
+        this.trainWarned = false;
+        if (mm && mm.train.aboard(mm.player)) this.ui.banner(`DURAK ${i + 1}`, 'Kapılar açıldı · inmek için kapıdan çık');
+      },
     }, {
       playerGrenades: grenadeCount(this.save), playerHp: maxHp(this.save), difficulty: this.save.settings.difficulty,
       playerName: net ? this.online!.name : this.save.name || 'MUSTAFA',
@@ -615,6 +629,9 @@ class Game {
     });
     this.match = m;
     if (net) this.joinRunning(m, net);
+    this.trainView = new TrainView();
+    this.scene.add(this.trainView.root);
+    this.trainWarned = false;
     for (const c of m.combatants) {
       c.view = new CharacterView(c.team, !c.isPlayer);
       c.view.setWeapon(c.weapon.def);
@@ -1321,6 +1338,16 @@ class Game {
         const scoped = c.aiming && c.weapon.def.zoom < 0.5;
         v.root.visible = !scoped && this.camera.position.distanceTo(_v.set(c.pos.x, c.pos.y + 1.5, c.pos.z)) > 0.9;
       }
+    }
+    // metro
+    if (this.trainView) {
+      const riding = m.player.alive && m.train.aboard(m.player);
+      this.trainView.sync(m.train, dt, riding);
+      if (riding && m.train.doorsOpen && m.train.boardT > 0.2 && !this.trainWarned) {
+        this.trainWarned = true;
+        this.ui.popup('KAPILAR KAPANIYOR…', 'kill');
+      }
+      if (!riding) this.trainWarned = false;
     }
     // vehicles
     for (const veh of m.vehicles) {

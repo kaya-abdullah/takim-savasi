@@ -129,6 +129,16 @@ export class Minimap {
       g.stroke();
       g.fill();
     }
+    // the metro train under the avenue
+    const tx = m.train.x, half = 7;
+    g.lineCap = 'round';
+    g.strokeStyle = '#0b1220';
+    g.lineWidth = 8;
+    g.beginPath(); g.moveTo(this.U(tx - half), this.V(0)); g.lineTo(this.U(tx + half), this.V(0)); g.stroke();
+    g.strokeStyle = m.train.state === 'moving' ? '#5ad1ff' : '#e9edf2';
+    g.lineWidth = 5;
+    g.beginPath(); g.moveTo(this.U(tx - half), this.V(0)); g.lineTo(this.U(tx + half), this.V(0)); g.stroke();
+    g.lineCap = 'butt';
     for (const v of m.vehicles) {
       if (!v.alive || v.owner.team !== p.team || v.driver === p) continue;
       g.fillStyle = '#ffd84a';

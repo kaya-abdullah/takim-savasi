@@ -1,6 +1,6 @@
 import { CollisionWorld, type AABB, type Rect } from './collision';
 import { NavWorld } from './navworld';
-import { buildStructures, type Structures } from './structures';
+import { ENTRANCES, buildStructures, entranceFootprint, type Structures } from './structures';
 import { buildDistricts, type BlockSpec, type DistrictKind } from './districts';
 
 export interface Building {
@@ -184,8 +184,14 @@ const BLOCKS: BlockSpec[] = (() => {
 
 export function createMap(): MapData {
   const dist = buildDistricts(BLOCKS);
-  const buildings = [...HALF_BUILDINGS, ...HALF_BUILDINGS.map(mirrorB), ...dist.buildings];
-  const props = [...HALF_PROPS, ...HALF_PROPS.map(mirrorP), ...CENTER_PROPS, ...dist.props];
+  // metro entrances are holes in the street: nothing may stand on one
+  const holes = ENTRANCES.map(entranceFootprint);
+  const hits = (x0: number, x1: number, z0: number, z1: number) => holes.some((h) => x0 < h.x1 + 1 && x1 > h.x0 - 1 && z0 < h.z1 + 1 && z1 > h.z0 - 1);
+  const keepB = (b: { x0: number; x1: number; z0: number; z1: number }) => !hits(b.x0, b.x1, b.z0, b.z1);
+  const keepP = (p: Prop) => { const b = propBox(p); return !hits(b.minX, b.maxX, b.minZ, b.maxZ); };
+  dist.towers = dist.towers.filter(keepB);
+  const buildings = [...HALF_BUILDINGS, ...HALF_BUILDINGS.map(mirrorB), ...dist.buildings].filter(keepB);
+  const props = [...HALF_PROPS, ...HALF_PROPS.map(mirrorP), ...CENTER_PROPS, ...dist.props].filter(keepP);
   const halfPois: V2[] = [
     { x: -31, z: 30 }, { x: 0, z: 30 }, { x: -51.5, z: 0 }, { x: -18, z: 11 },
     { x: -42, z: 25 }, { x: 31, z: 30 }, { x: 0, z: 42 }, { x: 52, z: 26 }, { x: -12, z: 0 },

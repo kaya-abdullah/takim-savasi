@@ -438,3 +438,27 @@ ekranda bütün silahlar görünür); el bombası ve bıçak tuşu yerinde kals�
 - Testler: isim temizleme ve kayıt; tarayıcıda isim yazma (WASD yazı olarak girer), 2 harften kısa
   reddedilir, yeniden açılışta korunur, maçta kullanılır, etiketler yakında görünür/uzakta gizli;
   çevrimiçi ilk girişte pencere açılır, karşı cihaz ismi askerin üstünde görür.
+
+## 27. Sürüm 6.0 (2026-11-21)
+İstek: haritanın her yerine metro girişi; orta sağdaki girişi kaldır; biri binince kalkan, haritanın her
+çeyreğinde duran metro; oyun bazen kendiliğinden açılıyor, düzelt; bazı binalar arasında köprü.
+
+- Tünel artık bulvarın altında şehrin bir ucundan öbürüne (x -136..136). 14 kaldırım girişi (her çeyrekte,
+  bulvarın iki yanında) ve meydanın batısındaki merdiven. Meydanın doğusundaki (orta sağ) giriş kaldırıldı.
+  Girişlerin üstüne denk gelen bina ve eşyalar haritadan çıkarılır.
+- Metro treni: 14 m vagon, koridorun ortasındaki rayda. Duraklar x = -105, -35, 35, 105 (her çeyrekte bir).
+  Durakta kapılar açık bekler; içeride biri 2 sn kalınca kapılar kapanır, sıradaki durağa gider (hızlanır,
+  frenler, tam durakta durur), hat sonunda geri döner. Yolcular trenle taşınır; giderken içeriden çıkılmaz,
+  yoldakiler kenara itilir. Durakta yalnızca kapılardan girilip çıkılır. İçindeyken vagon saydamlaşır.
+  Çevrimiçi: treni ev sahibi yürütür, diğerleri izler; herkes kendi askerini taşır. Mini haritada görünür.
+- Oyunun kendiliğinden açılması: çevrimiçi maç bitince ev sahibi 12 sn sonra herkesi yeni maça çekiyordu
+  (sonuç ekranı ve mağaza kapanıyordu). Artık kimse çekilmez: TEKRAR OYNA'ya basan yeni maça girer. Ev sahibi
+  sonuç ekranındayken biri TEKRAR OYNA derse oda ona devredilir (dönem numarasıyla eski ev sahibi geçersiz).
+- Köprüler: merkezde 4 çatı köprüsü (batı evi ile meydan evi arasında ve doğu evinden bulvarın üstünden
+  karşı eve; aynalı). Korkulukta geçit, korkuluklu beton köprü, botlar için çatıdan çatıya bağlantı.
+- Kamera: dar koridorda duvar dibinde omuz kayması duvarın dışına taşıyordu; kısaltıldı, duvar payı dik
+  ölçülüyor.
+- Testler: tünel uçtan uca yürünür, her giriş sokaktan tünele iner, girişlerin üstü boş; tren binen olmadan
+  beklemez, 2 sn sonra kalkar, tam durakta durur, hat sonunda döner, yolcuyu taşır, yoldakini iter;
+  çevrimiçi konuğun treni ev sahibininkini izler; köprü yüksekliği, geçitler, bot yolu; maç sonu kimse
+  çekilmez, devir. Tarayıcıda trene binip sonraki durağa gitme, girişten inme, köprüden geçme.
