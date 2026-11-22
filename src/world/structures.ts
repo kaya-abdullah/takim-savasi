@@ -733,7 +733,10 @@ function sidewalkEntrance(o: Out, res: Res, pits: Rect[], cx: number, zTop: numb
   railing(o, box(x0 - 0.12, x0, 0, RAIL_H, pz0, pz1), RAIL_C);
   const [r0, r1] = zr(zLow, zLow - dir * 0.12);
   railing(o, box(x0, x1, 0, RAIL_H, r0, r1), RAIL_C);
-  metroSign(o, x1 + 0.45, zTop - dir * 0.6);
+  // the sign stands beside the stairwell, on the side away from any building
+  const sz = zTop - dir * 0.6;
+  const blocked = (sx: number) => res.houses.some((h) => sx - 0.7 < h.x1 && sx + 0.7 > h.x0 && sz - 0.4 < h.z1 && sz + 0.4 > h.z0);
+  metroSign(o, blocked(x1 + 0.45) ? x0 - 0.45 : x1 + 0.45, sz);
   for (const bx of [cx - 0.85, cx + 0.85]) bollard(o, bx, zTop - dir * 0.5);
   // passage under the road: tiled walls, granite floor, ceiling slab
   const [q0, q1] = zr(zLow, zEnd);

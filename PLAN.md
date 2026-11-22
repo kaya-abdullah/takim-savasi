@@ -492,3 +492,7 @@ ekranda bütün silahlar görünür); el bombası ve bıçak tuşu yerinde kals�
 - 4 eşya noktası (can/hasar/hız, hava ikmali) bina içine denk geliyordu; binalara 1,5 m'den yakın noktalar atılır.
 - Duraklarda tren kapılarının önündeki 16 bank kaldırıldı (orta salondaki iki bank duruyor).
 - Testler: hiçbir eşya noktası binada değil; kapı önleri boş.
+
+## 31. Sürüm 6.4 (2026-11-22)
+- Hata: doğudaki (x = 38, kuzey) metro girişinin tabelası yanındaki evin duvarına girmişti. Tabela merdivenin
+  bina olmayan yanına konur. Test: hiçbir metro tabelası bir binanın içinde ya da 30 cm yakınında değil.

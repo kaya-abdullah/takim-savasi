@@ -97,3 +97,16 @@ describe('nothing stands in a wall or in the way', () => {
     }
   });
 });
+
+describe('metro signs', () => {
+  it('no metro sign (post or board) stands in or against a building', () => {
+    const rects = [...map.buildings, ...map.structures.houses];
+    const signs = map.structures.pieces.filter((pc) => pc.mat === 'sign' && pc.box.minY >= 0);
+    expect(signs.length).toBeGreaterThanOrEqual(15);
+    for (const s of signs) for (const b of rects) {
+      const m = 0.3;
+      const hit = s.box.minX < b.x1 + m && s.box.maxX > b.x0 - m && s.box.minZ < b.z1 + m && s.box.maxZ > b.z0 - m;
+      expect(hit, `sign at ${s.box.minX.toFixed(1)},${s.box.minZ.toFixed(1)} in building ${b.x0},${b.x1},${b.z0},${b.z1}`).toBe(false);
+    }
+  });
+});
