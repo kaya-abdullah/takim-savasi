@@ -59,6 +59,8 @@ export interface Structures {
   tunnel: Rect[];
   lamps: Lamp[];
   rooms: Room[];
+  /** Footprints of the roof bridges (street trees are kept clear of them). */
+  bridges: Rect[];
 }
 
 type Res = Omit<Structures, 'pieces' | 'pits'>;
@@ -84,7 +86,8 @@ const DOOR_W = 3.0, DOOR_H = 2.6;
 const box = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): AABB =>
   ({ minX: Math.min(x0, x1), maxX: Math.max(x0, x1), minY: y0, maxY: y1, minZ: Math.min(z0, z1), maxZ: Math.max(z0, z1) });
 
-interface Opening { a: number; b: number; bottom: number; top: number; door?: boolean }
+/** `gap`: a plain cut (a bridge landing in a parapet), no frame. */
+interface Opening { a: number; b: number; bottom: number; top: number; door?: boolean; gap?: boolean }
 
 class Out {
   pieces: Piece[] = [];
@@ -125,7 +128,7 @@ class Out {
     if (inner) this.slab(axis, ia, ib, s, e, y0, y1, ops, inner[0], inner[1], false);
     else this.slab(axis, ia, ib, s, e, y0, y1, ops, outer[0], outer[1], false);
     const out = outerLow ? -1 : 1;
-    for (const o of ops) this.frame(axis, f0, f1, out, o);
+    for (const o of ops) if (!o.gap) this.frame(axis, f0, f1, out, o);
   }
 
   /** Window/door frame proud of both faces, a glass pane and an outside sill. */
@@ -340,7 +343,7 @@ export function buildHouse(o: Out, h: HouseSpec, name: string, res: Res): void {
   }
   // parapet: brick both sides with a stone cap; a bridge landing leaves a gap
   const gaps = h.roofGaps ?? [];
-  const gapOps = (side: RoofGap['side']): Opening[] => gaps.filter((g) => g.side === side).map((g) => ({ a: g.a, b: g.b, bottom: roofY, top, door: true }));
+  const gapOps = (side: RoofGap['side']): Opening[] => gaps.filter((g) => g.side === side).map((g) => ({ a: g.a, b: g.b, bottom: roofY, top: top + 0.1, gap: true }));
   o.wall('x', z0, iz0, true, x0, x1, roofY, top, gapOps('z0'), brick, null);
   o.wall('x', iz1, z1, false, x0, x1, roofY, top, gapOps('z1'), brick, null);
   o.wall('z', x0, ix0, true, iz0, iz1, roofY, top, gapOps('x0'), brick, null);
@@ -357,7 +360,12 @@ export function buildHouse(o: Out, h: HouseSpec, name: string, res: Res): void {
     o.add(box(x0 - ox, x0 + ix, y0, y1, z0 + ix, z1 - ix), 'concrete', 0xd8d3c8, false);
     o.add(box(x1 - ix, x1 + ox, y0, y1, z0 + ix, z1 - ix), 'concrete', 0xd8d3c8, false);
   };
-  ring(0.06, T + 0.06, top, top + 0.1); // parapet cap
+  // parapet cap, open over the bridge landings
+  const capOx = 0.06, capIx = T + 0.06, capC = 0xd8d3c8;
+  o.slab('x', z0 - capOx, z0 + capIx, x0 - capOx, x1 + capOx, top, top + 0.1, gapOps('z0'), 'concrete', capC, false);
+  o.slab('x', z1 - capIx, z1 + capOx, x0 - capOx, x1 + capOx, top, top + 0.1, gapOps('z1'), 'concrete', capC, false);
+  o.slab('z', x0 - capOx, x0 + capIx, z0 + capIx, z1 - capIx, top, top + 0.1, gapOps('x0'), 'concrete', capC, false);
+  o.slab('z', x1 - capIx, x1 + capOx, z0 + capIx, z1 - capIx, top, top + 0.1, gapOps('x1'), 'concrete', capC, false);
   for (let k = 1; k < N; k++) ring(0.12, 0, fy(k) - 0.14, fy(k) + 0.1); // cornice between the storeys
   const plinth = (axis: 'x' | 'z', f0: number, f1: number, s: number, e: number, gap?: number) => {
     const ops: Opening[] = gap !== undefined ? [{ a: gap - DOOR_W / 2 - 0.08, b: gap + DOOR_W / 2 + 0.08, bottom: 0, top: 1 }] : [];
@@ -640,7 +648,7 @@ function buildTunnel(o: Out, res: Res, pits: Rect[]): void {
   // ---- stations: benches against the walls, a hanging sign and posters
   STATIONS.forEach((sx, i) => {
     for (const d of [-4, 4]) { bench(o, sx + d, 2.2, 'x'); bench(o, sx + d, -2.2, 'x'); }
-    o.add(box(sx - 1.2, sx + 1.2, -CEIL - 0.9, -CEIL - 0.3, -0.18, 0.18), 'sign', 0xffffff, false);
+    o.add(box(sx - 1.2, sx + 1.2, -CEIL - 0.6, -CEIL - 0.01, -0.18, 0.18), 'sign', 0xffffff, false); // flush with the ceiling, well above the train roof
     for (const [px, side] of [[sx - 8, 1], [sx + 8, -1]] as [number, number][]) {
       const zw = side * H;
       o.add(box(px - 0.8, px + 0.8, TY + 1.55, TY + 2.75, Math.min(zw, zw - side * 0.04), Math.max(zw, zw - side * 0.04)), 'darkwood', 0x1a1a1a, false);
@@ -855,12 +863,16 @@ function centreBridges(half: HouseSpec[]): { houses: HouseSpec[]; decks: BridgeD
  */
 export function buildStructures(half: HouseSpec[], extra: HouseSpec[] = []): Structures {
   const o = new Out();
-  const res: Res = { levels: [], links: [], spots: [], houses: [], tunnel: [], lamps: [], rooms: [] };
+  const res: Res = { levels: [], links: [], spots: [], houses: [], tunnel: [], lamps: [], rooms: [], bridges: [] };
   const pits: Rect[] = [];
   // bridges between centre roofs (built in the half, so each gets a mirrored twin)
   const plan = centreBridges(half);
   plan.houses.forEach((h, i) => buildHouse(o, h, 'h' + i, res));
-  for (const b of plan.decks) bridge(o, b);
+  for (const b of plan.decks) {
+    bridge(o, b);
+    const s = Math.min(b.from, b.to), e = Math.max(b.from, b.to);
+    res.bridges.push(b.axis === 'x' ? { x0: s, x1: e, z0: b.c0, z1: b.c1 } : { x0: b.c0, x1: b.c1, z0: s, z1: e });
+  }
   for (const l of plan.links) res.links.push(l);
   // mirror the centre houses to (-x, -z)
   const n = o.pieces.length;
@@ -873,6 +885,7 @@ export function buildStructures(half: HouseSpec[], extra: HouseSpec[] = []): Str
   for (const h of [...res.houses]) res.houses.push(mirrorRect(h));
   for (const l of [...res.lamps]) res.lamps.push({ ...l, x: -l.x, z: -l.z });
   for (const r of [...res.rooms]) res.rooms.push({ ...r, ...mirrorRect(r) });
+  for (const r of [...res.bridges]) res.bridges.push(mirrorRect(r));
   // the outer districts are not mirrored: each tower is built once
   extra.forEach((h, i) => buildHouse(o, h, 't' + i, res));
   // the bridges across the avenue join a house with another one's mirror: link those after mirroring

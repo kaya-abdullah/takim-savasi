@@ -4,6 +4,8 @@ import type { Settings } from '../core/save';
 import { GRENADE_SPEED, KNIFE_GRAVITY, KNIFE_SPEED, getWeapon } from '../data/weapons';
 import { WeaponState, type Combatant } from './combatant';
 import { stepGrenade, type Match } from './match';
+import { TRAIN_H, TRAIN_HALF_W, TRAIN_LEN } from './metro';
+import { TUNNEL_Y } from '../world/structures';
 
 const BASE_FOV = 72;
 const PLAYER_SPEED = 5.4;
@@ -387,19 +389,51 @@ export class PlayerController {
       const sh = m.world.raycast(_head.x, _head.y, _head.z, _r.x * shoulder, 0, _r.z * shoulder, 1);
       _head.addScaledVector(_r, sh ? Math.max(0, sh.t * shoulder - 0.35) : shoulder);
     }
+    // riding the metro: the camera stays inside the carriage (its walls and roof are not world colliders)
+    const t = m.train;
+    const riding = !v && t.carrying(c);
+    if (riding) {
+      _box.set(t.x - TRAIN_LEN / 2 + 0.3, TUNNEL_Y + 0.35, -TRAIN_HALF_W + 0.5, t.x + TRAIN_LEN / 2 - 0.3, TUNNEL_Y + TRAIN_H - 0.3, TRAIN_HALF_W - 0.5);
+      _head.set(clamp(_head.x, _box.x0, _box.x1), clamp(_head.y, _box.y0, _box.y1), clamp(_head.z, _box.z0, _box.z1));
+    }
     _want.copy(_head).addScaledVector(_dir, -dist);
     // keep the camera out of walls
     const dx = _want.x - _head.x, dy = _want.y - _head.y, dz = _want.z - _head.z;
     const hit = m.world.raycast(_head.x, _head.y, _head.z, dx, dy, dz, 1);
     // keep 0.25 m off the wall measured square to it: at a glancing angle that is more along the ray
     const cosHit = hit ? Math.abs(hit.nx * dx + hit.ny * dy + hit.nz * dz) / Math.max(1e-6, Math.hypot(dx, dy, dz)) : 1;
-    const allowed = hit ? Math.max(0.15, hit.t * dist - 0.25 / Math.max(0.2, cosHit)) : dist;
+    let allowed = hit ? Math.max(0.15, hit.t * dist - 0.25 / Math.max(0.2, cosHit)) : dist;
+    if (riding) allowed = Math.min(allowed, Math.max(0.15, dist * exitT(_head, dx, dy, dz, _box)));
     // shrink fast, grow back slowly
     this.camDist = allowed < this.camDist ? allowed : this.camDist + (allowed - this.camDist) * Math.min(1, dt * 4);
     cam.position.copy(_head).addScaledVector(_dir, -this.camDist);
     // never dip below the floor the player stands on (street, roof or tunnel)
     if (cam.position.y < c.pos.y + 0.3) cam.position.y = c.pos.y + 0.3;
+    if (riding) {
+      // camDist grows back slowly: a sudden turn toward a near wall must not leave it outside
+      cam.position.set(clamp(cam.position.x, _box.x0, _box.x1), clamp(cam.position.y, _box.y0, _box.y1), clamp(cam.position.z, _box.z0, _box.z1));
+    }
     _want.copy(_head).addScaledVector(_dir, 30);
     cam.lookAt(_want);
   }
+}
+
+/** Inner box of the carriage the camera keeps to while riding. */
+const _box = { x0: 0, y0: 0, z0: 0, x1: 0, y1: 0, z1: 0, set(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) { Object.assign(this, { x0, y0, z0, x1, y1, z1 }); } };
+
+function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v;
+}
+
+/** Fraction (0..1) of the step (dx, dy, dz) from p, which is inside b, before it leaves b. */
+export function exitT(p: { x: number; y: number; z: number }, dx: number, dy: number, dz: number, b: { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number }): number {
+  let t = 1;
+  const axis = (o: number, d: number, lo: number, hi: number) => {
+    if (d > 1e-9) t = Math.min(t, (hi - o) / d);
+    else if (d < -1e-9) t = Math.min(t, (lo - o) / d);
+  };
+  axis(p.x, dx, b.x0, b.x1);
+  axis(p.y, dy, b.y0, b.y1);
+  axis(p.z, dz, b.z0, b.z1);
+  return Math.max(0, t);
 }

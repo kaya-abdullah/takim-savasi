@@ -4,28 +4,25 @@ import { TUNNEL_Y } from '../world/structures';
 
 /**
  * The metro carriage: white body with a blue stripe, a window band, sliding
- * doors, seats, poles and a lit ceiling. Walls and roof fade out while the
- * local player rides (the camera sits behind them otherwise).
+ * doors, seats, poles and a lit ceiling. It stays solid while the local
+ * player rides: the camera is held inside the carriage instead (player.ts).
  */
 export class TrainView {
   readonly root = new THREE.Group();
   private doors: { mesh: THREE.Mesh; base: number; dir: number }[] = [];
-  private shell: THREE.MeshStandardMaterial[] = [];
   private geos: THREE.BufferGeometry[] = [];
   private mats: THREE.Material[] = [];
   private open = 1;
-  private fade = 1;
 
   constructor() {
     const L = TRAIN_LEN, W = TRAIN_HALF_W, H = TRAIN_H;
-    const mat = (color: number, opts: THREE.MeshStandardMaterialParameters = {}, shell = false) => {
+    const mat = (color: number, opts: THREE.MeshStandardMaterialParameters = {}) => {
       const m = new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.2, ...opts });
       this.mats.push(m);
-      if (shell) { m.transparent = true; this.shell.push(m); }
       return m;
     };
-    const white = mat(0xe9edf2, {}, true), blue = mat(0x2f6fbf, {}, true), glass = mat(0x1d2a36, { roughness: 0.1, metalness: 0.6, opacity: 0.55 }, true);
-    const roof = mat(0xb9bec6, {}, true), door = mat(0xc9ced6, { metalness: 0.4 }, true);
+    const white = mat(0xe9edf2), blue = mat(0x2f6fbf), glass = mat(0x1d2a36, { roughness: 0.1, metalness: 0.6, opacity: 0.55, transparent: true, depthWrite: false });
+    const roof = mat(0xb9bec6), door = mat(0xc9ced6, { metalness: 0.4 });
     const floor = mat(0x3a3d42, { roughness: 0.9 }), seat = mat(0x2f6fbf, { roughness: 0.7 }), pole = mat(0xd8dce2, { metalness: 0.8, roughness: 0.25 });
     const light = mat(0xffffff, { emissive: 0xfff4dd, emissiveIntensity: 1.6 });
     const head = mat(0xfff1c0, { emissive: 0xfff1c0, emissiveIntensity: 2.5 });
@@ -85,20 +82,11 @@ export class TrainView {
     this.root.position.y = TUNNEL_Y;
   }
 
-  /** Follows the train; `riding` fades the shell so the camera can see inside. */
-  sync(t: Train, dt: number, riding: boolean): void {
+  /** Follows the train and slides its doors. */
+  sync(t: Train, dt: number): void {
     this.root.position.x = t.x;
     this.open += ((t.doorsOpen ? 1 : 0) - this.open) * Math.min(1, dt * 5);
     for (const d of this.doors) d.mesh.position.x = d.base + d.dir * this.open * (Train.DOOR_HALF - 0.05);
-    const want = riding ? 0.22 : 1;
-    if (Math.abs(this.fade - want) > 0.005) {
-      this.fade += (want - this.fade) * Math.min(1, dt * 6);
-      for (const m of this.shell) {
-        const base = m.userData.base ?? (m.userData.base = m.opacity);
-        m.opacity = base * this.fade;
-        m.depthWrite = this.fade > 0.95;
-      }
-    }
   }
 
   dispose(): void {

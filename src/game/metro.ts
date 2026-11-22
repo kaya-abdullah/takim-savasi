@@ -46,6 +46,16 @@ export class Train {
       && Math.abs(c.pos.x - x) < TRAIN_LEN / 2 - 0.2 && Math.abs(c.pos.z) < TRAIN_HALF_W - 0.1;
   }
 
+  /**
+   * Rides along now: inside, or fixed as a rider while it runs and still in
+   * the carriage's space (someone who respawned or was moved away is not).
+   */
+  carrying(c: Combatant, x = this.x): boolean {
+    if (this.aboard(c, x)) return true;
+    return this.state === 'moving' && this.riders.has(c) && c.alive && !c.vehicle
+      && Math.abs(c.pos.y - TUNNEL_Y) < 1.5 && Math.abs(c.pos.x - x) < TRAIN_LEN / 2 + 1 && Math.abs(c.pos.z) < TRAIN_HALF_W + 1;
+  }
+
   /** One step of the timetable; returns how far the train moved along x. */
   step(dt: number, someoneAboard: boolean): number {
     if (this.state === 'stopped') {

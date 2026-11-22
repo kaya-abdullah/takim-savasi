@@ -190,8 +190,14 @@ export function createMap(): MapData {
   const keepB = (b: { x0: number; x1: number; z0: number; z1: number }) => !hits(b.x0, b.x1, b.z0, b.z1);
   const keepP = (p: Prop) => { const b = propBox(p); return !hits(b.minX, b.maxX, b.minZ, b.maxZ); };
   dist.towers = dist.towers.filter(keepB);
+  const structures = buildStructures(HALF_BUILDINGS.filter((b) => b.enter), dist.towers);
+  // a tree crown (about 5 m wide, up to 7.5 m high) would grow through a roof bridge
+  const underBridge = (p: Prop) => p.kind === 'tree' && structures.bridges.some((r) => p.x > r.x0 - 3.2 && p.x < r.x1 + 3.2 && p.z > r.z0 - 3.2 && p.z < r.z1 + 3.2);
   const buildings = [...HALF_BUILDINGS, ...HALF_BUILDINGS.map(mirrorB), ...dist.buildings].filter(keepB);
-  const props = [...HALF_PROPS, ...HALF_PROPS.map(mirrorP), ...CENTER_PROPS, ...dist.props].filter(keepP);
+  // ...or into a building's wall (the crown starts about 2.5 m up)
+  const crownR = 2.3;
+  const intoWall = (p: Prop) => p.kind === 'tree' && buildings.some((b) => b.h > 2.5 && p.x > b.x0 - crownR && p.x < b.x1 + crownR && p.z > b.z0 - crownR && p.z < b.z1 + crownR);
+  const props = [...HALF_PROPS, ...HALF_PROPS.map(mirrorP), ...CENTER_PROPS, ...dist.props].filter((p) => keepP(p) && !underBridge(p) && !intoWall(p));
   const halfPois: V2[] = [
     { x: -31, z: 30 }, { x: 0, z: 30 }, { x: -51.5, z: 0 }, { x: -18, z: 11 },
     { x: -42, z: 25 }, { x: 31, z: 30 }, { x: 0, z: 42 }, { x: 52, z: 26 }, { x: -12, z: 0 },
@@ -207,7 +213,7 @@ export function createMap(): MapData {
     plaza: { x0: -12, x1: 12, z0: -12, z1: 12 },
     zones: dist.zones,
     districts: [{ name: 'MERKEZ', x0: -CORE.x, x1: CORE.x, z0: -CORE.z, z1: CORE.z }, ...dist.districts],
-    structures: buildStructures(HALF_BUILDINGS.filter((b) => b.enter), dist.towers),
+    structures,
   };
 }
 

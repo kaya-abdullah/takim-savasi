@@ -1342,7 +1342,7 @@ class Game {
     // metro
     if (this.trainView) {
       const riding = m.player.alive && m.train.aboard(m.player);
-      this.trainView.sync(m.train, dt, riding);
+      this.trainView.sync(m.train, dt);
       if (riding && m.train.doorsOpen && m.train.boardT > 0.2 && !this.trainWarned) {
         this.trainWarned = true;
         this.ui.popup('KAPILAR KAPANIYOR…', 'kill');

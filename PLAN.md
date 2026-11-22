@@ -467,3 +467,18 @@ ekranda bütün silahlar görünür); el bombası ve bıçak tuşu yerinde kals�
 - Hata: yavaş cihazda (20 FPS, kare başına 0,05 sn) yolcu vagon duvarına yürüyünce tek adımda "içeride"
   sınırını aşıp dışarı itiliyordu, yani yürüyen trenden kaçabiliyordu. Kapılar kapanınca yolcu listesi
   sabitleniyor; durağa kadar yolcu sayılıyor. Test: 20 FPS'te her karede duvara koşan yolcu trende kalıyor.
+
+## 29. Sürüm 6.2 (2026-11-22)
+İstek: metroya binince sadece içi görünsün; metronun üstündeki ve köprüdeki bozukluk; bazı şeyler iç içe giriyor.
+
+- Trene binince vagon artık saydamlaşmıyor (tünel duvarların arkasından görünüyordu). Kamera vagonun içinde
+  tutulur: omuz noktası ve kamera vagonun iç kutusuna sıkıştırılır. Aşağı bakınca kamera tavanı delip trenin
+  üstüne çıkıyordu, bu da kalktı. Pencereler camlı kalır.
+- Durak tabelası tavana yaslandı (tren tavanının 10 cm üstünde asılıydı).
+- Trenden ışınlanan/yeniden doğan oyuncu yolcu listesinde kalıp trenle birlikte sürükleniyordu: yolcu sayılmak
+  için vagonun yanında olmak gerekir (`Train.carrying`).
+- Köprü: çatı korkuluğundaki geçidin üstünden taş başlık ve beyaz kapı kasası geçiyordu; artık temiz bir kesik.
+- İç içe: köprülerin altındaki 4 ağacın tepesi köprüden, 6 ağacın tepesi bina duvarından geçiyordu; bu ağaçlar
+  yerleştirilmez.
+- Testler: kamera her bakışta vagonun içinde ve tavanın altında; trenden uzaklaşan sürüklenmez; geçitte başlık
+  yok; hiçbir ağaç köprüye/duvara girmiyor.
