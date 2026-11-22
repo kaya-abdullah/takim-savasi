@@ -202,7 +202,10 @@ export function createMap(): MapData {
     { x: -31, z: 30 }, { x: 0, z: 30 }, { x: -51.5, z: 0 }, { x: -18, z: 11 },
     { x: -42, z: 25 }, { x: 31, z: 30 }, { x: 0, z: 42 }, { x: 52, z: 26 }, { x: -12, z: 0 },
   ];
-  const pois = [{ x: 6, z: 3 }, ...halfPois, ...halfPois.map((p) => ({ x: -p.x, z: -p.z })), ...dist.pois];
+  // pickups and air drops land on these: never inside (or half inside) a building
+  const solidRects = [...buildings, ...structures.houses];
+  const clearOf = (p: V2) => !solidRects.some((b) => p.x > b.x0 - 1.5 && p.x < b.x1 + 1.5 && p.z > b.z0 - 1.5 && p.z < b.z1 + 1.5);
+  const pois = [{ x: 6, z: 3 }, ...halfPois, ...halfPois.map((p) => ({ x: -p.x, z: -p.z })), ...dist.pois].filter(clearOf);
   return {
     minX: -140, maxX: 140, minZ: -100, maxZ: 100,
     buildings,

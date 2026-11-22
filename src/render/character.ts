@@ -406,6 +406,8 @@ export interface AnimInput {
   sprint: boolean;
   /** 0 standing .. 1 fully crouched. */
   crouch?: number;
+  /** 0 free .. 1 a wall right in front: the gun is pulled in so it never pokes through. */
+  wall?: number;
 }
 
 export class CharacterView {
@@ -438,6 +440,7 @@ export class CharacterView {
   private shield = 0;
   private slashT = 0;
   private sprintK = 0;
+  private wallK = 0;
   private throwT = 0;
   private knife = makeKnife();
   private roll = makeBandageRoll();
@@ -801,7 +804,10 @@ export class CharacterView {
       this.placeBag(this.bagK);
     }
     const bk = THREE.MathUtils.smoothstep(this.bagK, 0, 0.5);
-    const blade = STANCE_YAW * (1 - this.sprintK) * (1 - bk);
+    // near a wall the gun goes muzzle up, close to the chest (it never pokes through, whichever way the wall runs)
+    this.wallK += ((a.wall ?? 0) - this.wallK) * Math.min(1, dt * 12);
+    const wk = this.wallK * (1 - this.sprintK);
+    const blade = STANCE_YAW * (1 - this.sprintK) * (1 - bk) * (1 - wk);
     B[BoneId.Chest].rotation.set(-pitch * 0.8, -blade, 0);
     B[BoneId.Head].rotation.set(-pitch * 0.3, blade * 0.9, 0);
     // arms hold the gun in front
@@ -847,12 +853,13 @@ export class CharacterView {
     this.sprintK += ((a.sprint && a.speed > 2 ? 1 : 0) - this.sprintK) * Math.min(1, dt * 8);
     const sk = this.sprintK;
     if (sk > 0.01) {
-      B[BoneId.Spine].rotation.x += -0.28 * sk;
+      const run = sk;
+      B[BoneId.Spine].rotation.x += -0.28 * run;
       B[BoneId.Chest].rotation.x = B[BoneId.Chest].rotation.x * (1 - sk) + 0.25 * sk;
-      B[BoneId.LThigh].rotation.x *= 1 + 0.2 * sk;
-      B[BoneId.RThigh].rotation.x *= 1 + 0.2 * sk;
-      B[BoneId.RUpper].rotation.x += 0.55 * sk + s * 0.25 * sk;
-      B[BoneId.LUpper].rotation.x += 0.4 * sk - s * 0.25 * sk;
+      B[BoneId.LThigh].rotation.x *= 1 + 0.2 * run;
+      B[BoneId.RThigh].rotation.x *= 1 + 0.2 * run;
+      B[BoneId.RUpper].rotation.x += 0.55 * sk + s * 0.25 * run;
+      B[BoneId.LUpper].rotation.x += 0.4 * sk - s * 0.25 * run;
     }
     if (bk > 0.01) {
       // both forearms forward and in, holding the bag (IK refines this on the soldier)
@@ -862,9 +869,10 @@ export class CharacterView {
       B[BoneId.LFore].rotation.set(-1.0, 0, 0);
     }
     if (this.gun) this.gun.visible = this.deadT < 0 && this.bagK < 0.12;
-    this.gunMount.position.z = 0.14 - a.kick * 0.06;
-    this.gunMount.rotation.set(-a.kick * 0.12 + (a.reloading ? 0.5 : 0) + 0.75 * sk, blade + 0.55 * sk, -0.3 * sk);
+    this.gunMount.position.z = 0.14 - a.kick * 0.06 - 0.1 * wk;
+    this.gunMount.position.x = -0.2 + 0.08 * wk;
+    this.gunMount.rotation.set(-a.kick * 0.12 + (a.reloading ? 0.5 : 0) + 0.75 * sk - 1.25 * wk, blade + 0.55 * sk, -0.3 * sk);
     // a little weapon bob while moving
-    this.gunMount.position.y = 0.15 + Math.sin(this.phase * 2) * 0.012 * moving;
+    this.gunMount.position.y = 0.15 + Math.sin(this.phase * 2) * 0.012 * moving + 0.05 * wk;
   }
 }

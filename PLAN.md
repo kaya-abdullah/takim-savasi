@@ -482,3 +482,13 @@ ekranda bütün silahlar görünür); el bombası ve bıçak tuşu yerinde kals�
   yerleştirilmez.
 - Testler: kamera her bakışta vagonun içinde ve tavanın altında; trenden uzaklaşan sürüklenmez; geçitte başlık
   yok; hiçbir ağaç köprüye/duvara girmiyor.
+
+## 30. Sürüm 6.3 (2026-11-22)
+İstek: bazı şeyler evin duvarından geçiyor; metro kapısının önündeki bankları kaldır.
+
+- Duvara yaklaşan askerin silahı ve elleri duvarın içinden görünüyordu. Göğüs hizasında öne (ve silah tarafına)
+  1,15 m ışın atılır; duvar yakınsa asker silahı namlu yukarı göğsüne çeker (kollar IK ile silahı izler).
+  Kameradan 40 m ötedeki askerlerde ölçülmez.
+- 4 eşya noktası (can/hasar/hız, hava ikmali) bina içine denk geliyordu; binalara 1,5 m'den yakın noktalar atılır.
+- Duraklarda tren kapılarının önündeki 16 bank kaldırıldı (orta salondaki iki bank duruyor).
+- Testler: hiçbir eşya noktası binada değil; kapı önleri boş.

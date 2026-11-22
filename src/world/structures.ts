@@ -645,9 +645,8 @@ function buildTunnel(o: Out, res: Res, pits: Rect[]): void {
   o.add(box(-9.9, -9.2, TY, TY + 1.9, 4.6, 5.7), 'hidden', 0);
   o.add(box(-9.9, -9.2, TY, TY + 1.9, 4.6, 5.7), 'paint', 0xb3261e, false);
   o.add(box(-9.2, -9.18, TY + 0.9, TY + 1.7, 4.75, 5.55), 'screen', 0xffffff, false);
-  // ---- stations: benches against the walls, a hanging sign and posters
+  // ---- stations: a hanging sign and posters (no benches: the train's doors open onto the platform there)
   STATIONS.forEach((sx, i) => {
-    for (const d of [-4, 4]) { bench(o, sx + d, 2.2, 'x'); bench(o, sx + d, -2.2, 'x'); }
     o.add(box(sx - 1.2, sx + 1.2, -CEIL - 0.6, -CEIL - 0.01, -0.18, 0.18), 'sign', 0xffffff, false); // flush with the ceiling, well above the train roof
     for (const [px, side] of [[sx - 8, 1], [sx + 8, -1]] as [number, number][]) {
       const zw = side * H;

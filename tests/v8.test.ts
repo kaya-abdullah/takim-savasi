@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { Match } from '../src/game/match';
-import { TRAIN_H, TRAIN_HALF_W, TRAIN_LEN } from '../src/game/metro';
+import { TRAIN_H, TRAIN_HALF_W, TRAIN_LEN, Train } from '../src/game/metro';
 import { PlayerController, exitT } from '../src/game/player';
 import { buildPhysics, createMap } from '../src/world/map';
-import { TUNNEL_Y } from '../src/world/structures';
+import { STATIONS, TUNNEL_Y } from '../src/world/structures';
 
 const map = createMap();
 const { world, nav } = buildPhysics(map);
@@ -76,5 +76,24 @@ describe('roof bridges sit cleanly', () => {
       for (const b of map.buildings) if (b.h > 2.5) expect(t.x > b.x0 - r && t.x < b.x1 + r && t.z > b.z0 - r && t.z < b.z1 + r, `tree ${t.x},${t.z}`).toBe(false);
     }
     expect(map.structures.bridges).toHaveLength(4);
+  });
+});
+
+describe('nothing stands in a wall or in the way', () => {
+  it('pickups and air drops never land inside or against a building', () => {
+    const rects = [...map.buildings, ...map.structures.houses];
+    expect(map.pois.length).toBeGreaterThan(30);
+    for (const p of map.pois) for (const b of rects) {
+      expect(p.x > b.x0 - 1.5 && p.x < b.x1 + 1.5 && p.z > b.z0 - 1.5 && p.z < b.z1 + 1.5, `poi ${p.x},${p.z}`).toBe(false);
+    }
+  });
+
+  it('the platform in front of the train doors is clear (no benches)', () => {
+    for (const sx of STATIONS) for (const d of Train.DOORS) {
+      // the lane beside each door, on both sides of the track
+      const blockers = map.structures.pieces.filter((pc) => pc.solid && pc.box.minY < TUNNEL_Y + 1 && pc.box.maxY > TUNNEL_Y + 0.05
+        && pc.box.maxX > sx + d - 1.5 && pc.box.minX < sx + d + 1.5 && Math.abs(pc.box.minZ + pc.box.maxZ) / 2 > TRAIN_HALF_W && Math.abs(pc.box.minZ + pc.box.maxZ) / 2 < 2.4);
+      expect(blockers, `station ${sx} door ${d}`).toEqual([]);
+    }
   });
 });

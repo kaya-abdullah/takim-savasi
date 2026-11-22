@@ -1332,6 +1332,7 @@ class Game {
         reloading: c.weapon.reloading,
         sprint: c.sprinting,
         crouch: c.crouchK,
+        wall: c.alive && !c.vehicle ? this.wallAhead(m, c) : 0,
       });
       // hide own body when the scope is up or the camera is squeezed against a wall
       if (c.isPlayer && c.alive) {
@@ -1533,6 +1534,25 @@ class Game {
     if (!p.alive) this.ui.death(true, p.lastAttacker?.name ?? '', p.respawnT);
     else this.ui.death(false);
     this.minimap.draw(m, dt);
+  }
+
+  /**
+   * 0..1: how close a wall is in front of a fighter's chest (1 = touching).
+   * The gun reaches about 1.1 m ahead of the body centre; within that the
+   * soldier pulls it in so it does not show through the wall. Far soldiers skip it.
+   */
+  private wallAhead(m: Match, c: Combatant): number {
+    if (!c.isPlayer && this.camera.position.distanceTo(c.pos) > 40) return 0;
+    const reach = 1.15;
+    const y = c.pos.y + 1.35 - 0.4 * c.crouchK;
+    let near = reach;
+    // straight ahead and a little to the right (where the gun sits)
+    for (const turn of [0, -0.35]) {
+      const a = c.yaw + turn;
+      const h = m.world.raycast(c.pos.x, y, c.pos.z, Math.sin(a) * reach, 0, Math.cos(a) * reach, 1);
+      if (h) near = Math.min(near, h.t * reach);
+    }
+    return Math.min(1, Math.max(0, (reach - near) / 0.45));
   }
 
   /** Short label of where the player is: METRO, ÇATI, 1. KAT, BİNA. */
