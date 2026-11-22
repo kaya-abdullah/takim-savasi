@@ -110,3 +110,14 @@ describe('metro signs', () => {
     }
   });
 });
+
+describe('metro rails', () => {
+  it('nothing pokes up through the carriage floor along the whole line', () => {
+    const floorTop = TUNNEL_Y + 0.06; // TrainView floor slab
+    for (const p of map.structures.pieces) {
+      const b = p.box;
+      if (b.maxX > -130 && b.minX < 130 && b.maxZ > -TRAIN_HALF_W && b.minZ < TRAIN_HALF_W && b.minY < TUNNEL_Y + TRAIN_H && b.maxY > TUNNEL_Y - 0.01)
+        expect(b.maxY, `${p.mat} ${JSON.stringify(b)}`).toBeLessThan(floorTop);
+    }
+  });
+});

@@ -496,3 +496,7 @@ ekranda bütün silahlar görünür); el bombası ve bıçak tuşu yerinde kals�
 ## 31. Sürüm 6.4 (2026-11-22)
 - Hata: doğudaki (x = 38, kuzey) metro girişinin tabelası yanındaki evin duvarına girmişti. Tabela merdivenin
   bina olmayan yanına konur. Test: hiçbir metro tabelası bir binanın içinde ya da 30 cm yakınında değil.
+
+## 32. Sürüm 6.5 (2026-11-22)
+- Hata: metro rayları (0,12 m) vagon tabanından (0,06 m) yüksekti; vagonun içinde raylar tabanı delip çıkıyordu.
+  Raylar zemine gömüldü (üstü 0,045 m), tabanın altında kalır. Test: hat boyunca vagon tabanından yukarı çıkan parça yok.

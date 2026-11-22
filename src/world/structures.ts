@@ -537,6 +537,8 @@ function furnishStore(u: Room3, W: number, D: number, stairEnd: number): void {
 const TY = TUNNEL_Y;
 const TB = TY - 0.5; // bottom of tunnel walls/floor
 const CEIL = 0.3;
+/** Height of the rail heads above the tunnel floor: kept under the carriage floor (0.06). */
+export const RAIL_TOP = 0.045;
 const BLUE = 0x2f6fbf;
 
 /** A tunnel wall: tiled, with a blue band and dark skirting proud of the tiles on the inner side. */
@@ -606,9 +608,10 @@ function buildTunnel(o: Out, res: Res, pits: Rect[]): void {
   }
   // the two ends are closed
   for (const x of [-E - tw, E]) tunnelWall(o, 'z', x, x + tw, x > 0, -H - tw, H + tw);
-  // rails (visual) the whole length, through the hall too
+  // rails (visual) the whole length, through the hall too; set into the floor
+  // so their heads stay below the carriage floor (top at TY + 0.06)
   for (const z of [-0.72, 0.72]) {
-    o.add(box(-E, E, TY, TY + 0.12, z - 0.04, z + 0.04), 'metal', 0x8d9399, false);
+    o.add(box(-E, E, TY, TY + RAIL_TOP, z - 0.04, z + 0.04), 'metal', 0x8d9399, false);
     o.add(box(-E, E, TY, TY + 0.03, z - 0.1, z + 0.1), 'metal', 0x4a4d52, false);
   }
   // ceiling light fixtures every 5 m
